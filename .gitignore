@@ -1,3 +1,6 @@
+# Cache probe (respons mentah, bisa besar) — bukan deliverable.
+probes/out/cache/
+
 # API key & rahasia — JANGAN PERNAH di-commit (Blueprint §4, aturan kerja 3)
 .env
 *.env
