@@ -1,7 +1,7 @@
 # playstyle.yaml — SATU-SATUNYA sumber ambang & default strategi.
 # Blueprint: muse-parlay-analyst §6, §7 (plus angka terkait §3, §4, §5, §9).
-# Pelengkap: DECISIONS.md (keputusan user 2026-11-20; kalau berbeda dengan
-# blueprint, DECISIONS.md yang berlaku).
+# Pelengkap: DECISIONS.md (keputusan user 2026-11-20 & 2026-11-21; kalau
+# berbeda dengan blueprint, DECISIONS.md yang berlaku).
 # Aturan: angka strategi TIDAK BOLEH ditulis di tempat lain (kode, SOP, laporan).
 # Kalau tidak ada angka yang diputuskan, nilainya null + komentar TBD — JANGAN ditebak.
 # Semua peluang dalam desimal 0–1, kecuali disebut "poin" (1 poin = 1% = 0,01).
@@ -9,10 +9,10 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 2
+  version: 3
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20"
-  last_reviewed: "2026-11-20"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21"
+  last_reviewed: "2026-11-21"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
 tickets:
@@ -43,6 +43,12 @@ optimizer:
   top_option_labels: ["Paling aman", "Seimbang", "Agresif"]
   # Buang pasangan yang Asuransinya tidak bisa menutup modal (syarat §6a).
   drop_if_insurance_cannot_cover: true
+  # MAHAL (keputusan user 2026-11-21): kaki MAHAL tidak masuk Tiket
+  # Asuransi kecuali user memintanya eksplisit; boleh masuk Tiket
+  # Utama, wajib berlabel MAHAL di racikan.
+  exclude_mahal_from_insurance: true
+  allow_mahal_in_main: true
+  mahal_label_required_in_main: true
 
 # ── §6d. Harga kombo ────────────────────────────────────────────────────────
 combo:
@@ -56,6 +62,8 @@ blend:
   # p_akhir = w * p_model + (1 - w) * p_pasar. w baru naik kalau ledger
   # membuktikan model lebih akurat (kalibrasi §9, atas persetujuan user).
   # Edge per kaki = p_akhir - harga jup.ag (desimal).
+  # Laporan menampilkan p_model | p_pasar (+ sumber pembanding) |
+  # p_akhir terpisah (keputusan user 2026-11-21).
 
 # ── Aturan pembanding independen (DECISIONS.md, 2026-11-20) ────────────────
 comparison:
@@ -69,6 +77,15 @@ comparison:
   # sportsbook (Odds API, devig) -> ESPN odds (devig) -> Kalshi.
   # ESPN odds menunggu konfirmasi probe tambahan 1.
   order: ["odds_api_devig", "espn_odds_devig", "kalshi"]
+
+# ── Label harga (keputusan user 2026-11-21, berlaku Tahap 3) ──────────────
+price_labels:
+  # Dari EV terhadap harga ¢ jup.ag. DISKON: EV >= +2%. MAHAL: EV < -2%.
+  # Di antaranya (-2% <= EV < +2%): WAJAR.
+  diskon_min_ev_pct: 2.0
+  mahal_max_ev_pct: -2.0
+  # MAHAL bukan lagi filter keras (mengganti filter EV < -2% di §7a):
+  # kaki MAHAL tetap tampil di laporan; lihat optimizer untuk aturan tiket.
 
 # ── D2. MODEL_ONLY (p_market tidak ada di mana pun) ─────────────────────────
 model_only:
@@ -90,13 +107,16 @@ no_xg:
 anomaly:
   jup_vs_market_points: 4.0     # §5d: |jup.ag - pasar lain| > 4 poin
   model_vs_market_points: 8.0   # §5d: |model - pasar| > 8 poin
+  # > 8 poin juga memicu bagian wajib "Kenapa beda?" di laporan
+  # (keputusan user 2026-11-21; lihat DECISIONS.md).
   sharp_move_cents: 3           # D9: harga berubah >= 3¢ sejak pengambilan pertama
 
 # ── §7a. Filter keras (kaki langsung dicoret, alasan dicatat) ───────────────
 filters:
   all_markets:
     exclude_data_incomplete: true   # §7a: status DATA_INCOMPLETE
-    min_ev_pct: -2.0                # §7a: EV < -2% setelah potongan spread
+    # EV < -2% BUKAN lagi filter keras (keputusan user 2026-11-21):
+    # kaki MAHAL tetap tampil dengan label; lihat price_labels.
   moneyline:
     min_p_final: 0.65               # §7a: p_akhir < 65% dicoret
     # Kecuali mode Agresif, dan kaki wajib diberi label (agresif).
@@ -173,3 +193,6 @@ data:
 # ── §9. Ledger & kalibrasi ──────────────────────────────────────────────────
 calibration:
   report_every_legs: 50         # §9: laporan kalibrasi setiap 50 kaki
+  # Laporan kalibrasi membandingkan akurasi (Brier) model vs pasar
+  # (keputusan user 2026-11-21); kenaikan w hanya atas persetujuan user.
+  compare_brier_model_vs_market: true

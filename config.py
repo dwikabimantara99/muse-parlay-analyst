@@ -27,6 +27,7 @@ REQUIRED_PLAYSTYLE_SECTIONS = (
     "combo",
     "blend",
     "comparison",
+    "price_labels",
     "model_only",
     "no_xg",
     "anomaly",

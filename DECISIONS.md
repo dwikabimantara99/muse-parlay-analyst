@@ -309,3 +309,45 @@ Sumber: pesan user, 20 Nov 2026 23:08 WIB.
   antar request; (b) CSV disimpan lokal di `data/` (gitignored), TIDAK
   di-commit ke GitHub; (c) kalibrasi pakai musim ≤ 2024/25 (odds
   Pinnacle basi sejak 23/07/2025).
+
+## 2026-11-21 — Peran harga pasar (berlaku mulai Tahap 3)
+
+Sumber: pesan user, 21 Nov 2026 05:14 WIB.
+
+Prinsip: harga pasar adalah PENGUAT dan ALAT CEK HARGA, bukan hakim.
+Selisih dengan pasar = alasan untuk MENYELIDIKI, bukan otomatis menolak.
+
+- **Tampilan per kaki.** Laporan menampilkan terpisah: p_model |
+  p_pasar (+ sumber pembanding) | p_akhir (gabungan). Bobot awal
+  w = 0,3 tetap (playstyle.yaml `blend.w_model`); angka model & pasar
+  wajib terlihat, bukan hanya hasil gabungan.
+- **Label harga** (dari EV terhadap harga ¢ jup.ag; ambang di
+  playstyle.yaml `price_labels`): DISKON bila EV ≥ +2%; WAJAR bila
+  −2% ≤ EV < +2%; MAHAL bila EV < −2%.
+- **MAHAL tidak lagi dicoret otomatis** — MENGGANTI filter EV < −2%
+  di blueprint §7a (kunci `filters.all_markets.min_ev_pct` DIHAPUS
+  dari playstyle.yaml). Kaki MAHAL tetap tampil di laporan dengan
+  label + angkanya. Optimizer TIDAK memasukkannya ke Tiket Asuransi,
+  kecuali user memintanya secara eksplisit; boleh masuk Tiket Utama,
+  wajib berlabel MAHAL di racikan. Filter keras lain
+  (DATA_INCOMPLETE, aturan Alt Under, BTTS xG, dll.) tetap berlaku.
+- **"Kenapa beda?" (wajib bila |p_model − p_pasar| > 8 poin).**
+  Ambang sudah ada di playstyle.yaml
+  (`anomaly.model_vs_market_points: 8.0`). Muse memeriksa dari data
+  (bukan menebak): update cedera/lineup terbaru vs jam data model;
+  pergerakan harga (kapan & seberapa besar); kualitas data model
+  (TANPA_XG, MODEL_ONLY, sampel kecil, data basi); konteks jadwal
+  (back-to-back, rotasi, laga penting berikutnya). Kesimpulan salah
+  satu dari: (a) "Pasar kemungkinan tahu sesuatu" → sebutkan apa,
+  kaki diberi 🟡/🔴; (b) "Model kemungkinan salah/kurang data" →
+  sebutkan kelemahannya; (c) "Tidak ditemukan alasan" → potensi
+  value, tetap ditandai hati-hati. Kalau penjelasan butuh info yang
+  tidak ada di data: tulis "tidak terverifikasi", jangan mengarang.
+- **Bobot w ditentukan data.** Setiap 50 kaki, laporan kalibrasi
+  membandingkan akurasi (Brier) model vs pasar
+  (playstyle.yaml `calibration.compare_brier_model_vs_market`).
+  Kalau model konsisten lebih akurat, usulkan kenaikan w — berlaku
+  setelah user setuju.
+- **Aturan pembanding independen TETAP** (P1–P4): jangan bandingkan
+  jup.ag dengan Polymarket untuk pasar asal Polymarket — ini agar
+  label DISKON/WAJAR/MAHAL bermakna.

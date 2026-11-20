@@ -113,11 +113,28 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(self.cfg["currency"]["base"], "USD")
         self.assertEqual(self.cfg["currency"]["usdc_to_usd"], 1.0)
 
+    # Label harga (keputusan user 2026-11-21, berlaku Tahap 3)
+    def test_price_labels(self):
+        pl = self.cfg["price_labels"]
+        self.assertEqual(pl["diskon_min_ev_pct"], 2.0)
+        self.assertEqual(pl["mahal_max_ev_pct"], -2.0)
+        self.assertGreater(pl["diskon_min_ev_pct"], pl["mahal_max_ev_pct"])
+
+    def test_optimizer_mahal(self):
+        # Keputusan user 2026-11-21: kaki MAHAL tidak masuk Asuransi
+        # kecuali user meminta eksplisit; boleh masuk Utama dgn label.
+        opt = self.cfg["optimizer"]
+        self.assertTrue(opt["exclude_mahal_from_insurance"])
+        self.assertTrue(opt["allow_mahal_in_main"])
+        self.assertTrue(opt["mahal_label_required_in_main"])
+
     # §7a — filter keras
     def test_filter_semua_pasar(self):
         f = self.cfg["filters"]["all_markets"]
         self.assertTrue(f["exclude_data_incomplete"])
-        self.assertEqual(f["min_ev_pct"], -2.0)
+        # Keputusan user 2026-11-21: EV < -2% BUKAN lagi filter keras
+        # (mengganti §7a) — kaki MAHAL tetap tampil dengan label.
+        self.assertNotIn("min_ev_pct", f)
 
     def test_filter_moneyline(self):
         f = self.cfg["filters"]["moneyline"]
@@ -171,6 +188,9 @@ class TestPlaystyle(unittest.TestCase):
         # B2: cedera & lineup dicek silang min 2 sumber.
         self.assertEqual(self.cfg["data"]["cross_check_min_sources_injury_lineup"], 2)
         self.assertEqual(self.cfg["calibration"]["report_every_legs"], 50)
+        # Keputusan user 2026-11-21: kalibrasi membandingkan Brier
+        # model vs pasar; kenaikan w hanya atas persetujuan user.
+        self.assertTrue(self.cfg["calibration"]["compare_brier_model_vs_market"])
 
     def test_simulasi_tetap_tbd_sampai_fit(self):
         # D12: parameter simulasi tetap null sampai di-fit dari data historis
