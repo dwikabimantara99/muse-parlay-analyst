@@ -4,7 +4,8 @@
     python cli.py analyze --input slate.json   # Tahap 2+ (belum tersedia)
     python cli.py recheck --ticket <id>        # Tahap 5  (belum tersedia)
     python cli.py log --file ticket.json       # Tahap 1  ✓
-    python cli.py log --settle <id> --result WIN|LOSS|PUSH|VOID
+    python cli.py log --settle <id> --result WIN|LOSS|PUSH|VOID|CASHOUT
+        [--cashout-amount <usd>] [--leg-result <leg_id>=<hasil> ...]
     python cli.py recap [--json]
 
 Exit code: 0 sukses, 1 error (input tidak valid / ledger gagal),
@@ -53,16 +54,41 @@ def cmd_recheck(args: argparse.Namespace) -> int:
     return NOT_IMPLEMENTED
 
 
+def _parse_leg_results(raw: list[str] | None) -> dict[str, str]:
+    """Ubah ['leg-01=WIN', ...] menjadi {leg_id: hasil}. Format salah -> error."""
+    parsed: dict[str, str] = {}
+    for item in raw or []:
+        if "=" not in item:
+            raise ValueError(f"format --leg-result salah: {item!r} (pakai ID=HASIL)")
+        leg_id, result = item.split("=", 1)
+        parsed[leg_id.strip()] = result.strip().upper()
+    return parsed
+
+
 def cmd_log(args: argparse.Namespace) -> int:
     conn = store.connect(args.db)
     if args.settle:
         try:
-            profit = store.settle_ticket(conn, args.settle, args.result)
+            leg_results = _parse_leg_results(args.leg_result)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        try:
+            profit = store.settle_ticket(
+                conn, args.settle, args.result,
+                leg_results=leg_results,
+                cashout_amount=args.cashout_amount,
+            )
         except store.LedgerError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
-        print(f"tiket {args.settle} diselesaikan: {args.result}, "
-              f"untung/rugi ${profit:+.2f}")
+        saved = store.get_ticket(conn, args.settle)
+        extra = ""
+        if saved and saved.get("multiplier_original") is not None:
+            extra = (f" (pengali dihitung ulang {saved['multiplier_original']}"
+                     f"x -> {saved['multiplier']:.4f}x karena kaki VOID/PUSH)")
+        print(f"tiket {args.settle} diselesaikan: {saved['result']}, "
+              f"untung/rugi ${profit:+.2f}{extra}")
         return 0
 
     if not args.file:
@@ -82,9 +108,13 @@ def cmd_log(args: argparse.Namespace) -> int:
     saved = store.get_ticket(conn, ticket_id)
     profit = saved["profit_loss"] if saved else None
     profit_text = f"${profit:+.2f}" if profit is not None else "pending"
+    extra = ""
+    if saved and saved.get("multiplier_original") is not None:
+        extra = (f", pengali awal {saved['multiplier_original']}x "
+                 f"(dihitung ulang karena kaki VOID/PUSH)")
     print(f"tiket {ticket_id} dicatat ({saved['type']}, "
           f"modal ${saved['stake']:.2f}, pengali {saved['multiplier']}x, "
-          f"hasil {saved['result']}, untung/rugi {profit_text})")
+          f"hasil {saved['result']}, untung/rugi {profit_text}{extra})")
     return 0
 
 
@@ -117,8 +147,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_log.add_argument("--file", help="file ticket.json (sesuai skema)")
     p_log.add_argument("--settle", metavar="TICKET_ID",
                        help="selesaikan tiket PENDING")
-    p_log.add_argument("--result", choices=["WIN", "LOSS", "PUSH", "VOID"],
+    p_log.add_argument("--result",
+                       choices=["WIN", "LOSS", "PUSH", "VOID", "CASHOUT"],
                        help="hasil untuk --settle")
+    p_log.add_argument("--cashout-amount", type=float, default=None,
+                       help="jumlah cashout USD (wajib bila --result CASHOUT)")
+    p_log.add_argument("--leg-result", action="append", default=None,
+                       metavar="LEG_ID=HASIL",
+                       help="hasil per kaki, boleh diulang: --leg-result leg-01=WIN")
     _db_arg(p_log)
     p_log.set_defaults(func=cmd_log)
 
@@ -133,7 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "log" and args.settle and not args.result:
-        print("error: --settle butuh --result WIN|LOSS|PUSH|VOID",
+        print("error: --settle butuh --result WIN|LOSS|PUSH|VOID|CASHOUT",
               file=sys.stderr)
         return 1
     return args.func(args)

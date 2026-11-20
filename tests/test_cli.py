@@ -75,6 +75,46 @@ class TestCli(unittest.TestCase):
         self.assertEqual(res.returncode, 2)
         self.assertIn("Tahap 5", res.stderr)
 
+    def test_settle_cashout_lewat_cli(self):
+        ticket = json.loads(
+            (REPO_ROOT / "examples" / "ticket_asuransi.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        ticket["ticket_id"] = "tkt-cli-cashout"
+        ticket["result"] = "PENDING"
+        for leg in ticket["legs"]:
+            leg["result"] = None
+        pending_file = Path(self.tmp.name) / "pending-cashout.json"
+        pending_file.write_text(json.dumps(ticket), encoding="utf-8")
+        self.assertEqual(
+            run_cli("log", "--file", str(pending_file), "--db", self.db)
+            .returncode,
+            0,
+        )
+        res = run_cli("log", "--settle", "tkt-cli-cashout",
+                      "--result", "CASHOUT", "--cashout-amount", "75",
+                      "--db", self.db)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("$+15.00", res.stdout)
+
+    def test_settle_cashout_tanpa_jumlah_gagal(self):
+        ticket = json.loads(
+            (REPO_ROOT / "examples" / "ticket_asuransi.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        ticket["ticket_id"] = "tkt-cli-cashout-bad"
+        ticket["result"] = "PENDING"
+        for leg in ticket["legs"]:
+            leg["result"] = None
+        pending_file = Path(self.tmp.name) / "pending-cashout-bad.json"
+        pending_file.write_text(json.dumps(ticket), encoding="utf-8")
+        run_cli("log", "--file", str(pending_file), "--db", self.db)
+        res = run_cli("log", "--settle", "tkt-cli-cashout-bad",
+                      "--result", "CASHOUT", "--db", self.db)
+        self.assertEqual(res.returncode, 1)
+
     def test_settle_lewat_cli(self):
         ticket = json.loads(
             (REPO_ROOT / "examples" / "ticket_asuransi.json").read_text(

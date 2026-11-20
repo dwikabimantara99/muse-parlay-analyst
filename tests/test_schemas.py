@@ -50,6 +50,13 @@ class TestSchemas(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate(instance=ticket, schema=schema)
 
+    def test_tiket_cashout_valid(self):
+        schema = load_json(REPO_ROOT / "schemas" / "ticket.schema.json")
+        ticket = load_json(REPO_ROOT / "examples" / "ticket_asuransi.json")
+        ticket["result"] = "CASHOUT"
+        ticket["cashout_amount"] = 75.0
+        jsonschema.validate(instance=ticket, schema=schema)
+
     def test_tiket_pengali_satu_ditolak(self):
         schema = load_json(REPO_ROOT / "schemas" / "ticket.schema.json")
         ticket = load_json(REPO_ROOT / "examples" / "ticket_asuransi.json")
