@@ -236,10 +236,10 @@ class TestSources(unittest.TestCase):
 
     def test_batas_odds_api(self):
         # D3: cache 30 menit, maks 2 panggilan/analisis, region eu (Pinnacle),
-        # batas 450 kredit/bulan, peringatan di 80%.
+        # batas 500 kredit/bulan, peringatan di 80%.
         src = config.load_sources()
         limits = src["sources"]["comparison_prices"]["odds_api_limits"]
-        self.assertEqual(limits["monthly_credit_limit"], 450)
+        self.assertEqual(limits["monthly_credit_limit"], 500)
         self.assertEqual(limits["warn_at_pct"], 80)
         self.assertEqual(limits["cache_minutes"], 30)
         self.assertEqual(limits["max_calls_per_analysis"], 2)

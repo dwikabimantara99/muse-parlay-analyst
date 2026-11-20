@@ -142,8 +142,10 @@ Sumber: pesan user, 20 Nov 2026 22:22 WIB.
   tidak ada → MODEL_ONLY: p_akhir = p_model, ambang +5 poin lebih ketat,
   maks 1 kaki MODEL_ONLY per tiket, dilarang masuk Tiket Asuransi.
 - **D3. The Odds API:** cache 30 menit, maks 2 panggilan per analisis,
-  hanya pasar yang ada di slate, region `eu` (Pinnacle). Batas 450
-  kredit/bulan, peringatan di 80%.
+  hanya pasar yang ada di slate, region `eu` (Pinnacle). Batas 500
+  kredit/bulan, peringatan di 80%. (Dikoreksi dari 450 pada 2026-11-20:
+  kuota akun terverifikasi 500/bulan dari header API; user memutuskan
+  memakai 500.)
 - **D4. Injury Report NBA:** cari URL resmi & jadwal update-nya sendiri di
   nba.com, verifikasi, jangan diasumsikan.
 - **D7. EV per kaki** = p_akhir × (100 / harga_¢) − 1.
@@ -236,6 +238,49 @@ Sumber: pesan user, 20 Nov 2026 22:42 WIB. Tabel probe 2a diterima
   cek harian otomatis.
 - **ODDS_API_KEY:** user memerintahkan pengambilan key dari email,
   simpan hanya di `.env` (aturan sama seperti K1–K4), verifikasi 1
-  panggilan + catat kredit yang terpakai per panggilan. Status 22:42
-  WIB: Gmail belum terhubung — menunggu user menghubungkan Gmail atau
-  menyerahkan key langsung.
+  panggilan + catat kredit yang terpakai per panggilan. Gmail terhubung
+  22:47 WIB (cskepto@gmail.com) tapi tidak ada email Odds API di
+  mailbox itu — akun Odds API user dibuat bukan dengan gmail ini.
+  Atas izin user (22:50 WIB), agen mendaftar sendiri paket Starter
+  FREE pakai cskepto@gmail.com, nama depan "jokowi" (pilihan user),
+  captcha diselesaikan agen; tidak ada password/pembayaran. Email key
+  tiba 22:53 WIB dari team@the-odds-api.com; key disimpan HANYA di
+  `.env` (mode 600, gitignored) — nilainya tidak pernah ditampilkan.
+  Verifikasi 1 panggilan 22:54 WIB: HTTP 200, NBA h2h region eu,
+  9 event, Pinnacle tersedia. Kredit: **1 kredit/panggilan** untuk
+  endpoint ini; sisa **499/500** (total kuota akun ini 500/bulan —
+  D3/sources.yaml sudah dikoreksi dari 450 ke 500 atas keputusan user
+  22:55 WIB).
+
+## 2026-11-20 — Hasil probe tambahan (2a lanjutan)
+
+Sumber: probe tambahan 1–5, 20 Nov 2026 22:57 WIB (40 request baru).
+
+- **ESPN odds: PAKAI untuk bola saja.** Garis sportsbook ada di
+  scoreboard EPL (7/7, DraftKings lengkap ML+spread+total; summary
+  tambah Bet 365 ML desimal) tapi TIDAK ADA untuk NBA (scoreboard 0/4
+  + 0/6, summary `odds: []`). Implikasi: untuk NBA, urutan pembanding
+  adalah Odds API → Kalshi (ESPN odds dilewati).
+- **Kalshi sports: PAKAI.** Moneyline tercocokkan 100% di liga yang
+  dicakup (NBA 20/20, EPL 15/15, LaLiga 9/9); EPL spread 40/100 garis,
+  total 60/90 garis. Catatan fetcher: field harga bernama `*_dollars`
+  (bukan `yes_bid`/`yes_ask`); pakai bid/ask, bukan `last_price` (bisa
+  0.0000). Pencocokan butuh normalisasi nama (Kalshi: kota/nama
+  singkat; jup.ag: julukan/nama resmi).
+- **jup_markup: median 0,5¢** (11/11 pasar tercocokkan, mean 0,68¢,
+  max 1,5¢ Chelsea −1.5 spread) — praktis setengah spread Polymarket;
+  jup.ag hampir tidak menambah biaya. Catatan: harga jup.ag dari cache
+  ±1 jam lebih tua dari midpoint; fetcher 2b/3 harus mengambil keduanya
+  sedekat mungkin.
+- **football-data.co.uk: PAKAI dengan catatan.** CSV EPL 2025/26 +
+  2024/25 terverifikasi (380 baris, kolom Pinnacle lengkap).
+  (a) Situs memperingatkan odds Pinnacle "systematically out of date"
+  sejak 23/07/2025 — kalibrasi Tahap 3 pakai musim selesai sebelum
+  tanggal itu (mis. 2024/25) atau validasi dulu. (b) Ketentuan pakai
+  membatasi data untuk "private individuals only, NOT commercial or
+  data training products using automated bots/scrapers/AI" — pemakaian
+  untuk proyek pribadi ini MENUNGGU KEPUTUSAN USER.
+- **Understat: masih maintenance** (cek ulang 22:49 WIB). Cek harian
+  otomatis aktif (`probes/check_understat.py` + cron harian); bila
+  kembali, Understat aktif lagi di rantai xG bila `status == "up"` dan
+  `checked_at` < 24 jam. Sampai saat itu B4 (TANPA_XG) berlaku.

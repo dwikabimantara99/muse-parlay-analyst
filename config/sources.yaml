@@ -49,7 +49,7 @@ sources:
         notes: "UTAMA untuk p_market: devig sportsbook (region eu, Pinnacle). Paket gratis, batas D3."
       - name: "ESPN odds"
         tier: 2
-        notes: "Pembanding gratis kedua (devig). Menunggu konfirmasi probe tambahan 1: apakah scoreboard/summary ESPN memuat garis sportsbook."
+        notes: "Pembanding gratis kedua (devig) — HANYA BOLA: scoreboard EPL terverifikasi 7/7 (DraftKings ML+spread+total; summary tambah Bet 365 ML desimal). NBA TIDAK ADA odds di ESPN — untuk NBA, setelah Odds API langsung ke Kalshi."
       - name: "Kalshi API"
         tier: 2
         notes: "Publik. Pembanding independen sah untuk pasar jup.ag asal Polymarket (P2/P3)."
@@ -60,7 +60,7 @@ sources:
     # D3: batas operasional The Odds API (bukan ambang strategi — dicatat di
     # sini, lihat DECISIONS.md D-T2).
     odds_api_limits:
-      monthly_credit_limit: 450
+      monthly_credit_limit: 500
       warn_at_pct: 80
       cache_minutes: 30
       max_calls_per_analysis: 2
