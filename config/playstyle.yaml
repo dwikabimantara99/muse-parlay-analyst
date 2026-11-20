@@ -57,6 +57,15 @@ blend:
   # membuktikan model lebih akurat (kalibrasi §9, atas persetujuan user).
   # Edge per kaki = p_akhir - harga jup.ag (desimal).
 
+# ── Aturan pembanding independen (DECISIONS.md, 2026-11-20) ────────────────
+comparison:
+  # P1: catat provider asal setiap pasar jup.ag (Polymarket/Kalshi/lainnya).
+  record_origin_provider: true
+  # P2: p_market TIDAK BOLEH dari provider yang sama dengan asal pasar jup.ag.
+  forbid_same_provider: true
+  # P3: pembanding sah — provider prediction market yang lain + sportsbook.
+  allowed_comparison_sources: ["other_prediction_provider", "sportsbook_devig"]
+
 # ── D2. MODEL_ONLY (p_market tidak ada di mana pun) ─────────────────────────
 model_only:
   # p_akhir = p_model. Ambang +5 poin lebih ketat (tafsiran D-T1: ambang

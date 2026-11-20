@@ -60,6 +60,15 @@ class TestLogTicket(unittest.TestCase):
         saved = store.get_ticket(self.conn, "tkt-contoh-02-utm")
         self.assertAlmostEqual(saved["profit_loss"], -40.0)
 
+    def test_jup_provider_kaki_tersimpan(self):
+        ticket = load_example("ticket_asuransi.json")
+        ticket["legs"][0]["jup_provider"] = "polymarket"
+        ticket["legs"][1]["jup_provider"] = "kalshi"
+        store.log_ticket(self.conn, ticket)
+        saved = store.get_ticket(self.conn, ticket["ticket_id"])
+        self.assertEqual(saved["legs"][0]["jup_provider"], "polymarket")
+        self.assertEqual(saved["legs"][1]["jup_provider"], "kalshi")
+
     def test_kaki_tersimpan(self):
         store.log_ticket(self.conn, load_example("ticket_asuransi.json"))
         saved = store.get_ticket(self.conn, "tkt-contoh-01-ins")

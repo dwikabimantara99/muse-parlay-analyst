@@ -26,6 +26,7 @@ REQUIRED_PLAYSTYLE_SECTIONS = (
     "optimizer",
     "combo",
     "blend",
+    "comparison",
     "model_only",
     "no_xg",
     "anomaly",

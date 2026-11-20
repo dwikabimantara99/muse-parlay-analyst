@@ -97,6 +97,44 @@ Aturan:
   user (daftar sendiri lalu serahkan API key, atau tunjukkan email dan
   selesaikan verifikasi + tantangan Cloudflare). Sementara itu Tahap 2
   bisa memakai akses keyless (0,5 RPS); API key menaikkan batas ke 1 RPS.
+- **Wallet DIHAPUS (2026-11-20 22:23 WIB).** Wallet yang dibuat untuk
+  pendaftaran tidak dipakai lagi (portal tidak memakai login wallet).
+  File kunci `~/.config/muse-parlay-analyst/jupiter-portal-wallet.json`
+  sudah dihapus dengan `shred -u` atas perintah user. Wallet itu tidak
+  pernah diisi dana (saldo 0, 0 transaksi) dan tidak pernah dipakai untuk
+  apa pun. Pubkey-nya tetap tercatat di atas hanya sebagai jejak audit.
+
+## 2026-11-20 — Jupiter API key (user menyerahkan key)
+
+Sumber: pesan user, 20 Nov 2026 22:22 WIB.
+
+- **K1.** API key disimpan HANYA di `.env` (`JUPITER_API_KEY`). Nilai key
+  tidak pernah ditampilkan di log, laporan, README, commit, atau pesan
+  Telegram. `.env` masuk `.gitignore` (mode 600) dan tidak pernah di-commit.
+- **K2.** Mode keyed: 1 RPS. Wajib ada rate limiter + cache supaya tidak
+  pernah melewati batas. Kalau key ditolak/gagal → fallback ke keyless
+  (0,5 RPS) dan laporkan.
+- **K3.** Mesin HANYA MEMBACA data (C3 tetap berlaku): endpoint yang boleh
+  dipakai hanya GET baca (`/events`, `/events/search`, `/events/{id}`,
+  `/markets/{id}`). DILARANG `POST /orders`, `DELETE /positions`,
+  `/claim`, dan apa pun yang memindahkan dana.
+- **K4.** Tes key: satu panggilan keyed berhasil 2026-11-20 22:23 WIB
+  (HTTP 200, 2 event sports).
+
+## 2026-11-20 — Aturan pembanding harga independen
+
+Sumber: pesan user, 20 Nov 2026 22:22 WIB.
+
+- **P1.** Untuk setiap pasar jup.ag, catat provider asalnya (Polymarket /
+  Kalshi / lainnya) — field `jup_provider` di skema kaki dan ledger.
+- **P2.** `p_market` TIDAK BOLEH diambil dari provider yang sama dengan
+  asal pasar jup.ag itu (itu harga yang sama, bukan pembanding).
+- **P3.** Pembanding sah: provider prediction market yang lain + sportsbook
+  (devig via The Odds API).
+- **P4.** Aturan ini dicatat di `playstyle.yaml` (bagian `comparison`) dan
+  diuji di `tests/test_config.py`. Penegakan di kode (menolak p_market
+  dari provider yang sama) dibangun di Tahap 3 bersama mesin devig/blend,
+  dengan tesnya sendiri.
 
 ### D. Jawaban pertanyaan Tahap 1
 

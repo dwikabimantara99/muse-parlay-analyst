@@ -70,6 +70,16 @@ class TestPlaystyle(unittest.TestCase):
         # D9: harga bergerak tajam = berubah >= 3¢ sejak pengambilan pertama.
         self.assertEqual(anom["sharp_move_cents"], 3)
 
+    # Aturan pembanding independen (DECISIONS.md P1-P3)
+    def test_comparison(self):
+        comp = self.cfg["comparison"]
+        self.assertTrue(comp["record_origin_provider"])
+        self.assertTrue(comp["forbid_same_provider"])
+        self.assertEqual(
+            comp["allowed_comparison_sources"],
+            ["other_prediction_provider", "sportsbook_devig"],
+        )
+
     # D2 — MODEL_ONLY
     def test_model_only(self):
         mo = self.cfg["model_only"]

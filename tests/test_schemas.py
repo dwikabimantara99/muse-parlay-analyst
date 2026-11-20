@@ -74,6 +74,15 @@ class TestSchemas(unittest.TestCase):
             }
             jsonschema.validate(instance=leg_only, schema=leg_schema)
 
+    def test_leg_dengan_jup_provider_valid(self):
+        leg_schema = load_json(REPO_ROOT / "schemas" / "leg.schema.json")
+        ticket = load_json(REPO_ROOT / "examples" / "ticket_asuransi.json")
+        leg = dict(ticket["legs"][0])
+        leg.pop("result", None)
+        leg.pop("price_close_cents", None)
+        leg["jup_provider"] = "polymarket"
+        jsonschema.validate(instance=leg, schema=leg_schema)
+
     def test_leg_dengan_flags_valid(self):
         leg_schema = load_json(REPO_ROOT / "schemas" / "leg.schema.json")
         ticket = load_json(REPO_ROOT / "examples" / "ticket_asuransi.json")
