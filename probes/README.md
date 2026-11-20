@@ -19,8 +19,26 @@ python3 probes/jupiter.py
 ```
 
 Daftar probe: `jupiter`, `polymarket`, `kalshi`, `odds_api`, `nba_com`,
-`espn`, `bbref`, `nba_injury_report`, `rotowire`, `understat`, `sofascore`,
-`fotmob`, `official_leagues`.
+`espn`, `bbref`, `nba_injury_report`, `rotowire`, `understat`,
+`official_leagues`, ditambah probe tambahan 2a: `espn_odds`,
+`kalshi_sports`, `jup_markup`, `football_data`, `understat_recheck`
+(hasilnya di `HASIL-PROBE-TAMBAHAN.md`).
+
+`sofascore` dan `fotmob` TIDAK lagi dijalankan `run_all.py` (sumber DITOLAK
+user 2026-11-20); modulnya tetap ada sebagai bukti probe 2a.
+
+## Cek harian Understat (bukan probe)
+
+`probes/check_understat.py` adalah health check non-interaktif (1 request
+ringan) yang menulis status ke `probes/out/understat_status.json` dan
+menambah satu baris ke `probes/out/understat_health.log`. Fetcher 2b
+membaca file status ini: bila `status == "up"` dan `checked_at` masih dalam
+24 jam, Understat aktif lagi di rantai xG; bila tidak, bola jalan dengan
+aturan B4 (TANPA_XG). Jadwal yang disarankan: 1x sehari via cron.
+
+```bash
+python3 probes/check_understat.py
+```
 
 ## Cache
 

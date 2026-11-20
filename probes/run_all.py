@@ -18,20 +18,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import bbref
 import espn
-import fotmob
+import espn_odds
+import football_data
+import jup_markup
 import jupiter
 import kalshi
+import kalshi_sports
 import nba_com
 import nba_injury_report
 import odds_api
 import official_leagues
 import polymarket
 import rotowire
-import sofascore
 import understat
+import understat_recheck
 from common import now_iso, out_dir, write_result
 
-# (nama file output, modul probe). Urutan: harga dulu, lalu NBA, lalu bola.
+# (nama file output, modul probe). Urutan: harga dulu, lalu NBA, lalu bola,
+# lalu probe tambahan 2a (espn_odds dst.).
+# TIDAK di sini: sofascore + fotmob (sumber DITOLAK user 2026-11-20 —
+# modulnya tetap ada sebagai bukti probe 2a, tapi tidak dijalankan lagi),
+# check_understat (cek harian, bukan probe — jalankan terpisah, lihat
+# probes/README.md).
 PROBES = [
     ("jupiter", jupiter),
     ("polymarket", polymarket),
@@ -43,9 +51,12 @@ PROBES = [
     ("nba_injury_report", nba_injury_report),
     ("rotowire", rotowire),
     ("understat", understat),
-    ("sofascore", sofascore),
-    ("fotmob", fotmob),
     ("official_leagues", official_leagues),
+    ("espn_odds", espn_odds),
+    ("kalshi_sports", kalshi_sports),
+    ("jup_markup", jup_markup),
+    ("football_data", football_data),
+    ("understat_recheck", understat_recheck),
 ]
 
 GAP_BETWEEN_PROBES = 3.0

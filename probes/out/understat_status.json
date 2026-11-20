@@ -1,0 +1,12 @@
+{
+  "checked_at": "2026-11-20T15:49:35.859652+00:00",
+  "status": "maintenance",
+  "evidence": {
+    "url": "https://understat.com/league/EPL/2025",
+    "http_status": 200,
+    "body_chars": 26719,
+    "markers_found": [],
+    "maintenance_text_found": true,
+    "error": null
+  }
+}

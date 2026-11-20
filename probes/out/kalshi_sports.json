@@ -1,0 +1,649 @@
+{
+  "source": "Kalshi sports (NBA & bola)",
+  "tier": 2,
+  "probed_at": "2026-11-20T15:56:49.713929+00:00",
+  "accessible_from_vm": true,
+  "format": "JSON REST",
+  "rate_limit": "header: {'x-ratelimit-remaining': '525', 'x-ratelimit-reset': '0.375', 'x-ratelimit-limit': '600'}",
+  "data_available": [
+    "NBA moneyline: 20/20 pasar jup.ag tercocokkan di Kalshi",
+    "EPL moneyline: 15/15 pasar jup.ag tercocokkan di Kalshi",
+    "LaLiga moneyline: 9/9 pasar jup.ag tercocokkan di Kalshi",
+    "EPL spreads: 40/100 pasar jup.ag tercocokkan per garis di Kalshi",
+    "EPL totals: 60/90 pasar jup.ag tercocokkan per garis di Kalshi",
+    "Kalshi NBA spread: 9 event, total: 9 event (jup.ag NBA tanpa spread/total)"
+  ],
+  "risk_notes": [
+    "Pencocokan berdasarkan nama tim (normalisasi + pemetaan julukan NBA + alias bola) — bukan ID resmi; fetcher 2b wajib memvalidasi pasangan event sebelum memakai harga Kalshi sebagai pembanding.",
+    "Kalshi EPL punya spread/total tapi garisnya terbatas (spread 1.5/2.5, total Over 0.5-5.5) — pasar jup.ag di luar garis itu tetap butuh pembanding sportsbook (Odds API / ESPN odds). LaLiga spread/total tidak diuji di probe ini.",
+    "Field harga Kalshi bernama *_dollars (string dolar, mis. '0.1200') — nama lama yes_bid/yes_ask TIDAK ADA di API ini; fetcher 2b wajib memakai *_dollars (lihat price_check).",
+    "Pasar Kalshi tanpa bid/ask (lihat kalshi_markets_priced) harus ditolak fetcher 2b, bukan memakai last_price basi.",
+    "Harga Kalshi (yes_bid_dollars/yes_ask_dollars, string dolar) vs harga jup.ag: selisihnya adalah pembanding, BUKAN edge langsung — perlu devig/blend Tahap 3."
+  ],
+  "requests": [
+    {
+      "url": "https://api.jup.ag/prediction/v1/events?category=sports&limit=100",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 9.41,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "9",
+        "x-ratelimit-reset": "1795188486"
+      },
+      "error": null,
+      "body_sample": "{\"data\":[{\"eventId\":\"POLY-1323813\",\"isActive\":true,\"isLive\":false,\"category\":\"sports\",\"subcategory\":\"nba\",\"tags\":[\"sports\",\"nba\",\"games\",\"basketball\"],\"metadata\":{\"slug\":\"nba-was-chi-2026-11-20\",\"title\":\"Wizards vs. Bulls\",\"isLive\":false,\"league\":\"NBA 2026\",\"series\":\"polymarket\",\"eventId\":\"POLY-1323813\",\"imageUrl\":\"https://polymarket-upload.s3.us-east-2.amazonaws.com/super+cool+basketball+in+red+and+blue+wow.png\",\"subtitle\":\"\",\"closeTime\":\"2026-11-21T01:00:00Z\"},\"volumeUsd\":\"528512000000\",\"volum"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXNBAGAME&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.93,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "550",
+        "x-ratelimit-reset": "0.25",
+        "x-ratelimit-limit": "600"
+      },
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"events\":[{\"category\":\"Sports\",\"collateral_return_type\":\"MECNET\",\"event_ticker\":\"KXNBAGAME-26NOV20CHAATL\",\"exchange_index\":3,\"last_updated_ts\":\"2026-11-16T04:02:32.98942Z\",\"mutually_exclusive\":true,\"product_metadata\":{\"competition\":\"Pro Basketball (M)\",\"competition_scope\":\"Game\"},\"series_ticker\":\"KXNBAGAME\",\"settlement_sources\":[{\"name\":\"ESPN\",\"url\":\"https://www.espn.com\"},{\"name\":\"the Governing League\",\"url\":\"https://www.nba.com\"}],\"strike_period\":\"\",\"sub_title\":\"CHA vs ATL (Nov 20"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXNBAGAME&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.31,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"markets\":[{\"can_close_early\":true,\"close_time\":\"2026-11-26T03:00:00Z\",\"created_time\":\"2026-11-20T01:02:09.889136Z\",\"custom_strike\":{\"basketball_team\":\"ad36c3e8-4194-4e63-920f-7c50f46191a6\"},\"early_close_condition\":\"This market will close and expire after a winner is declared.\",\"event_ticker\":\"KXNBAGAME-26NOV23SASSAC\",\"exchange_index\":3,\"expected_expiration_time\":\"2026-11-24T06:00:00Z\",\"expiration_value\":\"\",\"last_price_dollars\":\"0.9100\",\"latest_expiration_time\":\"2026-11-26T03:00:00Z"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/markets/KXNBAGAME-26NOV20SACLAL-SAC",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.1,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"market\":{\"can_close_early\":true,\"close_time\":\"2026-11-23T03:00:00Z\",\"created_time\":\"2026-11-17T03:01:35.235611Z\",\"custom_strike\":{\"basketball_team\":\"ab9e2e9a-3243-41b6-a291-95f4d9c6edf7\"},\"early_close_condition\":\"This market will close and expire after a winner is declared.\",\"event_ticker\":\"KXNBAGAME-26NOV20SACLAL\",\"exchange_index\":3,\"expected_expiration_time\":\"2026-11-21T06:00:00Z\",\"expiration_value\":\"\",\"last_price_dollars\":\"0.1300\",\"latest_expiration_time\":\"2026-11-23T03:00:00Z\",\"market_type"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/markets/KXNBAGAME-26NOV20SACLAL-SAC/orderbook?depth=5",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.89,
+      "rate_limit_headers": {
+        "x-ratelimit-reset": "0.1",
+        "x-ratelimit-limit": "600",
+        "x-ratelimit-remaining": "580"
+      },
+      "error": null,
+      "body_sample": "{\"orderbook_fp\":{\"no_dollars\":[[\"0.8300\",\"2101.00\"],[\"0.8400\",\"35425.00\"],[\"0.8500\",\"48924.21\"],[\"0.8600\",\"47588.84\"],[\"0.8700\",\"37543.12\"]],\"yes_dollars\":[[\"0.0800\",\"40982.17\"],[\"0.0900\",\"2237.00\"],[\"0.1000\",\"11853.20\"],[\"0.1100\",\"54959.40\"],[\"0.1200\",\"16387.99\"]]}}"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXNBASPREAD&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.14,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "10",
+        "x-ratelimit-reset": "2.95",
+        "x-ratelimit-limit": "600"
+      },
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"events\":[{\"category\":\"Sports\",\"collateral_return_type\":\"\",\"event_ticker\":\"KXNBASPREAD-26NOV20CHAATL\",\"exchange_index\":3,\"last_updated_ts\":\"2026-11-20T01:45:39.816585Z\",\"mutually_exclusive\":false,\"product_metadata\":{\"competition\":\"Pro Basketball (M)\",\"competition_scope\":\"Spread\"},\"series_ticker\":\"KXNBASPREAD\",\"settlement_sources\":[{\"name\":\"ESPN\",\"url\":\"https://www.espn.com\"},{\"name\":\"the Governing League\",\"url\":\"https://www.nba.com\"}],\"strike_period\":\"\",\"sub_title\":\"CHA vs ATL (Nov "
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXNBASPREAD&status=open&limit=5",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.72,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"cursor\":\"CgwIn93-1wYQiNSxuAISH0tYTkJBU1BSRUFELTI2Tk9WMjBQSFhVVEEtVVRBMjQ\",\"markets\":[{\"can_close_early\":true,\"close_time\":\"2026-11-23T02:30:00Z\",\"created_time\":\"2026-11-20T02:21:19.655125Z\",\"custom_strike\":{\"basketball_team\":\"6f60dfb1-fda1-423f-b76f-67e9d24b9644\"},\"early_close_condition\":\"This market will close and expire after a winner is declared.\",\"event_ticker\":\"KXNBASPREAD-26NOV20PHXUTA\",\"exchange_index\":3,\"expected_expiration_time\":\"2026-11-21T05:30:00Z\",\"expiration_value\":\"\",\"floor_stri"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXNBATOTAL&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.77,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "550",
+        "x-ratelimit-reset": "0.25",
+        "x-ratelimit-limit": "600"
+      },
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"events\":[{\"category\":\"Sports\",\"collateral_return_type\":\"\",\"event_ticker\":\"KXNBATOTAL-26NOV20CHAATL\",\"exchange_index\":3,\"last_updated_ts\":\"2026-11-19T22:56:03.956834Z\",\"mutually_exclusive\":false,\"product_metadata\":{\"competition\":\"Pro Basketball (M)\",\"competition_scope\":\"Point Total\"},\"series_ticker\":\"KXNBATOTAL\",\"settlement_sources\":[{\"name\":\"the Governing League\",\"url\":\"https://www.nba.com\"},{\"name\":\"ESPN\",\"url\":\"https://espn.com\"}],\"strike_period\":\"\",\"sub_title\":\"CHA vs ATL (Nov 2"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXEPLGAME&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.98,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "544",
+        "x-ratelimit-reset": "0.28",
+        "x-ratelimit-limit": "600"
+      },
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"events\":[{\"category\":\"Sports\",\"collateral_return_type\":\"MECNET\",\"event_ticker\":\"KXEPLGAME-26NOV21MCIFUL\",\"exchange_index\":0,\"last_updated_ts\":\"2026-11-07T00:27:41.678797Z\",\"mutually_exclusive\":true,\"product_metadata\":{\"competition\":\"EPL\",\"competition_scope\":\"Game\"},\"series_ticker\":\"KXEPLGAME\",\"settlement_sources\":[{\"name\":\"ESPN\",\"url\":\"https://www.espn.com/\"},{\"name\":\"Fox Sports\",\"url\":\"https://www.foxsports.com/\"}],\"strike_period\":\"\",\"sub_title\":\"MCI vs FUL (Nov 21)\",\"title\":\"Manc"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXEPLGAME&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.26,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"markets\":[{\"can_close_early\":true,\"close_time\":\"2026-12-05T20:00:00Z\",\"created_time\":\"2026-11-19T00:27:31.065303Z\",\"custom_strike\":{\"soccer_team\":\"95c3aaf8-3f26-4129-b67c-c99562cb3dc9\"},\"early_close_condition\":\"This market will close and expire after a winner is declared.\",\"event_ticker\":\"KXEPLGAME-26DEC03TOTFUL\",\"exchange_index\":0,\"expected_expiration_time\":\"2026-12-03T23:00:00Z\",\"expiration_value\":\"\",\"last_price_dollars\":\"0.1100\",\"latest_expiration_time\":\"2026-12-05T20:00:00Z\",\"m"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXEPLSPREAD&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.2,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "456",
+        "x-ratelimit-reset": "0.72",
+        "x-ratelimit-limit": "600"
+      },
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"events\":[{\"category\":\"Sports\",\"collateral_return_type\":\"\",\"event_ticker\":\"KXEPLSPREAD-26NOV21MCIFUL\",\"exchange_index\":0,\"last_updated_ts\":\"2026-11-14T13:04:04.234738Z\",\"mutually_exclusive\":false,\"product_metadata\":{\"competition\":\"EPL\",\"competition_scope\":\"Spread\"},\"series_ticker\":\"KXEPLSPREAD\",\"settlement_sources\":[{\"name\":\"Fox Sports\",\"url\":\"https://www.foxsports.com\"},{\"name\":\"ESPN\",\"url\":\"https://espn.com\"}],\"strike_period\":\"\",\"sub_title\":\"MCI vs FUL (Nov 21)\",\"title\":\"Mancheste"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXEPLSPREAD&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.19,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"markets\":[{\"can_close_early\":true,\"close_time\":\"2026-11-25T20:00:00Z\",\"created_time\":\"2026-11-16T20:02:18.349546Z\",\"custom_strike\":{\"soccer_team\":\"7abb495c-193e-4baf-b3d3-108e99eab8ed\"},\"early_close_condition\":\"This market will close and expire after a winner is declared.\",\"event_ticker\":\"KXEPLSPREAD-26NOV23BREEVE\",\"exchange_index\":0,\"expected_expiration_time\":\"2026-11-24T00:00:00Z\",\"expiration_value\":\"\",\"floor_strike\":2.5,\"last_price_dollars\":\"0.0300\",\"latest_expiration_time\":\"202"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXEPLTOTAL&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.76,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "475",
+        "x-ratelimit-reset": "0.625",
+        "x-ratelimit-limit": "600"
+      },
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"events\":[{\"category\":\"Sports\",\"collateral_return_type\":\"\",\"event_ticker\":\"KXEPLTOTAL-26NOV21MCIFUL\",\"exchange_index\":0,\"last_updated_ts\":\"2026-11-14T13:04:04.215709Z\",\"mutually_exclusive\":false,\"product_metadata\":{\"competition\":\"EPL\",\"competition_scope\":\"Point Total\"},\"series_ticker\":\"KXEPLTOTAL\",\"settlement_sources\":[{\"name\":\"Fox Sports\",\"url\":\"https://www.foxsports.com\"},{\"name\":\"ESPN\",\"url\":\"https://espn.com\"}],\"strike_period\":\"\",\"sub_title\":\"MCI vs FUL (Nov 21)\",\"title\":\"Manche"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXEPLTOTAL&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.03,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"markets\":[{\"can_close_early\":true,\"close_time\":\"2026-11-25T20:00:00Z\",\"created_time\":\"2026-11-16T20:02:18.741961Z\",\"early_close_condition\":\"This market will close and expire early if the event occurs.\",\"event_ticker\":\"KXEPLTOTAL-26NOV23BREEVE\",\"exchange_index\":0,\"expected_expiration_time\":\"2026-11-24T00:00:00Z\",\"expiration_value\":\"\",\"floor_strike\":5.5,\"last_price_dollars\":\"0.0000\",\"latest_expiration_time\":\"2026-11-25T20:00:00Z\",\"market_type\":\"binary\",\"no_ask_dollars\":\"0.9500\",\"no_b"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXLALIGAGAME&status=open&limit=200",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.87,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "525",
+        "x-ratelimit-reset": "0.375",
+        "x-ratelimit-limit": "600"
+      },
+      "error": null,
+      "body_sample": "{\"cursor\":\"\",\"events\":[{\"category\":\"Sports\",\"collateral_return_type\":\"MECNET\",\"event_ticker\":\"KXLALIGAGAME-26NOV20ATHESP\",\"exchange_index\":0,\"last_updated_ts\":\"2026-11-06T00:30:03.886463Z\",\"mutually_exclusive\":true,\"product_metadata\":{\"competition\":\"La Liga\",\"competition_scope\":\"Game\"},\"series_ticker\":\"KXLALIGAGAME\",\"settlement_sources\":[{\"name\":\"ESPN\",\"url\":\"https://www.espn.com/\"},{\"name\":\"Fox Sports\",\"url\":\"https://www.foxsports.com/\"}],\"strike_period\":\"\",\"sub_title\":\"ATH vs ESP (Nov 20)\",\"ti"
+    }
+  ],
+  "verdict": "PAKAI",
+  "unknown": [],
+  "jupiter_slate": {
+    "events_total": 100,
+    "from_cache": true,
+    "nba_games": 10,
+    "epl_games": 5,
+    "laliga_games": 3,
+    "other_soccer_games": 24,
+    "nba_titles": [
+      "Wizards vs. Bulls",
+      "Hornets vs. Hawks",
+      "Pacers vs. Cavaliers",
+      "Raptors vs. Pistons",
+      "Rockets vs. Nuggets",
+      "Suns vs. Jazz",
+      "Kings vs. Lakers",
+      "Magic vs. Nets",
+      "Pelicans vs. Thunder",
+      "Bucks vs. 76ers"
+    ],
+    "epl_titles": [
+      "Chelsea FC vs. Leeds United FC",
+      "Aston Villa FC vs. Sunderland AFC",
+      "Manchester City FC vs. Fulham FC",
+      "Newcastle United FC vs. Arsenal FC",
+      "AFC Bournemouth vs. Nottingham Forest FC"
+    ],
+    "laliga_titles": [
+      "Athletic Club vs. RCD Espanyol de Barcelona",
+      "Real Madrid CF vs. RC Celta de Vigo",
+      "FC Barcelona vs. Villarreal CF"
+    ]
+  },
+  "kalshi_series": {
+    "KXNBAGAME": {
+      "label": "NBA game (moneyline)",
+      "exists": true,
+      "events_open": 32,
+      "event_titles": [
+        "Charlotte vs Atlanta",
+        "Indiana vs Cleveland",
+        "Orlando vs Brooklyn",
+        "Toronto vs Detroit",
+        "New Orleans vs Oklahoma City",
+        "Washington vs Chicago",
+        "Phoenix vs Utah",
+        "Houston vs Denver",
+        "Sacramento vs Los Angeles L",
+        "Milwaukee vs Philadelphia",
+        "Portland vs New York",
+        "Los Angeles C vs Dallas",
+        "Memphis vs Minnesota",
+        "New Orleans vs San Antonio",
+        "Boston vs Sacramento",
+        "Detroit vs Atlanta",
+        "Oklahoma City vs Miami",
+        "Dallas vs Utah",
+        "Denver vs Chicago",
+        "Orlando vs Washington",
+        "Indiana vs New York",
+        "Boston vs Golden State",
+        "Memphis vs Charlotte",
+        "Portland vs Philadelphia",
+        "Brooklyn vs Minnesota",
+        "Milwaukee vs Toronto",
+        "Oklahoma City vs Indiana",
+        "Cleveland vs Chicago",
+        "Phoenix vs New Orleans",
+        "Los Angeles C vs Houston"
+      ],
+      "sample_event_keys": [
+        "category",
+        "collateral_return_type",
+        "event_ticker",
+        "exchange_index",
+        "last_updated_ts",
+        "mutually_exclusive",
+        "product_metadata",
+        "series_ticker",
+        "settlement_sources",
+        "strike_period",
+        "sub_title",
+        "title"
+      ],
+      "markets_open": 64,
+      "sample_market_keys": [
+        "can_close_early",
+        "close_time",
+        "created_time",
+        "custom_strike",
+        "early_close_condition",
+        "event_ticker",
+        "exchange_index",
+        "expected_expiration_time",
+        "expiration_value",
+        "last_price_dollars",
+        "latest_expiration_time",
+        "market_type",
+        "no_ask_dollars",
+        "no_bid_dollars",
+        "no_sub_title",
+        "notional_value_dollars",
+        "occurrence_datetime",
+        "open_interest_fp",
+        "open_time",
+        "previous_price_dollars",
+        "previous_yes_ask_dollars",
+        "previous_yes_bid_dollars",
+        "price_level_structure",
+        "price_ranges",
+        "result",
+        "rules_primary",
+        "rules_secondary",
+        "settlement_bounds_type",
+        "settlement_timer_seconds",
+        "status",
+        "strike_type",
+        "ticker",
+        "title",
+        "updated_time",
+        "volume_24h_fp",
+        "volume_fp",
+        "yes_ask_dollars",
+        "yes_ask_size_fp",
+        "yes_bid_dollars",
+        "yes_bid_size_fp",
+        "yes_sub_title"
+      ],
+      "sample_market": {
+        "ticker": "KXNBAGAME-26NOV23SASSAC-SAS",
+        "event_ticker": "KXNBAGAME-26NOV23SASSAC",
+        "title": "San Antonio wins",
+        "yes_bid_dollars": "0.8600",
+        "yes_ask_dollars": "0.9100",
+        "last_price_dollars": "0.9100",
+        "volume_fp": "411.40"
+      },
+      "markets_priced": "64/64",
+      "price_check": {
+        "checked": true,
+        "ticker": "KXNBAGAME-26NOV20SACLAL-SAC",
+        "title": "Sacramento wins",
+        "single_market_http": 200,
+        "orderbook_http": 200,
+        "yes_bid_dollars": "0.1200",
+        "yes_ask_dollars": "0.1300",
+        "last_price_dollars": "0.1300",
+        "orderbook_yes_levels": 5,
+        "orderbook_no_levels": 5
+      }
+    },
+    "KXNBASPREAD": {
+      "label": "NBA spread",
+      "exists": true,
+      "events_open": 9,
+      "event_titles": [
+        "Charlotte vs Atlanta: Spread",
+        "Indiana vs Cleveland: Spread",
+        "Orlando vs Brooklyn: Spread",
+        "Toronto vs Detroit: Spread",
+        "New Orleans vs Oklahoma City: Spread",
+        "Washington vs Chicago: Spread",
+        "Phoenix vs Utah: Spread",
+        "Houston vs Denver: Spread",
+        "Sacramento vs Los Angeles L: Spread"
+      ],
+      "sample_markets": [
+        {
+          "ticker": "KXNBASPREAD-26NOV20PHXUTA-UTA8",
+          "title": "Utah wins by over 7.5 points",
+          "yes_bid_dollars": "0.1800",
+          "yes_ask_dollars": "0.2100",
+          "last_price_dollars": "0.0000"
+        },
+        {
+          "ticker": "KXNBASPREAD-26NOV20PHXUTA-UTA6",
+          "title": "Utah wins by over 5.5 points",
+          "yes_bid_dollars": "0.2400",
+          "yes_ask_dollars": "0.2500",
+          "last_price_dollars": "0.2400"
+        },
+        {
+          "ticker": "KXNBASPREAD-26NOV20PHXUTA-UTA4",
+          "title": "Utah wins by over 3.5 points",
+          "yes_bid_dollars": "0.2800",
+          "yes_ask_dollars": "0.3000",
+          "last_price_dollars": "0.3000"
+        },
+        {
+          "ticker": "KXNBASPREAD-26NOV20PHXUTA-UTA3",
+          "title": "Utah wins by over 2.5 points",
+          "yes_bid_dollars": "0.3100",
+          "yes_ask_dollars": "0.3400",
+          "last_price_dollars": "0.3400"
+        },
+        {
+          "ticker": "KXNBASPREAD-26NOV20PHXUTA-UTA24",
+          "title": "Utah wins by over 23.5 points",
+          "yes_bid_dollars": "0.0100",
+          "yes_ask_dollars": "0.0300",
+          "last_price_dollars": "0.0200"
+        }
+      ]
+    },
+    "KXNBATOTAL": {
+      "label": "NBA total",
+      "exists": true,
+      "events_open": 9,
+      "event_titles": [
+        "Charlotte vs Atlanta: Total Points",
+        "Indiana vs Cleveland: Total Points",
+        "Orlando vs Brooklyn: Total Points",
+        "Toronto vs Detroit: Total Points",
+        "New Orleans vs Oklahoma City: Total Points",
+        "Washington vs Chicago: Total Points",
+        "Phoenix vs Utah: Total Points",
+        "Houston vs Denver: Total Points",
+        "Sacramento vs Los Angeles L: Total Points"
+      ]
+    },
+    "KXEPLGAME": {
+      "label": "EPL game (moneyline)",
+      "exists": true,
+      "events_open": 29,
+      "event_titles": [
+        "Manchester City vs Fulham",
+        "Aston Villa vs Sunderland",
+        "Bournemouth vs Nottingham Forest",
+        "Chelsea vs Leeds United",
+        "Coventry vs Crystal Palace",
+        "Tottenham vs Ipswich Town",
+        "Newcastle vs Arsenal",
+        "Hull City vs Brighton",
+        "Liverpool vs Manchester United",
+        "Brentford vs Everton",
+        "Nottingham Forest vs Chelsea",
+        "Leeds United vs Coventry",
+        "Manchester United vs Brentford",
+        "Ipswich Town vs Aston Villa",
+        "Everton vs Liverpool",
+        "Brighton vs Newcastle",
+        "Crystal Palace vs Hull City",
+        "Fulham vs Bournemouth",
+        "Sunderland vs Tottenham",
+        "Arsenal vs Manchester City",
+        "Coventry vs Ipswich Town",
+        "Chelsea vs Crystal Palace",
+        "Hull City vs Nottingham Forest",
+        "Liverpool vs Sunderland",
+        "Manchester City vs Leeds United",
+        "Aston Villa vs Everton",
+        "Bournemouth vs Brighton",
+        "Brentford vs Arsenal",
+        "Tottenham vs Fulham"
+      ],
+      "markets_open": 87,
+      "sample_market": {
+        "ticker": "KXEPLGAME-26DEC03TOTFUL-TOT",
+        "event_ticker": "KXEPLGAME-26DEC03TOTFUL",
+        "title": "Tottenham wins",
+        "yes_bid_dollars": "0.0900",
+        "yes_ask_dollars": "0.9200",
+        "last_price_dollars": "0.1100"
+      },
+      "markets_priced": "87/87",
+      "markets_per_event": {
+        "3": 29
+      }
+    },
+    "KXEPLSPREAD": {
+      "label": "EPL spread",
+      "exists": true,
+      "events_open": 10,
+      "markets_open": 40,
+      "event_titles": [
+        "Manchester City vs Fulham: Spread",
+        "Aston Villa vs Sunderland: Spread",
+        "Bournemouth vs Nottingham Forest: Spread",
+        "Chelsea vs Leeds United: Spread",
+        "Coventry vs Crystal Palace: Spread",
+        "Tottenham vs Ipswich Town: Spread",
+        "Newcastle vs Arsenal: Spread",
+        "Hull City vs Brighton: Spread",
+        "Liverpool vs Manchester United: Spread",
+        "Brentford vs Everton: Spread"
+      ],
+      "sample_markets": [
+        {
+          "ticker": "KXEPLSPREAD-26NOV23BREEVE-EVE3",
+          "title": "Everton wins by more than 2.5 goals?"
+        },
+        {
+          "ticker": "KXEPLSPREAD-26NOV23BREEVE-EVE2",
+          "title": "Everton wins by more than 1.5 goals?"
+        },
+        {
+          "ticker": "KXEPLSPREAD-26NOV23BREEVE-BRE3",
+          "title": "Brentford wins by more than 2.5 goals?"
+        },
+        {
+          "ticker": "KXEPLSPREAD-26NOV23BREEVE-BRE2",
+          "title": "Brentford wins by more than 1.5 goals?"
+        }
+      ]
+    },
+    "KXEPLTOTAL": {
+      "label": "EPL total",
+      "exists": true,
+      "events_open": 10,
+      "markets_open": 60,
+      "event_titles": [
+        "Manchester City vs Fulham: Total Goals",
+        "Aston Villa vs Sunderland: Total Goals",
+        "Bournemouth vs Nottingham Forest: Total Goals",
+        "Chelsea vs Leeds United: Total Goals",
+        "Coventry vs Crystal Palace: Total Goals",
+        "Tottenham vs Ipswich Town: Total Goals",
+        "Newcastle vs Arsenal: Total Goals",
+        "Hull City vs Brighton: Total Goals",
+        "Liverpool vs Manchester United: Total Goals",
+        "Brentford vs Everton: Total Goals"
+      ],
+      "sample_markets": [
+        {
+          "ticker": "KXEPLTOTAL-26NOV23BREEVE-6",
+          "title": "Will over 5.5 goals be scored?"
+        },
+        {
+          "ticker": "KXEPLTOTAL-26NOV23BREEVE-5",
+          "title": "Will over 4.5 goals be scored?"
+        },
+        {
+          "ticker": "KXEPLTOTAL-26NOV23BREEVE-4",
+          "title": "Will over 3.5 goals be scored?"
+        },
+        {
+          "ticker": "KXEPLTOTAL-26NOV23BREEVE-3",
+          "title": "Will over 2.5 goals be scored?"
+        }
+      ]
+    },
+    "KXLALIGAGAME": {
+      "label": "LaLiga game (moneyline)",
+      "exists": true,
+      "events_open": 23,
+      "event_titles": [
+        "Bilbao vs Espanyol",
+        "Alaves vs Deportivo De La Coruna",
+        "Vallecano vs Valencia",
+        "Sevilla vs Real Betis",
+        "Real Madrid vs Celta Vigo",
+        "Barcelona vs Villarreal",
+        "Santander vs Real Sociedad",
+        "Osasuna vs Malaga",
+        "Getafe vs Atletico",
+        "Levante vs Elche",
+        "Levante vs Santander",
+        "Real Betis vs Vallecano",
+        "Malaga vs Bilbao",
+        "Elche vs Atletico",
+        "Real Madrid vs Alaves",
+        "Valencia vs Osasuna",
+        "Deportivo De La Coruna vs Barcelona",
+        "Celta Vigo vs Villarreal",
+        "Real Sociedad vs Sevilla",
+        "Espanyol vs Getafe",
+        "Real Sociedad vs Real Madrid",
+        "Barcelona vs Atletico",
+        "Alaves vs Espanyol"
+      ]
+    }
+  },
+  "matching": {
+    "nba_moneyline": {
+      "jup_markets": 20,
+      "matched": 20,
+      "pct": 100.0,
+      "matched_games": [
+        "Wizards vs. Bulls",
+        "Hornets vs. Hawks",
+        "Pacers vs. Cavaliers",
+        "Raptors vs. Pistons",
+        "Rockets vs. Nuggets",
+        "Suns vs. Jazz",
+        "Kings vs. Lakers",
+        "Magic vs. Nets",
+        "Pelicans vs. Thunder",
+        "Bucks vs. 76ers"
+      ],
+      "unmatched_games": []
+    },
+    "epl_moneyline": {
+      "jup_markets": 15,
+      "matched": 15,
+      "pct": 100.0,
+      "matched_games": [
+        "Chelsea FC vs. Leeds United FC",
+        "Aston Villa FC vs. Sunderland AFC",
+        "Manchester City FC vs. Fulham FC",
+        "Newcastle United FC vs. Arsenal FC",
+        "AFC Bournemouth vs. Nottingham Forest FC"
+      ],
+      "unmatched_games": []
+    },
+    "laliga_moneyline": {
+      "jup_markets": 9,
+      "matched": 9,
+      "pct": 100.0,
+      "matched_games": [
+        "Athletic Club vs. RCD Espanyol de Barcelona",
+        "Real Madrid CF vs. RC Celta de Vigo",
+        "FC Barcelona vs. Villarreal CF"
+      ],
+      "unmatched_games": []
+    },
+    "other_soccer_moneyline": {
+      "jup_markets": 72,
+      "matched": 0,
+      "note": "tidak ada series Kalshi untuk liga-liga ini di slate hari ini (Bundesliga, Serie A, Ligue 1, UCL, dll. — di luar cakupan probe; hanya EPL + LaLiga yang diuji)"
+    },
+    "nba_spreads_totals": {
+      "jup_markets": 0,
+      "note": "jup.ag TIDAK punya pasar spread/total NBA di slate ini (hanya moneyline) — pencocokan N/A, walau Kalshi punya series KXNBASPREAD + KXNBATOTAL",
+      "kalshi_spread_events": 9,
+      "kalshi_total_events": 9
+    },
+    "epl_spreads": {
+      "jup_markets": 100,
+      "matched": 40,
+      "pct": 40.0,
+      "kalshi_lines": [
+        1.5,
+        2.5
+      ],
+      "kalshi_markets_priced": "40/40",
+      "note": "Kalshi hanya punya garis 1.5/2.5 (lihat kalshi_lines) — pasar jup.ag di garis lain tidak punya padanan"
+    },
+    "epl_totals": {
+      "jup_markets": 90,
+      "matched": 60,
+      "pct": 66.7,
+      "kalshi_lines": [
+        0.5,
+        1.5,
+        2.5,
+        3.5,
+        4.5,
+        5.5
+      ],
+      "kalshi_markets_priced": "60/60",
+      "note": "Kalshi hanya punya pasar Over (Under = sisi No); garis Kalshi 0.5-5.5, jup.ag sampai 8.5"
+    }
+  }
+}

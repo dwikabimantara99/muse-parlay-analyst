@@ -1,0 +1,41 @@
+{
+  "source": "Understat (cek ulang)",
+  "tier": 2,
+  "probed_at": "2026-11-20T15:49:30.461522+00:00",
+  "accessible_from_vm": false,
+  "format": null,
+  "rate_limit": "UNKNOWN (tidak ada header rate limit yang terlihat)",
+  "data_available": [
+    "EPL/2025: status=maintenance, HTTP 200, 26719 karakter, penanda JSON tertanam: tidak ada",
+    "La_liga/2025: status=maintenance, HTTP 200, 26719 karakter, penanda JSON tertanam: tidak ada"
+  ],
+  "risk_notes": [],
+  "requests": [
+    {
+      "url": "https://understat.com/league/EPL/2025",
+      "status": 200,
+      "from_cache": false,
+      "elapsed_seconds": 1.24,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html>\n<html>\n    <head>\n\t\t<title>Understat.com</title>\n        <meta charset=\"UTF-8\" />\n        <meta name=\"viewport\" content=\"width=device-width,maximum-scale=1.0,initial-scale=1.0\">\n        <link href=\"/css/errors.css\" rel=\"stylesheet\" media=\"screen\">\n    </head>\n    <body class=\"theme-dark\">\n      <div id=\"image-container\" class=\"player-container\">\n          <div class=\"player\">\n          <?xml version=\"1.0\" encoding=\"UTF-8\"?>\n            <svg style=\"background-color: #343436;\" id=\""
+    },
+    {
+      "url": "https://understat.com/league/La_liga/2025",
+      "status": 200,
+      "from_cache": false,
+      "elapsed_seconds": 1.27,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html>\n<html>\n    <head>\n\t\t<title>Understat.com</title>\n        <meta charset=\"UTF-8\" />\n        <meta name=\"viewport\" content=\"width=device-width,maximum-scale=1.0,initial-scale=1.0\">\n        <link href=\"/css/errors.css\" rel=\"stylesheet\" media=\"screen\">\n    </head>\n    <body class=\"theme-dark\">\n      <div id=\"image-container\" class=\"player-container\">\n          <div class=\"player\">\n          <?xml version=\"1.0\" encoding=\"UTF-8\"?>\n            <svg style=\"background-color: #343436;\" id=\""
+    }
+  ],
+  "verdict": "JANGAN",
+  "unknown": [
+    "situs masih maintenance saat cek ulang — rantai xG tetap putus, aturan B4 (TANPA_XG) tetap berlaku; cek harian otomatis (check_understat.py) akan mendeteksi bila kembali"
+  ],
+  "statuses": [
+    "maintenance",
+    "maintenance"
+  ]
+}

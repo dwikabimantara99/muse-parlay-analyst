@@ -1,0 +1,233 @@
+{
+  "source": "ESPN odds (scoreboard/summary)",
+  "tier": 2,
+  "probed_at": "2026-11-20T15:56:49.593102+00:00",
+  "accessible_from_vm": true,
+  "format": "JSON REST",
+  "rate_limit": "UNKNOWN (tidak ada header rate limit yang terlihat)",
+  "data_available": [
+    "scoreboard: 7/17 event punya odds",
+    "provider odds: DraftKings",
+    "field odds: moneyline (home/away/draw), pointSpread (home/away, line + odds), total (over/under, line + odds), overUnder; odds 'open' + 'close', format Amerika"
+  ],
+  "risk_notes": [
+    "Provider odds yang terlihat hanya satu (lihat scoreboards) — devig dari satu sportsbook saja, bukan konsensus pasar.",
+    "Odds di scoreboard bisa hilang setelah laga selesai (NBA hari ini: 0/4, semua laga sudah post) — fetcher 2b harus menarik SEBELUM laga.",
+    "Odds format Amerika (string) — perlu konversi ke probabilitas implisit + devig di Tahap 3."
+  ],
+  "requests": [
+    {
+      "url": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.88,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"leagues\":[{\"id\":\"46\",\"uid\":\"s:40~l:46\",\"name\":\"National Basketball Association\",\"abbreviation\":\"NBA\",\"slug\":\"nba\",\"season\":{\"year\":2027,\"startDate\":\"2026-09-30T07:00Z\",\"endDate\":\"2027-06-26T06:59Z\",\"displayName\":\"2026-27\",\"type\":{\"id\":\"2\",\"type\":2,\"name\":\"Regular Season\",\"abbreviation\":\"reg\"}},\"logos\":[{\"href\":\"https://a.espncdn.com/i/teamlogos/leagues/500/nba.png\",\"width\":500,\"height\":500,\"alt\":\"\",\"rel\":[\"full\",\"default\"],\"lastUpdated\":\"2018-06-05T12:07Z\"},{\"href\":\"https://a.espncdn.com/combi"
+    },
+    {
+      "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.68,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"leagues\":[{\"id\":\"700\",\"uid\":\"s:600~l:700\",\"name\":\"English Premier League\",\"abbreviation\":\"Premier League\",\"midsizeName\":\"ENG.1\",\"slug\":\"eng.1\",\"season\":{\"year\":2026,\"startDate\":\"2026-06-01T04:00Z\",\"endDate\":\"2027-06-01T03:59Z\",\"displayName\":\"2026-27 English Premier League\",\"type\":{\"id\":\"1\",\"type\":14308,\"name\":\"2026-27 English Premier League\",\"abbreviation\":\"2026-27 English Premier League\"}},\"logos\":[{\"href\":\"https://a.espncdn.com/i/leaguelogos/soccer/500/23.png\",\"width\":500,\"height\":500,\"alt\":"
+    },
+    {
+      "url": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=20261121",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.66,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"leagues\":[{\"id\":\"46\",\"uid\":\"s:40~l:46\",\"name\":\"National Basketball Association\",\"abbreviation\":\"NBA\",\"slug\":\"nba\",\"season\":{\"year\":2027,\"startDate\":\"2026-09-30T07:00Z\",\"endDate\":\"2027-06-26T06:59Z\",\"displayName\":\"2026-27\",\"type\":{\"id\":\"2\",\"type\":2,\"name\":\"Regular Season\",\"abbreviation\":\"reg\"}},\"logos\":[{\"href\":\"https://a.espncdn.com/i/teamlogos/leagues/500/nba.png\",\"width\":500,\"height\":500,\"alt\":\"\",\"rel\":[\"full\",\"default\"],\"lastUpdated\":\"2018-06-05T12:07Z\"},{\"href\":\"https://a.espncdn.com/combi"
+    },
+    {
+      "url": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=401910023",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.56,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"boxscore\":{\"teams\":[{\"team\":{\"id\":\"15\",\"uid\":\"s:40~l:46~t:15\",\"slug\":\"milwaukee-bucks\",\"location\":\"Milwaukee\",\"name\":\"Bucks\",\"abbreviation\":\"MIL\",\"displayName\":\"Milwaukee Bucks\",\"shortDisplayName\":\"Bucks\",\"color\":\"00471b\",\"alternateColor\":\"eee1c6\",\"logo\":\"https://a.espncdn.com/i/teamlogos/nba/500/mil.png\"},\"statistics\":[{\"name\":\"streak\",\"displayValue\":\"L12\",\"abbreviation\":\"STRK\",\"label\":\"Streak\"},{\"name\":\"avgPointsAgainst\",\"displayValue\":\"121.1\",\"abbreviation\":\"OPP PPG\",\"label\":\"Points Against"
+    },
+    {
+      "url": "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/summary?event=401879233",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.69,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"boxscore\":{\"teams\":[{\"team\":{\"id\":\"382\",\"uid\":\"s:600~t:382\",\"slug\":\"eng.man_city\",\"location\":\"Manchester City\",\"name\":\"Manchester City\",\"abbreviation\":\"MNC\",\"displayName\":\"Manchester City\",\"shortDisplayName\":\"Man City\",\"color\":\"99c5ea\",\"alternateColor\":\"000000\",\"logo\":\"https://a.espncdn.com/i/teamlogos/soccer/500/382.png\"},\"statistics\":[{\"name\":\"goalDifference\",\"displayValue\":\"8\",\"label\":\"Goal Difference\"},{\"name\":\"totalGoals\",\"displayValue\":\"21\",\"label\":\"Total Goals\"},{\"name\":\"goalAssists\",\"d"
+    }
+  ],
+  "verdict": "PAKAI",
+  "unknown": [],
+  "scoreboards": [
+    {
+      "label": "NBA scoreboard hari ini",
+      "events": 4,
+      "with_odds": 0,
+      "providers": [],
+      "completeness": {
+        "moneyline": 0,
+        "spread": 0,
+        "total": 0
+      },
+      "first_event_id": "401910019",
+      "example": null
+    },
+    {
+      "label": "EPL scoreboard hari ini",
+      "events": 7,
+      "with_odds": 7,
+      "providers": [
+        "DraftKings"
+      ],
+      "completeness": {
+        "moneyline": 7,
+        "spread": 7,
+        "total": 7
+      },
+      "first_event_id": "401879233",
+      "example": {
+        "event": "Fulham at Manchester City",
+        "odds": {
+          "provider": "DraftKings",
+          "over_under": 3.5,
+          "moneyline": {
+            "home": "-260",
+            "away": "+650",
+            "draw": "+425"
+          },
+          "moneyline_decimal": {
+            "home": null,
+            "away": null,
+            "draw": null
+          },
+          "spread": {
+            "home_line": "-1.5",
+            "home_odds": "-105",
+            "away_line": "+1.5",
+            "away_odds": "-130"
+          },
+          "total": {
+            "over_line": "o3.5",
+            "over_odds": "+120",
+            "under_line": "u3.5",
+            "under_odds": "-145"
+          },
+          "details": "MNC -260"
+        }
+      }
+    },
+    {
+      "label": "NBA scoreboard besok",
+      "events": 6,
+      "with_odds": 0,
+      "providers": [],
+      "completeness": {
+        "moneyline": 0,
+        "spread": 0,
+        "total": 0
+      },
+      "first_event_id": "401910023",
+      "example": null
+    }
+  ],
+  "summary_nba": {
+    "label": "NBA summary",
+    "has_odds": false,
+    "odds_field": [],
+    "top_keys": [
+      "againstTheSpread",
+      "boxscore",
+      "broadcasts",
+      "format",
+      "gameInfo",
+      "header",
+      "injuries",
+      "lastFiveGames",
+      "leaders",
+      "meta",
+      "news",
+      "odds"
+    ]
+  },
+  "summary_epl": {
+    "label": "EPL summary",
+    "has_odds": true,
+    "n_odds_entries": 2,
+    "location": "odds",
+    "providers": [
+      {
+        "provider": "DraftKings",
+        "has_moneyline": true,
+        "moneyline_format": "american",
+        "has_spread": true,
+        "has_total": true,
+        "entry_keys": [
+          "awayTeamOdds",
+          "details",
+          "drawOdds",
+          "footer",
+          "header",
+          "homeTeamOdds",
+          "link",
+          "links",
+          "moneyline",
+          "overOdds",
+          "overUnder",
+          "pointSpread",
+          "provider",
+          "spread",
+          "total",
+          "underOdds"
+        ]
+      },
+      {
+        "provider": "Bet 365",
+        "has_moneyline": true,
+        "moneyline_format": "decimal",
+        "has_spread": false,
+        "has_total": false,
+        "entry_keys": [
+          "awayTeamOdds",
+          "bettingOdds",
+          "drawOdds",
+          "homeTeamOdds",
+          "links",
+          "provider"
+        ]
+      }
+    ],
+    "example": {
+      "provider": "DraftKings",
+      "over_under": 3.5,
+      "moneyline": {
+        "home": "-260",
+        "away": "+650",
+        "draw": "+425"
+      },
+      "moneyline_decimal": {
+        "home": null,
+        "away": null,
+        "draw": null
+      },
+      "spread": {
+        "home_line": "-1.5",
+        "home_odds": "-105",
+        "away_line": "+1.5",
+        "away_odds": "-130"
+      },
+      "total": {
+        "over_line": "o3.5",
+        "over_odds": "+120",
+        "under_line": "u3.5",
+        "under_odds": "-145"
+      },
+      "details": "MNC -260"
+    }
+  }
+}

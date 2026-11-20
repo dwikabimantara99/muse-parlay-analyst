@@ -13,7 +13,14 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from probes import common
+from probes import (
+    check_understat,
+    common,
+    espn_odds,
+    football_data,
+    jup_markup,
+    kalshi_sports,
+)
 
 PROBE_MODULES = [
     "jupiter",
@@ -29,6 +36,12 @@ PROBE_MODULES = [
     "sofascore",
     "fotmob",
     "official_leagues",
+    "espn_odds",
+    "kalshi_sports",
+    "jup_markup",
+    "football_data",
+    "understat_recheck",
+    "check_understat",
     "run_all",
 ]
 
@@ -277,6 +290,324 @@ class TestResultHelpers(unittest.TestCase):
         self.assertIsNone(common.parse_json_body({"body": "bukan json"}))
         self.assertIsNone(common.parse_json_body({"body": ""}))
         self.assertIsNone(common.parse_json_body({}))
+
+
+class TestJupMarkup(unittest.TestCase):
+    def test_micro_usd_ke_cents(self):
+        self.assertEqual(jup_markup.micro_usd_to_cents(430000), 43.0)
+        self.assertEqual(jup_markup.micro_usd_to_cents(0), 0.0)
+        self.assertIsNone(jup_markup.micro_usd_to_cents(None))
+        self.assertIsNone(jup_markup.micro_usd_to_cents("430000"))
+        self.assertIsNone(jup_markup.micro_usd_to_cents(True))
+
+    def test_line_as_float(self):
+        self.assertEqual(jup_markup.line_as_float("2.5"), 2.5)
+        self.assertEqual(jup_markup.line_as_float(-1.5), -1.5)
+        self.assertIsNone(jup_markup.line_as_float(None))
+        self.assertIsNone(jup_markup.line_as_float("bukan-angka"))
+
+    def test_yes_token_id_pasar_dua_outcome_berbagi_token(self):
+        # Moneyline NBA: dua pasar berbagi satu pasangan token; pasar tim
+        # kedua memakai token [1] (memakai [0] memberi markup palsu).
+        market = {
+            "title": "Bulls",
+            "team": {"name": "Bulls"},
+            "outcomes": ["Wizards", "Bulls"],
+            "clobTokenIds": ["token-yes", "token-no"],
+        }
+        token, index, _ = jup_markup.yes_token_id(market)
+        self.assertEqual(token, "token-no")
+        self.assertEqual(index, 1)
+        market["title"] = "Wizards"
+        market["team"] = {"name": "Wizards"}
+        token, index, _ = jup_markup.yes_token_id(market)
+        self.assertEqual(token, "token-yes")
+        self.assertEqual(index, 0)
+
+    def test_yes_token_id_pasar_biner_mandiri_fallback_nol(self):
+        market = {
+            "title": "Chelsea FC",
+            "team": {"name": "Chelsea FC"},
+            "outcomes": ["Yes", "No"],
+            "clobTokenIds": ["token-yes", "token-no"],
+        }
+        token, index, how = jup_markup.yes_token_id(market)
+        self.assertEqual(token, "token-yes")
+        self.assertEqual(index, 0)
+        self.assertIn("fallback", how)
+
+    def test_yes_token_id_tanpa_token(self):
+        token, index, _ = jup_markup.yes_token_id(
+            {"title": "X", "outcomes": ["X", "Y"], "clobTokenIds": []}
+        )
+        self.assertIsNone(token)
+        self.assertIsNone(index)
+
+    def test_book_midpoint_dan_spread(self):
+        book = {
+            "bids": [{"price": "0.42", "size": "100"}, {"price": "0.41", "size": "50"}],
+            "asks": [{"price": "0.43", "size": "80"}, {"price": "0.44", "size": "10"}],
+        }
+        self.assertAlmostEqual(jup_markup.book_midpoint(book), 42.5)
+        self.assertAlmostEqual(jup_markup.book_spread(book), 1.0)
+        self.assertIsNone(jup_markup.book_midpoint({"bids": [], "asks": book["asks"]}))
+        self.assertIsNone(jup_markup.book_midpoint({"bids": book["bids"], "asks": []}))
+        self.assertIsNone(
+            jup_markup.book_midpoint({"bids": [{"price": "x"}], "asks": []})
+        )
+        self.assertIsNone(jup_markup.book_midpoint(None))
+
+    def test_compute_markup(self):
+        self.assertAlmostEqual(jup_markup.compute_markup(43.0, 42.5), 0.5)
+        self.assertAlmostEqual(jup_markup.compute_markup(25.0, 25.5), -0.5)
+
+
+class TestKalshiMatching(unittest.TestCase):
+    def test_normalize_team_buang_kata_pengisi(self):
+        self.assertEqual(kalshi_sports.normalize_team("Chelsea FC"), "chelsea")
+        self.assertEqual(kalshi_sports.normalize_team("AFC Bournemouth"), "bournemouth")
+        self.assertEqual(
+            kalshi_sports.normalize_team("Newcastle United FC"), "newcastle"
+        )
+        self.assertEqual(kalshi_sports.normalize_team("RC Celta de Vigo"), "celta vigo")
+        self.assertEqual(
+            kalshi_sports.normalize_team("Manchester City FC"), "manchester city"
+        )
+        self.assertEqual(kalshi_sports.normalize_team("Sunderland AFC"), "sunderland")
+
+    def test_normalize_nba_team_julukan_ke_kota(self):
+        self.assertEqual(kalshi_sports.normalize_nba_team("Hornets"), "charlotte")
+        self.assertEqual(kalshi_sports.normalize_nba_team("Lakers"), "los angeles l")
+        self.assertEqual(kalshi_sports.normalize_nba_team("Clippers"), "los angeles c")
+        self.assertEqual(kalshi_sports.normalize_nba_team("Trail Blazers"), "portland")
+        self.assertEqual(kalshi_sports.normalize_nba_team("76ers"), "philadelphia")
+        # Nama kota dibiarkan apa adanya.
+        self.assertEqual(kalshi_sports.normalize_nba_team("Chicago"), "chicago")
+
+    def test_normalize_soccer_team_alias(self):
+        self.assertEqual(kalshi_sports.normalize_soccer_team("Athletic Club"), "bilbao")
+        self.assertEqual(
+            kalshi_sports.normalize_soccer_team("RCD Espanyol de Barcelona"),
+            "espanyol",
+        )
+
+    def test_parse_vs_title(self):
+        self.assertEqual(
+            kalshi_sports.parse_vs_title("Wizards vs. Bulls"),
+            ("Wizards", "Bulls"),
+        )
+        self.assertEqual(
+            kalshi_sports.parse_vs_title("Chelsea vs Leeds United"),
+            ("Chelsea", "Leeds United"),
+        )
+        self.assertIsNone(kalshi_sports.parse_vs_title("NBA: 2027 Champion"))
+
+    def test_same_game_nba_kota_vs_julukan(self):
+        self.assertTrue(
+            kalshi_sports.same_game_nba("Hornets vs. Hawks", "Charlotte vs Atlanta")
+        )
+        self.assertTrue(
+            kalshi_sports.same_game_nba(
+                "Kings vs. Lakers", "Sacramento vs Los Angeles L"
+            )
+        )
+        # Urutan tim bebas.
+        self.assertTrue(
+            kalshi_sports.same_game_nba("Hawks vs. Hornets", "Charlotte vs Atlanta")
+        )
+        self.assertFalse(
+            kalshi_sports.same_game_nba("Hornets vs. Hawks", "Charlotte vs Boston")
+        )
+        # Lakers vs Clippers tidak boleh tertukar.
+        self.assertFalse(
+            kalshi_sports.same_game_nba(
+                "Kings vs. Lakers", "Sacramento vs Los Angeles C"
+            )
+        )
+
+    def test_same_game_soccer(self):
+        self.assertTrue(
+            kalshi_sports.same_game_soccer(
+                "Chelsea FC vs. Leeds United FC", "Chelsea vs Leeds United"
+            )
+        )
+        self.assertTrue(
+            kalshi_sports.same_game_soccer(
+                "Athletic Club vs. RCD Espanyol de Barcelona",
+                "Bilbao vs Espanyol",
+            )
+        )
+        self.assertTrue(
+            kalshi_sports.same_game_soccer(
+                "AFC Bournemouth vs. Nottingham Forest FC",
+                "Bournemouth vs Nottingham Forest",
+            )
+        )
+        self.assertFalse(
+            kalshi_sports.same_game_soccer(
+                "Chelsea FC vs. Leeds United FC", "Chelsea vs Arsenal"
+            )
+        )
+
+    def test_parse_kalshi_spread_title(self):
+        # Format NBA: "wins by over X points".
+        self.assertEqual(
+            kalshi_sports.parse_kalshi_spread_title("Utah wins by over 7.5 points"),
+            ("utah", 7.5),
+        )
+        # Format bola: "wins by more than X goals?".
+        self.assertEqual(
+            kalshi_sports.parse_kalshi_spread_title(
+                "Chelsea wins by more than 1.5 goals?"
+            ),
+            ("chelsea", 1.5),
+        )
+        self.assertIsNone(kalshi_sports.parse_kalshi_spread_title("Utah wins"))
+        self.assertIsNone(kalshi_sports.parse_kalshi_spread_title(""))
+
+    def test_parse_kalshi_total_title(self):
+        self.assertEqual(
+            kalshi_sports.parse_kalshi_total_title("Will over 2.5 goals be scored?"),
+            2.5,
+        )
+        self.assertIsNone(
+            kalshi_sports.parse_kalshi_total_title("Will under 2.5 goals be scored?")
+        )
+        self.assertIsNone(kalshi_sports.parse_kalshi_total_title(""))
+
+
+class TestUnderstatStatus(unittest.TestCase):
+    def test_maintenance(self):
+        self.assertEqual(
+            check_understat.classify_status(200, "<html>We will come back soon</html>"),
+            "maintenance",
+        )
+
+    def test_up(self):
+        self.assertEqual(
+            check_understat.classify_status(
+                200, "<html>var teamsData = {}; var datesData = {};</html>"
+            ),
+            "up",
+        )
+
+    def test_unknown(self):
+        self.assertEqual(
+            check_understat.classify_status(200, "<html>halaman lain</html>"),
+            "unknown",
+        )
+
+    def test_down(self):
+        self.assertEqual(check_understat.classify_status(503, ""), "down")
+        self.assertEqual(check_understat.classify_status(404, ""), "down")
+        self.assertEqual(
+            check_understat.classify_status(None, "", error="URLError"), "down"
+        )
+
+
+class TestEspnOdds(unittest.TestCase):
+    def test_american_to_implied_prob(self):
+        self.assertAlmostEqual(espn_odds.american_to_implied_prob("-260"), 260 / 360)
+        self.assertAlmostEqual(espn_odds.american_to_implied_prob("+650"), 100 / 750)
+        self.assertIsNone(espn_odds.american_to_implied_prob("0"))
+        self.assertIsNone(espn_odds.american_to_implied_prob("abc"))
+        self.assertIsNone(espn_odds.american_to_implied_prob(None))
+
+    def test_parse_odds_entry_draftkings(self):
+        entry = {
+            "provider": {"name": "DraftKings"},
+            "overUnder": 2.5,
+            "moneyline": {
+                "home": {"close": {"odds": "-260"}},
+                "away": {"close": {"odds": "+650"}},
+                "draw": {"close": {"odds": "+425"}},
+            },
+            "pointSpread": {
+                "home": {"close": {"line": "-1.5", "odds": "-105"}},
+                "away": {"close": {"line": "+1.5", "odds": "-130"}},
+            },
+            "total": {
+                "over": {"close": {"line": "o2.5", "odds": "+120"}},
+                "under": {"close": {"line": "u2.5", "odds": "-145"}},
+            },
+        }
+        parsed = espn_odds.parse_odds_entry(entry)
+        self.assertEqual(parsed["provider"], "DraftKings")
+        self.assertEqual(parsed["moneyline"]["home"], "-260")
+        self.assertEqual(parsed["moneyline"]["draw"], "+425")
+        self.assertEqual(parsed["spread"]["home_line"], "-1.5")
+        self.assertEqual(parsed["total"]["under_odds"], "-145")
+
+    def test_parse_odds_entry_bet365_desimal(self):
+        entry = {
+            "provider": {"name": "Bet 365"},
+            "homeTeamOdds": {"odds": {"summary": "4/11", "value": 1.364}},
+            "awayTeamOdds": {"odds": {"summary": "6/1", "value": 7.0}},
+            "drawOdds": {"summary": "17/4", "value": 5.25},
+        }
+        parsed = espn_odds.parse_odds_entry(entry)
+        self.assertEqual(parsed["provider"], "Bet 365")
+        self.assertEqual(parsed["moneyline_decimal"]["home"], 1.364)
+        self.assertEqual(parsed["moneyline_decimal"]["away"], 7.0)
+        self.assertEqual(parsed["moneyline_decimal"]["draw"], 5.25)
+        self.assertIsNone(parsed["moneyline"]["home"])
+        self.assertIsNone(parsed["spread"]["home_line"])
+
+    def test_parse_odds_entry_kosong(self):
+        parsed = espn_odds.parse_odds_entry({})
+        self.assertIsNone(parsed["provider"])
+        self.assertIsNone(parsed["moneyline"]["home"])
+        self.assertIsNone(parsed["moneyline_decimal"]["home"])
+        self.assertIsNone(parsed["total"]["over_line"])
+
+
+class TestFootballData(unittest.TestCase):
+    def test_pinnacle_columns(self):
+        header = [
+            "Div",
+            "Date",
+            "PSH",
+            "PSD",
+            "PSA",
+            "PSCH",
+            "PSCD",
+            "PSCA",
+            "P>2.5",
+            "P<2.5",
+            "B365H",
+        ]
+        found = football_data.pinnacle_columns(header)
+        self.assertEqual(found["1x2_open"], ["PSH", "PSD", "PSA"])
+        self.assertEqual(found["1x2_close"], ["PSCH", "PSCD", "PSCA"])
+        self.assertEqual(found["over_under_2_5"], ["P>2.5", "P<2.5"])
+        found = football_data.pinnacle_columns(["Div", "Date", "B365H"])
+        self.assertEqual(found["1x2_open"], [])
+        self.assertEqual(found["over_under_2_5"], [])
+
+    def test_parse_csv_sample(self):
+        text = (
+            "Div,Date,HomeTeam,AwayTeam,FTHG,FTAG,PSH,PSD,PSA\n"
+            "E0,15/08/2025,Liverpool,Bournemouth,4,2,1.28,6.56,9.07\n"
+            "E0,16/08/2025,Man United,Fulham,1,0,1.63,4.38,5.3\n"
+        )
+        parsed = football_data.parse_csv_sample(text)
+        self.assertEqual(parsed["n_rows"], 2)
+        self.assertIn("PSH", parsed["header"])
+        self.assertEqual(parsed["sample_row"]["HomeTeam"], "Liverpool")
+        self.assertEqual(parsed["sample_row"]["PSH"], "1.28")
+        self.assertEqual(football_data.parse_csv_sample("")["n_rows"], 0)
+
+    def test_leagues_from_data_page(self):
+        html = (
+            "<html><body><table>"
+            "<tr><td>England Football Results</td></tr>"
+            "<tr><td>Spain Football Results</td></tr>"
+            "<tr><td>Football Betting</td></tr>"
+            "</table></body></html>"
+        )
+        self.assertEqual(
+            football_data.leagues_from_data_page(html), ["England", "Spain"]
+        )
 
 
 class TestProbeImports(unittest.TestCase):
