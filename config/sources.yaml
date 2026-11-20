@@ -1,0 +1,70 @@
+# sources.yaml — daftar sumber data + cadangan (Blueprint §4).
+# Semua sumber GRATIS. API key disimpan di .env, JANGAN PERNAH di file ini.
+# Setiap data yang diambil wajib disimpan dengan sumber + jam pengambilan.
+
+meta:
+  version: 1
+  project: muse-parlay-analyst
+  source: "Blueprint Mesin Analis Parlay (Muse) §4, Nov 20 2026"
+
+# Format tiap entri: primary (utama), fallback (cadangan), notes.
+sources:
+  jup_prices:
+    label: "Harga ¢ jup.ag"
+    primary: "Jupiter Prediction API (API key gratis dari Portal)"
+    primary_url: "https://developers.jup.ag/docs/guides/how-to-build-a-prediction-market-app-on-solana"
+    fallback: "Screenshot yang dikirim user"
+    notes: "Likuiditas dari Polymarket dan Kalshi. API masih beta dan bisa dibatasi di beberapa region."
+    env_key: "JUPITER_API_KEY"
+
+  comparison_prices:
+    label: "Harga pasar pembanding"
+    primary: "Polymarket API, Kalshi API (publik)"
+    fallback: "The Odds API paket gratis"
+    notes: "The Odds API hanya 500 kredit/bulan, 1 panggilan bisa makan beberapa kredit. Pakai hemat, hanya saat analisis."
+    env_key: "ODDS_API_KEY"
+
+  nba_schedule_stats:
+    label: "Jadwal, skor, statistik tim NBA"
+    primary: "ESPN (JSON publik)"
+    fallback: "Basketball-Reference"
+    notes: "stats.nba.com via nba_api sering diblokir dari server cloud, jadi ESPN jadi utama."
+    env_key: null
+
+  nba_injuries:
+    label: "Cedera NBA"
+    primary: "Official NBA Injury Report (PDF)"
+    fallback: "ESPN injuries, Rotowire"
+    notes: "PDF di-parse otomatis. Wajib dicek ulang dekat tip-off."
+    env_key: null
+
+  nba_player_impact:
+    label: "Dampak pemain NBA"
+    primary: "Basketball-Reference (BPM, menit, on/off)"
+    fallback: "ESPN player stats"
+    notes: "Untuk skenario absen 1/2/4 pemain."
+    env_key: null
+
+  football_stats_xg:
+    label: "Statistik & xG sepak bola"
+    primary: "Understat (5 liga top Eropa), Sofascore, FotMob"
+    fallback: "ESPN soccer"
+    notes: "FBref kehilangan data xG sejak Januari 2026, jangan dipakai untuk xG."
+    env_key: null
+
+  football_lineup_injuries:
+    label: "Lineup & cedera bola"
+    primary: "Sofascore, FotMob"
+    fallback: "ESPN soccer"
+    notes: "Lineup resmi biasanya keluar sekitar 60 menit sebelum kick-off."
+    env_key: null
+
+rules:
+  # §4: setiap data disimpan dengan sumber + jam pengambilan.
+  store_source_and_timestamp: true
+  # §4: kalau dua sumber berbeda (misal status cedera), laporan wajib
+  # menampilkan keduanya. Tidak boleh dipilih diam-diam.
+  show_conflicting_sources: true
+  # §4: scraper (Sofascore, FotMob) wajib punya tes kecil yang memberi tahu
+  # kalau format sumber berubah / scraper rusak.
+  scrapers_require_health_test: true

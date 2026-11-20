@@ -1,0 +1,4 @@
+# muse-parlay-analyst — Tahap 1
+# Python 3.11+ (diuji di 3.12.3). Tes memakai unittest (stdlib, tanpa pytest).
+pyyaml>=6.0
+jsonschema>=4.0

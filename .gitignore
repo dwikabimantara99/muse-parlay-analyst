@@ -1,0 +1,25 @@
+# API key & rahasia — JANGAN PERNAH di-commit (Blueprint §4, aturan kerja 3)
+.env
+*.env
+
+# Database ledger lokal (berisi riwayat taruhan user)
+*.db
+*.db-journal
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Output analisis lokal (JSON per laga / slate) — bukan bagian repo
+data/
+out/
+*.log
+
+# Editor / OS
+.vscode/
+.DS_Store

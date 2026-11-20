@@ -1,0 +1,125 @@
+# playstyle.yaml — SATU-SATUNYA sumber ambang & default strategi.
+# Blueprint: muse-parlay-analyst §6, §7 (plus angka terkait §3, §4, §5, §9).
+# Aturan: angka strategi TIDAK BOLEH ditulis di tempat lain (kode, SOP, laporan).
+# Kalau blueprint tidak memberi angka, nilainya null + komentar TBD — JANGAN ditebak.
+# Semua peluang dalam desimal 0–1, kecuali disebut "poin" (1 poin = 1% = 0,01).
+# Mata uang: USD. Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
+
+meta:
+  version: 1
+  project: muse-parlay-analyst
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026"
+  last_reviewed: "2026-11-20"
+
+# ── §6a. Dua tiket ──────────────────────────────────────────────────────────
+tickets:
+  insurance:
+    name: "Asuransi"
+    multiplier_min: 2.20        # §6a default 2,20x
+    multiplier_max: 2.50        # §6a default 2,50x
+    min_leg_prob: 0.74          # §6a idealnya ≥74% per kaki
+    # Syarat wajib §6a: pengali x modal Asuransi >= total modal kedua tiket.
+    must_cover_total_stake: true
+  main:
+    name: "Utama"
+    multiplier_min: 3.5         # §6a default 3,5x
+    multiplier_max: 6.0         # §6a default 6x (mode Agresif: bebas, bisa 10x+)
+    min_leg_prob: 0.65          # §6a idealnya ≥65% per kaki
+  # Mode default. "aggressive" hanya atas perintah user per malam ("malam ini
+  # mode agresif"). Di mode agresif: multiplier_max Utama bebas + moneyline
+  # di bawah 65% boleh dengan label wajib (lihat filters.moneyline).
+  mode: standard                # standard | aggressive
+  # Pembagian modal default: TIDAK ADA di blueprint — user menyebut per malam
+  # (contoh "modal 60/40"). null = wajib diisi saat analisis, jangan ditebak.
+  stake_split_default: null     # TBD — contoh format: {insurance: 0.6, main: 0.4}
+
+# ── §6c. Cara memilih racikan terbaik ───────────────────────────────────────
+optimizer:
+  # Urutan: (1) P(rugi total) terkecil, (2) EV gabungan terbesar.
+  sort_by: ["p_total_loss_asc", "combined_ev_desc"]
+  top_options: 3                # §6c: 3 racikan teratas
+  top_option_labels: ["Paling aman", "Seimbang", "Agresif"]
+  # Buang pasangan yang Asuransinya tidak bisa menutup modal (syarat §6a).
+  drop_if_insurance_cannot_cover: true
+
+# ── §6d. Harga kombo ────────────────────────────────────────────────────────
+combo:
+  spread_cut_pct: 5.5           # §6d default potongan spread kombo 5,5%
+  # Kalau user kirim pengali asli jup.ag, pengali itu yang dipakai dan
+  # spread_cut_pct dikalibrasi otomatis dari selisihnya (Tahap 4).
+
+# ── §5c. Pembanding pasar (devig & blend) ───────────────────────────────────
+blend:
+  w_model: 0.3                  # §5c nilai awal w = 0,3 (pasar patokan utama)
+  # p_akhir = w * p_model + (1 - w) * p_pasar. w baru naik kalau ledger
+  # membuktikan model lebih akurat (kalibrasi §9, atas persetujuan user).
+  # Edge per kaki = p_akhir - harga jup.ag (desimal).
+
+# ── §5d. Deteksi anomali ────────────────────────────────────────────────────
+anomaly:
+  jup_vs_market_points: 4.0     # §5d: |jup.ag - pasar lain| > 4 poin
+  model_vs_market_points: 8.0   # §5d: |model - pasar| > 8 poin
+  # Ambang "harga bergerak tajam sejak pengambilan pertama": TIDAK ADA angkanya
+  # di blueprint. null = belum ditentukan, perlu keputusan user.
+  sharp_move_points: null       # TBD
+
+# ── §7a. Filter keras (kaki langsung dicoret, alasan dicatat) ───────────────
+filters:
+  all_markets:
+    exclude_data_incomplete: true   # §7a: status DATA_INCOMPLETE
+    min_ev_pct: -2.0                # §7a: EV < -2% setelah potongan spread
+  moneyline:
+    min_p_final: 0.65               # §7a: p_akhir < 65% dicoret
+    # Kecuali mode Agresif, dan kaki wajib diberi label (agresif).
+    allow_below_min_in_aggressive: true
+    aggressive_label_required: true
+  nba_alt_under:
+    # Salah satu tim peringkat DRtg #23-30 -> coret.
+    drtg_bad_rank_from: 23
+    drtg_bad_rank_to: 30
+    # Kedua tim masuk 10 besar Pace -> coret.
+    both_top_pace_n: 10
+    # Spread <= 2,5 poin tanpa bantalan ekstra -> coret (risiko OT).
+    spread_no_cushion_max: 2.5
+    # "Bantalan ekstra" TIDAK DIDEFINISIKAN di blueprint (berapa poin? dari
+    # apa?). null = belum ditentukan, perlu keputusan user sebelum Tahap 3.
+    extra_cushion_points: null      # TBD
+  football_btts_yes:
+    min_combined_xg: 2.45           # §7a: total xG gabungan < 2,45 -> coret
+  football_lineup:
+    # Lineup belum keluar + laga < 60 menit lagi + pemain kunci diragukan.
+    lineup_missing_minutes_before_kickoff: 60
+    # "Pemain kunci" TIDAK DIDEFINISIKAN di blueprint (starter? BPM? xG
+    # kontribusi?). null = perlu definisi sebelum Tahap 3.
+    key_player_definition: null     # TBD
+
+# ── §5. Mesin hitung ────────────────────────────────────────────────────────
+simulation:
+  iterations: 100000            # §5: 100.000x simulasi per laga
+  nba:
+    distribution: student-t     # §5a: ekor tebal
+    # sigma dikalibrasi dari data historis, bukan ditebak — nilainya belum ada.
+    sigma_points: null          # TBD (kalibrasi Tahap 3)
+    home_advantage_points: null # TBD (kalibrasi Tahap 3)
+    back_to_back_penalty_points: null  # TBD (kalibrasi Tahap 3)
+    altitude_adjustment_points: null   # TBD — Denver/Utah (kalibrasi Tahap 3)
+    tournament_flags: ["NBA Cup", "Playoff"]  # §5a: bendera konteks
+    squad_scenarios: ["full", "missing_1", "missing_2", "missing_4"]  # §5a
+    overtime_minutes: 5         # §5a: OT 5 menit kalau seri setelah 48 menit
+  football:
+    model: dixon-coles          # §5b
+    xg_weight_season: 0.60      # §5b: 60% musim
+    xg_weight_recent: 0.40      # §5b: 40% 5-6 laga terakhir
+    recent_matches: 6           # §5b: 5-6 laga terakhir (pakai 6, batas atas)
+    dixon_coles_rho: null       # TBD — blueprint tidak memberi nilai rho
+    home_advantage_by_league: null  # TBD — per liga (kalibrasi Tahap 3)
+    absence_penalty: null       # TBD — bek tengah/kiper/striker absen
+
+# ── §4. Aturan data ─────────────────────────────────────────────────────────
+data:
+  stale_hours_injury_lineup: 3  # §4: cedera/lineup > 3 jam = "basi", ambil ulang
+  recheck_window_minutes: [30, 60]  # §3: cek ulang 30-60 menit sebelum laga
+
+# ── §9. Ledger & kalibrasi ──────────────────────────────────────────────────
+calibration:
+  report_every_legs: 50         # §9: laporan kalibrasi setiap 50 kaki
