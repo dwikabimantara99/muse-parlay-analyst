@@ -77,6 +77,27 @@ Aturan:
 - **C5.** Cek: apakah `sportsMarketType` dan `line`/`handicap` memberi pasar
   spread, total, BTTS? Apakah VM kena batas region?
 
+**Hasil pengecekan C (2026-11-20):**
+
+- **Pasar: YA.** Probe keyless 100 event sports dari VM: `sportsMarketType`
+  mencakup `moneyline`, `spreads` (620 pasar), `totals` (558),
+  `both_teams_to_score` (30), plus `first_half_spreads`,
+  `first_half_totals`, `second_half_totals`, `handicap`. `sportsLine`
+  membawa garisnya (misal spread `-1.5`, total `2.5`).
+- **Region: TIDAK ADA BLOKIR.** API keyless (tanpa key, 0,5 RPS) menjawab
+  HTTP 200 dari VM.
+- **Wallet baru dibuat** (C1): pubkey
+  `CzFEgpBYhU4andHc4RJJHxTcRgDUYKsUtZQUbFEKRj1m`, kunci di
+  `~/.config/muse-parlay-analyst/jupiter-portal-wallet.json` (mode 600, di
+  luar repo). Terverifikasi di mainnet: saldo 0 lamport, 0 transaksi.
+- **Portal TIDAK memakai login wallet.** Pendaftaran di
+  `developers.jup.ag/sign-up` menawarkan Google/GitHub OAuth atau email +
+  kode verifikasi, dengan tantangan Cloudflare "Verify you are human".
+  Sesuai C4, pendaftaran DIHENTIKAN dan dilaporkan ke user: butuh tindakan
+  user (daftar sendiri lalu serahkan API key, atau tunjukkan email dan
+  selesaikan verifikasi + tantangan Cloudflare). Sementara itu Tahap 2
+  bisa memakai akses keyless (0,5 RPS); API key menaikkan batas ke 1 RPS.
+
 ### D. Jawaban pertanyaan Tahap 1
 
 - **D2. p_market kosong:** pakai sportsbook (The Odds API, devig). Tetap
