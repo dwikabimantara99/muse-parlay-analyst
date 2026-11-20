@@ -1,70 +1,160 @@
-# sources.yaml — daftar sumber data + cadangan (Blueprint §4).
-# Semua sumber GRATIS. API key disimpan di .env, JANGAN PERNAH di file ini.
-# Setiap data yang diambil wajib disimpan dengan sumber + jam pengambilan.
+# sources.yaml — daftar sumber data berjenjang (DECISIONS.md B).
+# MENGGANTIKAN Blueprint §4. Semua sumber GRATIS. API key disimpan di .env,
+# JANGAN PERNAH di file ini.
+#
+# Jenjang: 1 = RESMI (penyelenggara kompetisi), 2 = agregator besar terpercaya,
+# 3 = sumber valid lain (hanya kalau jenjang 1-2 tidak punya).
+# Selalu pakai jenjang tertinggi yang tersedia; catat jenjang + sumber + jam.
 
 meta:
-  version: 1
+  version: 2
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse) §4, Nov 20 2026"
+  source: "DECISIONS.md B (2026-11-20), menggantikan Blueprint §4"
 
-# Format tiap entri: primary (utama), fallback (cadangan), notes.
+tiers:
+  1:
+    name: "RESMI"
+    description: "Penyelenggara kompetisinya langsung."
+  2:
+    name: "Agregator besar terpercaya"
+    description: "ESPN, Sofascore, FotMob, Understat (xG), Basketball-Reference."
+  3:
+    name: "Sumber valid lain"
+    description: "Hanya kalau jenjang 1-2 tidak punya data yang dibutuhkan."
+
+# Format tiap jenis data: candidates (daftar sumber berjenjang) + env_key
+# (nama variabel di .env, atau null bila tidak butuh key).
 sources:
   jup_prices:
     label: "Harga ¢ jup.ag"
-    primary: "Jupiter Prediction API (API key gratis dari Portal)"
-    primary_url: "https://developers.jup.ag/docs/guides/how-to-build-a-prediction-market-app-on-solana"
-    fallback: "Screenshot yang dikirim user"
-    notes: "Likuiditas dari Polymarket dan Kalshi. API masih beta dan bisa dibatasi di beberapa region."
+    candidates:
+      - name: "Jupiter Prediction API"
+        tier: 1
+        url: "https://developers.jup.ag/docs/guides/how-to-build-a-prediction-market-app-on-solana"
+        notes: "API key gratis dari Portal. HANYA BACA — DILARANG memanggil endpoint order, execute, atau apa pun yang memindahkan dana (DECISIONS.md C3). API masih beta, bisa dibatasi di beberapa region."
+      - name: "Screenshot yang dikirim user"
+        tier: 3
+        notes: "Cadangan bila API gagal."
     env_key: "JUPITER_API_KEY"
 
   comparison_prices:
     label: "Harga pasar pembanding"
-    primary: "Polymarket API, Kalshi API (publik)"
-    fallback: "The Odds API paket gratis"
-    notes: "The Odds API hanya 500 kredit/bulan, 1 panggilan bisa makan beberapa kredit. Pakai hemat, hanya saat analisis."
+    candidates:
+      - name: "Polymarket API"
+        tier: 2
+        notes: "Publik."
+      - name: "Kalshi API"
+        tier: 2
+        notes: "Publik."
+      - name: "The Odds API"
+        tier: 2
+        notes: "Paket gratis; dipakai untuk devig sportsbook bila Polymarket/Kalshi tidak punya pasarnya (DECISIONS.md D2)."
     env_key: "ODDS_API_KEY"
+    # D3: batas operasional The Odds API (bukan ambang strategi — dicatat di
+    # sini, lihat DECISIONS.md D-T2).
+    odds_api_limits:
+      monthly_credit_limit: 450
+      warn_at_pct: 80
+      cache_minutes: 30
+      max_calls_per_analysis: 2
+      region: "eu"
+      bookmaker: "Pinnacle"
 
   nba_schedule_stats:
     label: "Jadwal, skor, statistik tim NBA"
-    primary: "ESPN (JSON publik)"
-    fallback: "Basketball-Reference"
-    notes: "stats.nba.com via nba_api sering diblokir dari server cloud, jadi ESPN jadi utama."
+    candidates:
+      - name: "nba.com"
+        tier: 1
+        notes: "Jadwal, statistik, live data."
+      - name: "ESPN"
+        tier: 2
+        notes: "JSON publik."
+      - name: "Basketball-Reference"
+        tier: 2
     env_key: null
 
   nba_injuries:
     label: "Cedera NBA"
-    primary: "Official NBA Injury Report (PDF)"
-    fallback: "ESPN injuries, Rotowire"
-    notes: "PDF di-parse otomatis. Wajib dicek ulang dekat tip-off."
+    candidates:
+      - name: "Official NBA Injury Report"
+        tier: 1
+        notes: "PDF. URL resmi & jadwal update dicari + diverifikasi di Tahap 2, jangan diasumsikan (DECISIONS.md D4). Wajib dicek ulang dekat tip-off."
+      - name: "ESPN injuries"
+        tier: 2
+      - name: "Rotowire"
+        tier: 2
     env_key: null
 
   nba_player_impact:
     label: "Dampak pemain NBA"
-    primary: "Basketball-Reference (BPM, menit, on/off)"
-    fallback: "ESPN player stats"
-    notes: "Untuk skenario absen 1/2/4 pemain."
+    candidates:
+      - name: "nba.com"
+        tier: 1
+        notes: "Statistik pemain resmi."
+      - name: "Basketball-Reference"
+        tier: 2
+        notes: "BPM, menit, on/off. Untuk skenario absen 1/2/4 pemain."
+      - name: "ESPN player stats"
+        tier: 2
     env_key: null
 
   football_stats_xg:
     label: "Statistik & xG sepak bola"
-    primary: "Understat (5 liga top Eropa), Sofascore, FotMob"
-    fallback: "ESPN soccer"
-    notes: "FBref kehilangan data xG sejak Januari 2026, jangan dipakai untuk xG."
+    candidates:
+      - name: "Situs/data resmi liga"
+        tier: 1
+        notes: "Premier League, UEFA, LaLiga, Serie A, Bundesliga, Ligue 1, dst.; FIFA untuk laga timnas. xG resmi kalau ada."
+      - name: "Understat"
+        tier: 2
+        notes: "xG, 5 liga top Eropa."
+      - name: "Sofascore"
+        tier: 2
+      - name: "FotMob"
+        tier: 2
+      - name: "ESPN soccer"
+        tier: 2
+        notes: "FBref kehilangan data xG sejak Januari 2026, jangan dipakai untuk xG."
     env_key: null
 
   football_lineup_injuries:
     label: "Lineup & cedera bola"
-    primary: "Sofascore, FotMob"
-    fallback: "ESPN soccer"
-    notes: "Lineup resmi biasanya keluar sekitar 60 menit sebelum kick-off."
+    candidates:
+      - name: "Situs/data resmi liga"
+        tier: 1
+        notes: "Premier League, UEFA, LaLiga, Serie A, Bundesliga, Ligue 1, dst."
+      - name: "Sofascore"
+        tier: 2
+      - name: "FotMob"
+        tier: 2
+      - name: "ESPN soccer"
+        tier: 2
+        notes: "Lineup resmi biasanya keluar sekitar 60 menit sebelum kick-off."
     env_key: null
 
 rules:
-  # §4: setiap data disimpan dengan sumber + jam pengambilan.
-  store_source_and_timestamp: true
-  # §4: kalau dua sumber berbeda (misal status cedera), laporan wajib
-  # menampilkan keduanya. Tidak boleh dipilih diam-diam.
+  # B1: selalu pakai jenjang tertinggi yang tersedia.
+  use_highest_tier_available: true
+  # B1: setiap data disimpan dengan jenjang + sumber + jam pengambilan.
+  record_tier_source_time: true
+  # B2: cedera & lineup dicek silang minimal 2 sumber.
+  cross_check_min_sources_injury_lineup: 2
+  # Kalau dua sumber berbeda, laporan wajib menampilkan keduanya.
   show_conflicting_sources: true
-  # §4: scraper (Sofascore, FotMob) wajib punya tes kecil yang memberi tahu
-  # kalau format sumber berubah / scraper rusak.
+  # B3: scraping boleh dengan etika berikut.
+  scraping:
+    allowed: true
+    # Jeda antar request per situs — belum ada angkanya, tentukan di Tahap 2
+    # dari batas tiap situs. null = belum ditentukan, jangan ditebak.
+    request_delay_seconds: null  # TBD Tahap 2
+    cache: true
+    # String User-Agent yang jelas — ditentukan di Tahap 2.
+    user_agent: null  # TBD Tahap 2
+    respect_site_limits: true
+  # B3: semua sumber mati -> DATA_INCOMPLETE.
+  all_sources_dead: "DATA_INCOMPLETE"
+  # B4: rantai xG bola: resmi -> Understat -> Sofascore/FotMob. Tidak ada xG
+  # -> Dixon-Coles berbasis gol, label TANPA_XG (lihat playstyle.yaml no_xg).
+  xg_chain: ["resmi", "Understat", "Sofascore/FotMob"]
+  # Scraper wajib punya tes kecil yang memberi tahu kalau format sumber
+  # berubah / scraper rusak.
   scrapers_require_health_test: true

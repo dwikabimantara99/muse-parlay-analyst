@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS legs (
     filter_reason TEXT,
     anomaly_reason TEXT,
     critic_light TEXT,
+    flags_json TEXT,
     result TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_legs_ticket_id ON legs(ticket_id);
@@ -167,6 +168,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tickets ADD COLUMN cashout_amount REAL")
     if "multiplier_original" not in cols:
         conn.execute("ALTER TABLE tickets ADD COLUMN multiplier_original REAL")
+    leg_cols = {row[1] for row in conn.execute("PRAGMA table_info(legs)")}
+    if "flags_json" not in leg_cols:
+        conn.execute("ALTER TABLE legs ADD COLUMN flags_json TEXT")
     sql_row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tickets'"
     ).fetchone()
@@ -332,8 +336,8 @@ def log_ticket(conn: sqlite3.Connection, ticket: dict) -> str:
                 (ticket_id, leg_id, match_id, sport, market, selection,
                  p_model, p_market, p_final, price_buy_cents,
                  price_close_cents, edge, ev_pct, status, filter_reason,
-                 anomaly_reason, critic_light, result)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 anomaly_reason, critic_light, flags_json, result)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 ticket_id,
@@ -353,6 +357,7 @@ def log_ticket(conn: sqlite3.Connection, ticket: dict) -> str:
                 leg.get("filter_reason"),
                 leg.get("anomaly_reason"),
                 leg.get("critic_light"),
+                json.dumps(leg.get("flags") or []),
                 leg.get("result"),
             ),
         )
@@ -457,7 +462,12 @@ def get_ticket(conn: sqlite3.Connection, ticket_id: str) -> dict | None:
     legs = conn.execute(
         "SELECT * FROM legs WHERE ticket_id = ? ORDER BY id", (ticket_id,)
     ).fetchall()
-    ticket["legs"] = [dict(leg) for leg in legs]
+    parsed_legs = []
+    for leg in legs:
+        leg_dict = dict(leg)
+        leg_dict["flags"] = json.loads(leg_dict.pop("flags_json") or "[]")
+        parsed_legs.append(leg_dict)
+    ticket["legs"] = parsed_legs
     return ticket
 
 

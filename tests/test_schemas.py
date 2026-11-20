@@ -75,6 +75,33 @@ class TestSchemas(unittest.TestCase):
             }
             jsonschema.validate(instance=leg_only, schema=leg_schema)
 
+    def test_leg_dengan_flags_valid(self):
+        leg_schema = load_json(REPO_ROOT / "schemas" / "leg.schema.json")
+        ticket = load_json(REPO_ROOT / "examples" / "ticket_asuransi.json")
+        leg = dict(ticket["legs"][0])
+        leg.pop("result", None)
+        leg.pop("price_close_cents", None)
+        leg["flags"] = ["MODEL_ONLY"]
+        jsonschema.validate(instance=leg, schema=leg_schema)
+
+    def test_match_data_sumber_tanpa_tier_ditolak(self):
+        schema = load_json(REPO_ROOT / "schemas" / "match_data.schema.json")
+        doc = {
+            "match_id": "nba-2026-11-20-lal-bos",
+            "sport": "nba",
+            "fetched_at": "2026-11-20T18:00:00+07:00",
+            "status": "OK",
+            "sources": [
+                {
+                    "data_kind": "nba_schedule_stats",
+                    "source": "nba.com",
+                    "fetched_at": "2026-11-20T18:00:00+07:00",
+                }
+            ],
+        }
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(instance=doc, schema=schema)
+
     def test_match_data_minimal_valid(self):
         schema = load_json(REPO_ROOT / "schemas" / "match_data.schema.json")
         doc = {

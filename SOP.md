@@ -2,6 +2,8 @@
 
 **Dokumen ini WAJIB dibaca Muse setiap Mode Analisis.**
 Sumber resmi: Blueprint Mesin Analis Parlay (Muse) §3 + §8 + §7c.
+Keputusan yang mengubah/menambah blueprint dicatat di `DECISIONS.md` — baca
+bersama dokumen ini. Kalau keduanya berbeda, `DECISIONS.md` yang berlaku.
 Perubahan SOP hanya lewat revisi dokumen ini, bukan lewat ingatan chat.
 
 ---
@@ -54,16 +56,19 @@ angka dari file itu, bukan dari ingatan chat.
   daftar laga tertulis yang tidak ambigu).
 
 ### Langkah 2 — Tarik data
-- Script mengambil semua data per laga (Blueprint §4, daftar di
-  `config/sources.yaml`): statistik musim, 5–10 laga terakhir, kandang/tandang,
-  jadwal istirahat, cedera, lineup, dan harga pasar lain.
-- Setiap data disimpan dengan **sumber + jam pengambilan**.
+- Script mengambil semua data per laga (aturan jenjang di `DECISIONS.md` B,
+  daftar di `config/sources.yaml`): statistik musim, 5–10 laga terakhir,
+  kandang/tandang, jadwal istirahat, cedera, lineup, dan harga pasar lain.
+- Selalu pakai jenjang tertinggi yang tersedia. Setiap data disimpan dengan
+  **jenjang + sumber + jam pengambilan**.
 
 ### Langkah 3 — Validasi
 - Script mengecek kelengkapan dan umur data.
 - Data bolong atau basi → status `DATA_INCOMPLETE` atau `HOLD`.
 - Cedera/lineup lebih tua dari 3 jam = "basi", wajib diambil ulang sebelum
   dipakai di tiket final (ambang di `config/playstyle.yaml` → `data`).
+- Cedera & lineup dicek silang minimal 2 sumber (`DECISIONS.md` B2); kalau
+  beda, laporan menampilkan keduanya.
 
 ### Langkah 4 — Simulasi 100.000x
 - Setiap laga disimulasikan 100.000 kali (NBA: Student-t + OT; bola:

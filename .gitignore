@@ -2,6 +2,11 @@
 .env
 *.env
 
+# Kunci wallet Jupiter Portal (DECISIONS.md C2) — disimpan di LUAR repo,
+# pola ini mencegahnya masuk repo secara tidak sengaja.
+*jupiter-wallet*.json
+jupiter-wallet.json
+
 # Database ledger lokal (berisi riwayat taruhan user)
 *.db
 *.db-journal

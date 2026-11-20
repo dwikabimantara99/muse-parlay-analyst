@@ -1,14 +1,17 @@
 # playstyle.yaml — SATU-SATUNYA sumber ambang & default strategi.
 # Blueprint: muse-parlay-analyst §6, §7 (plus angka terkait §3, §4, §5, §9).
+# Pelengkap: DECISIONS.md (keputusan user 2026-11-20; kalau berbeda dengan
+# blueprint, DECISIONS.md yang berlaku).
 # Aturan: angka strategi TIDAK BOLEH ditulis di tempat lain (kode, SOP, laporan).
-# Kalau blueprint tidak memberi angka, nilainya null + komentar TBD — JANGAN ditebak.
+# Kalau tidak ada angka yang diputuskan, nilainya null + komentar TBD — JANGAN ditebak.
 # Semua peluang dalam desimal 0–1, kecuali disebut "poin" (1 poin = 1% = 0,01).
-# Mata uang: USD. Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
+# Mata uang: USD (USDC dicatat 1:1, DECISIONS.md D14).
+# Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 1
+  version: 2
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20"
   last_reviewed: "2026-11-20"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -29,9 +32,8 @@ tickets:
   # mode agresif"). Di mode agresif: multiplier_max Utama bebas + moneyline
   # di bawah 65% boleh dengan label wajib (lihat filters.moneyline).
   mode: standard                # standard | aggressive
-  # Pembagian modal default: TIDAK ADA di blueprint — user menyebut per malam
-  # (contoh "modal 60/40"). null = wajib diisi saat analisis, jangan ditebak.
-  stake_split_default: null     # TBD — contoh format: {insurance: 0.6, main: 0.4}
+  # D13: pembagian modal default 50/50, bisa diubah lewat chat.
+  stake_split_default: {insurance: 0.5, main: 0.5}
 
 # ── §6c. Cara memilih racikan terbaik ───────────────────────────────────────
 optimizer:
@@ -46,7 +48,7 @@ optimizer:
 combo:
   spread_cut_pct: 5.5           # §6d default potongan spread kombo 5,5%
   # Kalau user kirim pengali asli jup.ag, pengali itu yang dipakai dan
-  # spread_cut_pct dikalibrasi otomatis dari selisihnya (Tahap 4).
+  # selisihnya disimpan untuk kalibrasi spread (D8, Tahap 4).
 
 # ── §5c. Pembanding pasar (devig & blend) ───────────────────────────────────
 blend:
@@ -55,13 +57,27 @@ blend:
   # membuktikan model lebih akurat (kalibrasi §9, atas persetujuan user).
   # Edge per kaki = p_akhir - harga jup.ag (desimal).
 
+# ── D2. MODEL_ONLY (p_market tidak ada di mana pun) ─────────────────────────
+model_only:
+  # p_akhir = p_model. Ambang +5 poin lebih ketat (tafsiran D-T1: ambang
+  # peluang minimum naik 5 poin). Maks 1 kaki per tiket, dilarang Asuransi.
+  p_final_equals_p_model: true
+  threshold_penalty_points: 5
+  max_legs_per_ticket: 1
+  banned_from_insurance: true
+
+# ── B4. TANPA_XG (bola tanpa data xG) ───────────────────────────────────────
+no_xg:
+  label: "TANPA_XG"
+  fallback_model: "Dixon-Coles berbasis gol"
+  threshold_penalty_points: 5   # tafsiran D-T1, sama seperti MODEL_ONLY
+  banned_from_insurance: true
+
 # ── §5d. Deteksi anomali ────────────────────────────────────────────────────
 anomaly:
   jup_vs_market_points: 4.0     # §5d: |jup.ag - pasar lain| > 4 poin
   model_vs_market_points: 8.0   # §5d: |model - pasar| > 8 poin
-  # Ambang "harga bergerak tajam sejak pengambilan pertama": TIDAK ADA angkanya
-  # di blueprint. null = belum ditentukan, perlu keputusan user.
-  sharp_move_points: null       # TBD
+  sharp_move_cents: 3           # D9: harga berubah >= 3¢ sejak pengambilan pertama
 
 # ── §7a. Filter keras (kaki langsung dicoret, alasan dicatat) ───────────────
 filters:
@@ -79,30 +95,50 @@ filters:
     drtg_bad_rank_to: 30
     # Kedua tim masuk 10 besar Pace -> coret.
     both_top_pace_n: 10
-    # Spread <= 2,5 poin tanpa bantalan ekstra -> coret (risiko OT).
-    spread_no_cushion_max: 2.5
-    # "Bantalan ekstra" TIDAK DIDEFINISIKAN di blueprint (berapa poin? dari
-    # apa?). null = belum ditentukan, perlu keputusan user sebelum Tahap 3.
-    extra_cushion_points: null      # TBD
+    # D10: bantalan = garis Alt Under - median proyeksi total.
+    # Coret bila bantalan < 8 poin (< 12 poin kalau spread <= 2,5).
+    min_cushion_points: 8
+    min_cushion_points_close_spread: 12
+    close_spread_threshold: 2.5
   football_btts_yes:
     min_combined_xg: 2.45           # §7a: total xG gabungan < 2,45 -> coret
   football_lineup:
     # Lineup belum keluar + laga < 60 menit lagi + pemain kunci diragukan.
     lineup_missing_minutes_before_kickoff: 60
-    # "Pemain kunci" TIDAK DIDEFINISIKAN di blueprint (starter? BPM? xG
-    # kontribusi?). null = perlu definisi sebelum Tahap 3.
-    key_player_definition: null     # TBD
+    # D11: definisi pemain kunci bola.
+    key_player_definition:
+      goalkeeper: "kiper utama"
+      centre_backs: "2 bek tengah dengan menit terbanyak"
+      top_attacker: "pemain xG+xA terbanyak"
+      minutes_threshold_pct: 70
+
+# ── D7/D8. Rumus (referensi; implementasi di kode Tahap 3/4) ────────────────
+formulas:
+  leg_ev: "p_akhir * (100 / harga_cents) - 1"
+  combo_multiplier: "prod(100 / harga_cents_i) * (1 - spread_pct / 100)"
+  ticket_ev: "P(tiket menang, simulasi gabungan) * pengali - 1"
+
+# ── D14. Mata uang ──────────────────────────────────────────────────────────
+currency:
+  base: "USD"
+  usdc_to_usd: 1.0              # D14: USDC dicatat sebagai USD 1:1
 
 # ── §5. Mesin hitung ────────────────────────────────────────────────────────
 simulation:
   iterations: 100000            # §5: 100.000x simulasi per laga
+  # D12: parameter TIDAK BOLEH ditebak — fit dari data historis, laporkan
+  # hasil fit + backtest, berlaku setelah user setujui.
+  fitting:
+    history_seasons: "2-3"
+    nba_fit_targets: ["margin", "total"]
+    football_rho_method: "MLE per liga"
+    requires_user_approval: true
   nba:
     distribution: student-t     # §5a: ekor tebal
-    # sigma dikalibrasi dari data historis, bukan ditebak — nilainya belum ada.
-    sigma_points: null          # TBD (kalibrasi Tahap 3)
-    home_advantage_points: null # TBD (kalibrasi Tahap 3)
-    back_to_back_penalty_points: null  # TBD (kalibrasi Tahap 3)
-    altitude_adjustment_points: null   # TBD — Denver/Utah (kalibrasi Tahap 3)
+    sigma_points: null          # TBD — fit Tahap 3 (D12)
+    home_advantage_points: null # TBD — fit Tahap 3 (D12)
+    back_to_back_penalty_points: null  # TBD — fit Tahap 3 (D12)
+    altitude_adjustment_points: null   # TBD — Denver/Utah, fit Tahap 3 (D12)
     tournament_flags: ["NBA Cup", "Playoff"]  # §5a: bendera konteks
     squad_scenarios: ["full", "missing_1", "missing_2", "missing_4"]  # §5a
     overtime_minutes: 5         # §5a: OT 5 menit kalau seri setelah 48 menit
@@ -111,14 +147,15 @@ simulation:
     xg_weight_season: 0.60      # §5b: 60% musim
     xg_weight_recent: 0.40      # §5b: 40% 5-6 laga terakhir
     recent_matches: 6           # §5b: 5-6 laga terakhir (pakai 6, batas atas)
-    dixon_coles_rho: null       # TBD — blueprint tidak memberi nilai rho
-    home_advantage_by_league: null  # TBD — per liga (kalibrasi Tahap 3)
-    absence_penalty: null       # TBD — bek tengah/kiper/striker absen
+    dixon_coles_rho: null       # TBD — MLE per liga, Tahap 3 (D12)
+    home_advantage_by_league: null  # TBD — fit Tahap 3 (D12)
+    absence_penalty: null       # TBD — bek tengah/kiper/striker absen (D12)
 
-# ── §4. Aturan data ─────────────────────────────────────────────────────────
+# ── Aturan data (DECISIONS.md B, menggantikan §4) ───────────────────────────
 data:
   stale_hours_injury_lineup: 3  # §4: cedera/lineup > 3 jam = "basi", ambil ulang
   recheck_window_minutes: [30, 60]  # §3: cek ulang 30-60 menit sebelum laga
+  cross_check_min_sources_injury_lineup: 2  # B2: cedera & lineup min 2 sumber
 
 # ── §9. Ledger & kalibrasi ──────────────────────────────────────────────────
 calibration:

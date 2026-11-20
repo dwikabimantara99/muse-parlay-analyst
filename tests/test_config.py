@@ -38,6 +38,13 @@ class TestPlaystyle(unittest.TestCase):
     def test_mode_default_standard(self):
         self.assertEqual(self.cfg["tickets"]["mode"], "standard")
 
+    def test_stake_split_default_50_50(self):
+        # D13: modal default 50/50.
+        self.assertEqual(
+            self.cfg["tickets"]["stake_split_default"],
+            {"insurance": 0.5, "main": 0.5},
+        )
+
     # §6c — optimizer
     def test_optimizer(self):
         opt = self.cfg["optimizer"]
@@ -60,9 +67,36 @@ class TestPlaystyle(unittest.TestCase):
         anom = self.cfg["anomaly"]
         self.assertEqual(anom["jup_vs_market_points"], 4.0)
         self.assertEqual(anom["model_vs_market_points"], 8.0)
-        # Ambang "harga bergerak tajam" tidak ada di blueprint -> null (TBD),
-        # bukan angka karangan.
-        self.assertIsNone(anom["sharp_move_points"])
+        # D9: harga bergerak tajam = berubah >= 3¢ sejak pengambilan pertama.
+        self.assertEqual(anom["sharp_move_cents"], 3)
+
+    # D2 — MODEL_ONLY
+    def test_model_only(self):
+        mo = self.cfg["model_only"]
+        self.assertTrue(mo["p_final_equals_p_model"])
+        self.assertEqual(mo["threshold_penalty_points"], 5)
+        self.assertEqual(mo["max_legs_per_ticket"], 1)
+        self.assertTrue(mo["banned_from_insurance"])
+
+    # B4 — TANPA_XG
+    def test_no_xg(self):
+        nx = self.cfg["no_xg"]
+        self.assertEqual(nx["label"], "TANPA_XG")
+        self.assertEqual(nx["fallback_model"], "Dixon-Coles berbasis gol")
+        self.assertEqual(nx["threshold_penalty_points"], 5)
+        self.assertTrue(nx["banned_from_insurance"])
+
+    # D7/D8 — rumus
+    def test_formulas(self):
+        formulas = self.cfg["formulas"]
+        self.assertIn("p_akhir", formulas["leg_ev"])
+        self.assertIn("spread_pct", formulas["combo_multiplier"])
+        self.assertIn("pengali", formulas["ticket_ev"])
+
+    # D14 — mata uang
+    def test_currency(self):
+        self.assertEqual(self.cfg["currency"]["base"], "USD")
+        self.assertEqual(self.cfg["currency"]["usdc_to_usd"], 1.0)
 
     # §7a — filter keras
     def test_filter_semua_pasar(self):
@@ -81,9 +115,10 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(f["drtg_bad_rank_from"], 23)
         self.assertEqual(f["drtg_bad_rank_to"], 30)
         self.assertEqual(f["both_top_pace_n"], 10)
-        self.assertEqual(f["spread_no_cushion_max"], 2.5)
-        # "Bantalan ekstra" tidak didefinisikan di blueprint -> null (TBD).
-        self.assertIsNone(f["extra_cushion_points"])
+        # D10: bantalan = garis Alt Under - median proyeksi total.
+        self.assertEqual(f["min_cushion_points"], 8)
+        self.assertEqual(f["min_cushion_points_close_spread"], 12)
+        self.assertEqual(f["close_spread_threshold"], 2.5)
 
     def test_filter_btts(self):
         self.assertEqual(
@@ -93,7 +128,14 @@ class TestPlaystyle(unittest.TestCase):
     def test_filter_lineup_bola(self):
         f = self.cfg["filters"]["football_lineup"]
         self.assertEqual(f["lineup_missing_minutes_before_kickoff"], 60)
-        self.assertIsNone(f["key_player_definition"])
+        # D11: definisi pemain kunci bola.
+        key_def = f["key_player_definition"]
+        self.assertEqual(key_def["goalkeeper"], "kiper utama")
+        self.assertEqual(
+            key_def["centre_backs"], "2 bek tengah dengan menit terbanyak"
+        )
+        self.assertEqual(key_def["top_attacker"], "pemain xG+xA terbanyak")
+        self.assertEqual(key_def["minutes_threshold_pct"], 70)
 
     # §5 — simulasi
     def test_simulasi(self):
@@ -113,7 +155,23 @@ class TestPlaystyle(unittest.TestCase):
     def test_data_dan_kalibrasi(self):
         self.assertEqual(self.cfg["data"]["stale_hours_injury_lineup"], 3)
         self.assertEqual(self.cfg["data"]["recheck_window_minutes"], [30, 60])
+        # B2: cedera & lineup dicek silang min 2 sumber.
+        self.assertEqual(
+            self.cfg["data"]["cross_check_min_sources_injury_lineup"], 2
+        )
         self.assertEqual(self.cfg["calibration"]["report_every_legs"], 50)
+
+    def test_simulasi_tetap_tbd_sampai_fit(self):
+        # D12: parameter simulasi tetap null sampai di-fit dari data historis
+        # dan disetujui user — tidak boleh ditebak.
+        sim = self.cfg["simulation"]
+        self.assertIsNone(sim["nba"]["sigma_points"])
+        self.assertIsNone(sim["nba"]["home_advantage_points"])
+        self.assertIsNone(sim["football"]["dixon_coles_rho"])
+        fitting = sim["fitting"]
+        self.assertEqual(fitting["history_seasons"], "2-3")
+        self.assertEqual(fitting["football_rho_method"], "MLE per liga")
+        self.assertTrue(fitting["requires_user_approval"])
 
 
 class TestGetValue(unittest.TestCase):
@@ -148,8 +206,47 @@ class TestSources(unittest.TestCase):
             "football_lineup_injuries",
         ):
             self.assertIn(kind, kinds)
-            self.assertIn("primary", kinds[kind])
-            self.assertIn("fallback", kinds[kind])
+            # Tiap jenis data punya daftar kandidat berjenjang (DECISIONS.md B).
+            candidates = kinds[kind]["candidates"]
+            self.assertGreaterEqual(len(candidates), 1)
+            for cand in candidates:
+                self.assertIn(cand["tier"], (1, 2, 3))
+                self.assertIn("name", cand)
+
+    def test_jenjang_tertinggi_didahulukan(self):
+        # NBA: nba.com jenjang 1. Bola: situs resmi liga jenjang 1.
+        src = config.load_sources()
+        nba = src["sources"]["nba_schedule_stats"]["candidates"]
+        self.assertEqual(nba[0]["name"], "nba.com")
+        self.assertEqual(nba[0]["tier"], 1)
+        bola = src["sources"]["football_stats_xg"]["candidates"]
+        self.assertEqual(bola[0]["tier"], 1)
+
+    def test_batas_odds_api(self):
+        # D3: cache 30 menit, maks 2 panggilan/analisis, region eu (Pinnacle),
+        # batas 450 kredit/bulan, peringatan di 80%.
+        src = config.load_sources()
+        limits = src["sources"]["comparison_prices"]["odds_api_limits"]
+        self.assertEqual(limits["monthly_credit_limit"], 450)
+        self.assertEqual(limits["warn_at_pct"], 80)
+        self.assertEqual(limits["cache_minutes"], 30)
+        self.assertEqual(limits["max_calls_per_analysis"], 2)
+        self.assertEqual(limits["region"], "eu")
+        self.assertEqual(limits["bookmaker"], "Pinnacle")
+
+    def test_aturan_sumber(self):
+        src = config.load_sources()
+        rules = src["rules"]
+        self.assertTrue(rules["use_highest_tier_available"])
+        self.assertTrue(rules["record_tier_source_time"])
+        self.assertEqual(
+            rules["cross_check_min_sources_injury_lineup"], 2
+        )
+        self.assertTrue(rules["show_conflicting_sources"])
+        self.assertEqual(rules["all_sources_dead"], "DATA_INCOMPLETE")
+        self.assertEqual(
+            rules["xg_chain"], ["resmi", "Understat", "Sofascore/FotMob"]
+        )
 
     def test_tidak_ada_api_key_di_sources(self):
         # API key hanya di .env — pastikan tidak ada nilai key di sources.yaml.
