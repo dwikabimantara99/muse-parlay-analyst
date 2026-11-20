@@ -32,3 +32,6 @@ venv/
 # Editor / OS
 .vscode/
 .DS_Store
+
+# State runtime cek harian Understat (ditulis hook, bukan bukti commit)
+probes/out/understat_status.json

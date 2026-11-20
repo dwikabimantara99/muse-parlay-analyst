@@ -278,9 +278,34 @@ Sumber: probe tambahan 1–5, 20 Nov 2026 22:57 WIB (40 request baru).
   sejak 23/07/2025 — kalibrasi Tahap 3 pakai musim selesai sebelum
   tanggal itu (mis. 2024/25) atau validasi dulu. (b) Ketentuan pakai
   membatasi data untuk "private individuals only, NOT commercial or
-  data training products using automated bots/scrapers/AI" — pemakaian
-  untuk proyek pribadi ini MENUNGGU KEPUTUSAN USER.
+  data training products using automated bots/scrapers/AI" — DIPUTUSKAN
+  user 23:08 WIB: BOLEH dengan syarat (lihat bagian "Tambahan 2b"
+  di bawah).
 - **Understat: masih maintenance** (cek ulang 22:49 WIB). Cek harian
   otomatis aktif (`probes/check_understat.py` + cron harian); bila
   kembali, Understat aktif lagi di rantai xG bila `status == "up"` dan
   `checked_at` < 24 jam. Sampai saat itu B4 (TANPA_XG) berlaku.
+
+## 2026-11-20 — Tambahan 2b + keputusan football-data.co.uk
+
+Sumber: pesan user, 20 Nov 2026 23:08 WIB.
+
+- **Verifikasi spread/total NBA di jup.ag (prioritas tinggi, bagian
+  2b).** Probe tambahan menemukan 0 pasar spread/total NBA di jup.ag
+  (sampel 100 event), padahal Alt Under NBA adalah pasar utama user.
+  2b wajib memastikan: ambil SEMUA event sports (pagination, tanpa
+  batas 100); bila tidak ada, cek ulang mendekati tip-off (3 jam & 1
+  jam sebelum laga); laporkan ada/tidak, sejak kapan dibuka, garis apa
+  saja.
+- **Bobot pembanding p_market.** Harga Kalshi kurang tajam dibanding
+  sportsbook. Di p_market simpan sumber pembandingnya
+  (`comparison_source`). Sportsbook (devig) dipakai bila ada; Kalshi
+  hanya bila sportsbook tidak ada, dan kaki itu diberi label
+  `PEMBANDING_KALSHI` di laporan. KXNBASPREAD / KXNBATOTAL dipakai
+  sebagai pembanding garis NBA bila pasar itu ada di jup.ag.
+- **football-data.co.uk: BOLEH** (keputusan user; membatalkan status
+  "menunggu keputusan" di atas), dengan syarat: (a) unduhan satu kali
+  per file musim yang dibutuhkan, bukan scraping massal, dengan jeda
+  antar request; (b) CSV disimpan lokal di `data/` (gitignored), TIDAK
+  di-commit ke GitHub; (c) kalibrasi pakai musim ≤ 2024/25 (odds
+  Pinnacle basi sejak 23/07/2025).

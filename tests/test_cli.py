@@ -71,12 +71,25 @@ class TestCli(unittest.TestCase):
         res = run_cli("log", "--file", ticket, "--db", self.db)
         self.assertEqual(res.returncode, 1)
 
-    def test_analyze_belum_tersedia(self):
-        res = run_cli(
-            "analyze", "--input", str(REPO_ROOT / "examples" / "slate_contoh.json")
+    def test_analyze_tolak_tanpa_konfirmasi(self):
+        # analyze 2b menolak slate yang belum dikonfirmasi user (SOP
+        # langkah 1) — tanpa network (ditolak sebelum fetch apa pun).
+        slate = json.loads(
+            (REPO_ROOT / "examples" / "slate_contoh.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(res.returncode, 2)
-        self.assertIn("Tahap 2", res.stderr)
+        slate["confirmed_by_user"] = False
+        path = Path(self.tmp.name) / "slate-tanpa-konfirmasi.json"
+        path.write_text(json.dumps(slate), encoding="utf-8")
+        res = run_cli("analyze", "--input", str(path))
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("belum dikonfirmasi", res.stderr)
+
+    def test_analyze_input_tidak_valid(self):
+        bad = Path(self.tmp.name) / "slate-bad.json"
+        bad.write_text('{"slate_id": "x"}', encoding="utf-8")
+        res = run_cli("analyze", "--input", str(bad))
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("error", res.stderr.lower())
 
     def test_recheck_belum_tersedia(self):
         res = run_cli("recheck", "--ticket", "tkt-contoh-01-ins")

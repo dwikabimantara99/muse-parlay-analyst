@@ -9,19 +9,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# (modul, fungsi) yang wajib masih berupa stub di Tahap 1.
+# (modul, fungsi) yang wajib masih berupa stub setelah Tahap 2b.
+# Semua ingest.* + validate.checks sudah diimplementasikan di 2b
+# (ingest.espn/nba_injury_pdf/bbref oleh worker NBA+ESPN; sisanya oleh
+# worker pasar/bola) — tidak lagi stub. ingest.fotmob dan ingest.sofascore
+# DIHAPUS (sumber ditolak user, DECISIONS.md).
 STUBS = [
-    ("ingest.espn", "fetch"),
-    ("ingest.nba_injury_pdf", "fetch"),
-    ("ingest.bbref", "fetch"),
-    ("ingest.understat", "fetch"),
-    ("ingest.sofascore", "fetch"),
-    ("ingest.fotmob", "fetch"),
-    ("ingest.jupiter", "fetch"),
-    ("ingest.polymarket", "fetch"),
-    ("ingest.kalshi", "fetch"),
-    ("ingest.odds_api", "fetch"),
-    ("validate.checks", "validate_match_data"),
     ("engine.nba_sim", "simulate"),
     ("engine.football_sim", "simulate"),
     ("engine.markets", "evaluate_markets"),

@@ -1,0 +1,869 @@
+{
+  "slate_id": "slate-demo-nba-2026-11-20",
+  "generated_at": "2026-11-20T16:49:16.107713+00:00",
+  "matches": [
+    {
+      "match_id": "nba-2026-11-20-was-chi",
+      "sport": "nba",
+      "fetched_at": "2026-11-20T16:49:13.974667+00:00",
+      "status": "OK",
+      "sources": [
+        {
+          "data_kind": "jup_prices",
+          "source": "Jupiter Prediction API",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:45:39.704813+00:00"
+        },
+        {
+          "data_kind": "comparison_prices",
+          "source": "The Odds API",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:48:58.912957+00:00"
+        },
+        {
+          "data_kind": "nba_schedule_stats",
+          "source": "stats.nba.com",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:49:06.826385+00:00"
+        },
+        {
+          "data_kind": "nba_schedule_stats",
+          "source": "stats.nba.com",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:49:08.222768+00:00"
+        },
+        {
+          "data_kind": "nba_schedule_stats",
+          "source": "Basketball-Reference",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:49:09.531543+00:00"
+        },
+        {
+          "data_kind": "nba_injuries",
+          "source": "Official NBA Injury Report",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:49:09.765010+00:00"
+        },
+        {
+          "data_kind": "nba_injuries",
+          "source": "Rotowire",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:49:09.809143+00:00"
+        },
+        {
+          "data_kind": "nba_injuries",
+          "source": "ESPN",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:49:09.815424+00:00"
+        }
+      ],
+      "stats": {
+        "scoreboard": {
+          "game_id": "0022600047",
+          "start_time": "2026-11-20T20:00:00-05:00",
+          "status": "8:00 pm ET"
+        },
+        "standings": {
+          "away": {
+            "team": "Washington Wizards",
+            "tricode": "WAS",
+            "wins": 5,
+            "losses": 11,
+            "win_pct": 0.313,
+            "conference": "East",
+            "division": "Southeast",
+            "division_rank": 4,
+            "playoff_rank": 11,
+            "league_rank": null,
+            "record": "5-11",
+            "home": "2-5",
+            "road": "3-6",
+            "l10": "2-8",
+            "current_streak": "W 1",
+            "points_pg": 110.8,
+            "opp_points_pg": 117.9,
+            "diff_points_pg": -7.2
+          },
+          "home": {
+            "team": "Chicago Bulls",
+            "tricode": "CHI",
+            "wins": 4,
+            "losses": 10,
+            "win_pct": 0.286,
+            "conference": "East",
+            "division": "Central",
+            "division_rank": 4,
+            "playoff_rank": 13,
+            "league_rank": null,
+            "record": "4-10",
+            "home": "1-4",
+            "road": "3-6",
+            "l10": "3-7",
+            "current_streak": "W 1",
+            "points_pg": 116.2,
+            "opp_points_pg": 124.6,
+            "diff_points_pg": -8.4
+          }
+        },
+        "advanced": {
+          "away": {
+            "team": "Washington Wizards",
+            "age": 24.6,
+            "wins": 5,
+            "losses": 11,
+            "wins_pyth": 5,
+            "losses_pyth": 11,
+            "mov": -7.19,
+            "sos": -1.17,
+            "srs": -8.35,
+            "off_rtg": 111.3,
+            "def_rtg": 118.5,
+            "net_rtg": -7.2,
+            "pace": 98.2,
+            "fta_per_fga_pct": 0.307,
+            "fg3a_per_fga_pct": 0.377,
+            "ts_pct": 0.563,
+            "efg_pct": 0.517,
+            "tov_pct": 13.0,
+            "orb_pct": 24.6,
+            "ft_rate": 0.244,
+            "opp_efg_pct": 0.532,
+            "opp_tov_pct": 11.7,
+            "drb_pct": 69.0,
+            "opp_ft_rate": 0.193
+          },
+          "home": {
+            "team": "Chicago Bulls",
+            "age": 25.5,
+            "wins": 4,
+            "losses": 10,
+            "wins_pyth": 4,
+            "losses_pyth": 10,
+            "mov": -8.36,
+            "sos": 1.43,
+            "srs": -6.93,
+            "off_rtg": 111.8,
+            "def_rtg": 119.9,
+            "net_rtg": -8.1,
+            "pace": 103.2,
+            "fta_per_fga_pct": 0.307,
+            "fg3a_per_fga_pct": 0.458,
+            "ts_pct": 0.568,
+            "efg_pct": 0.527,
+            "tov_pct": 14.4,
+            "orb_pct": 28.2,
+            "ft_rate": 0.235,
+            "opp_efg_pct": 0.552,
+            "opp_tov_pct": 12.7,
+            "drb_pct": 69.4,
+            "opp_ft_rate": 0.221
+          }
+        }
+      },
+      "injuries": [
+        {
+          "player": "Reece Beekman",
+          "team": "Washington Wizards",
+          "status": "Out",
+          "detail": "Injury/Illness Separation - Right AC Joint Sprain /"
+        },
+        {
+          "player": "Justin Champagnie",
+          "team": "Washington Wizards",
+          "status": "Out",
+          "detail": "Injury/Illness - Right Foot Surgery"
+        },
+        {
+          "player": "Felix Okpara",
+          "team": "Washington Wizards",
+          "status": "Day-To-Day",
+          "detail": "Okpara (illness) is available for Friday's game against Toronto."
+        },
+        {
+          "player": "Felix Okpara",
+          "team": "Washington Wizards",
+          "status": "Questionable",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "Tristan Vukcevic",
+          "team": "Washington Wizards",
+          "status": "Out",
+          "detail": "Injury/Illness - Left Hip Impingement"
+        },
+        {
+          "player": "Jamir Watkins",
+          "team": "Washington Wizards",
+          "status": "Out",
+          "detail": "Injury/Illness Surgery - Left ACL Repair /"
+        },
+        {
+          "player": "Tobe Awaka",
+          "team": "Chicago Bulls",
+          "status": "Out",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "Noa Essengue",
+          "team": "Chicago Bulls",
+          "status": "Day-To-Day",
+          "detail": "Essengue is listed as probable for Friday's game against Washington due to bilateral wrist soreness."
+        },
+        {
+          "player": "Noa Essengue",
+          "team": "Chicago Bulls",
+          "status": "Probable",
+          "detail": "Injury/Illness Soreness - Bilateral Wrist"
+        },
+        {
+          "player": "Orlando Robinson",
+          "team": "Chicago Bulls",
+          "status": "Out",
+          "detail": "G League - On Assignment"
+        },
+        {
+          "player": "Jaylin Sellers",
+          "team": "Chicago Bulls",
+          "status": "Out",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "Dailyn Swain",
+          "team": "Chicago Bulls",
+          "status": "Out",
+          "detail": "G League - On Assignment"
+        },
+        {
+          "player": "Caleb Wilson",
+          "team": "Chicago Bulls",
+          "status": "Out",
+          "detail": "Injury/Illness Fracture - Right Metacarpal"
+        }
+      ],
+      "lineup": null,
+      "market_prices": {
+        "moneyline_away": {
+          "market_type": "moneyline",
+          "line": null,
+          "outcome": "Wizards",
+          "side": "away",
+          "jup_price_cents": 43.0,
+          "jup_provider": "polymarket",
+          "jup_markup_cents": 0.5,
+          "jup_markup_reason": null,
+          "p_market": 0.438287153652393,
+          "comparison_source": "odds_api_devig",
+          "p_market_missing_reason": null,
+          "p_market_complement": false,
+          "labels": []
+        },
+        "moneyline_home": {
+          "market_type": "moneyline",
+          "line": null,
+          "outcome": "Bulls",
+          "side": "home",
+          "jup_price_cents": 58.0,
+          "jup_provider": "polymarket",
+          "jup_markup_cents": 0.5,
+          "jup_markup_reason": null,
+          "p_market": 0.5617128463476071,
+          "comparison_source": "odds_api_devig",
+          "p_market_missing_reason": null,
+          "p_market_complement": false,
+          "labels": []
+        }
+      },
+      "missing": [],
+      "conflicts": [
+        {
+          "field": "injuries:Felix Okpara",
+          "values": [
+            {
+              "source": "ESPN",
+              "value": "Day-To-Day"
+            },
+            {
+              "source": "Official NBA Injury Report",
+              "value": "Questionable"
+            }
+          ]
+        },
+        {
+          "field": "injuries:Noa Essengue",
+          "values": [
+            {
+              "source": "ESPN",
+              "value": "Day-To-Day"
+            },
+            {
+              "source": "Official NBA Injury Report",
+              "value": "Probable"
+            }
+          ]
+        }
+      ],
+      "status_reason": null,
+      "labels": []
+    },
+    {
+      "match_id": "nba-2026-11-20-cha-atl",
+      "sport": "nba",
+      "fetched_at": "2026-11-20T16:49:14.918095+00:00",
+      "status": "OK",
+      "sources": [
+        {
+          "data_kind": "jup_prices",
+          "source": "Jupiter Prediction API",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:45:39.704813+00:00"
+        },
+        {
+          "data_kind": "comparison_prices",
+          "source": "The Odds API",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:48:58.912957+00:00"
+        },
+        {
+          "data_kind": "nba_schedule_stats",
+          "source": "stats.nba.com",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:49:06.826385+00:00"
+        },
+        {
+          "data_kind": "nba_schedule_stats",
+          "source": "stats.nba.com",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:49:08.222768+00:00"
+        },
+        {
+          "data_kind": "nba_schedule_stats",
+          "source": "Basketball-Reference",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:49:09.531543+00:00"
+        },
+        {
+          "data_kind": "nba_injuries",
+          "source": "Official NBA Injury Report",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:49:09.765010+00:00"
+        },
+        {
+          "data_kind": "nba_injuries",
+          "source": "Rotowire",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:49:09.809143+00:00"
+        },
+        {
+          "data_kind": "nba_injuries",
+          "source": "ESPN",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:49:09.815424+00:00"
+        }
+      ],
+      "stats": {
+        "scoreboard": {
+          "game_id": "0022600043",
+          "start_time": "2026-11-20T19:00:00-05:00",
+          "status": "7:00 pm ET"
+        },
+        "standings": {
+          "home": {
+            "team": "Atlanta Hawks",
+            "tricode": "ATL",
+            "wins": 9,
+            "losses": 6,
+            "win_pct": 0.6,
+            "conference": "East",
+            "division": "Southeast",
+            "division_rank": 2,
+            "playoff_rank": 5,
+            "league_rank": null,
+            "record": "9-6",
+            "home": "3-3",
+            "road": "6-3",
+            "l10": "7-3",
+            "current_streak": "W 2",
+            "points_pg": 117.7,
+            "opp_points_pg": 115.8,
+            "diff_points_pg": 1.9
+          },
+          "away": {
+            "team": "Charlotte Hornets",
+            "tricode": "CHA",
+            "wins": 4,
+            "losses": 10,
+            "win_pct": 0.286,
+            "conference": "East",
+            "division": "Southeast",
+            "division_rank": 5,
+            "playoff_rank": 12,
+            "league_rank": null,
+            "record": "4-10",
+            "home": "3-4",
+            "road": "1-6",
+            "l10": "1-9",
+            "current_streak": "L 3",
+            "points_pg": 100.1,
+            "opp_points_pg": 110.4,
+            "diff_points_pg": -10.3
+          }
+        },
+        "advanced": {
+          "home": {
+            "team": "Atlanta Hawks",
+            "age": 26.6,
+            "wins": 9,
+            "losses": 6,
+            "wins_pyth": 8,
+            "losses_pyth": 7,
+            "mov": 1.93,
+            "sos": -2.73,
+            "srs": -0.8,
+            "off_rtg": 113.7,
+            "def_rtg": 111.8,
+            "net_rtg": 1.9,
+            "pace": 102.9,
+            "fta_per_fga_pct": 0.215,
+            "fg3a_per_fga_pct": 0.451,
+            "ts_pct": 0.557,
+            "efg_pct": 0.528,
+            "tov_pct": 12.6,
+            "orb_pct": 28.6,
+            "ft_rate": 0.163,
+            "opp_efg_pct": 0.552,
+            "opp_tov_pct": 15.9,
+            "drb_pct": 73.7,
+            "opp_ft_rate": 0.221
+          },
+          "away": {
+            "team": "Charlotte Hornets",
+            "age": 26.4,
+            "wins": 4,
+            "losses": 10,
+            "wins_pyth": 3,
+            "losses_pyth": 11,
+            "mov": -10.29,
+            "sos": -1.33,
+            "srs": -11.62,
+            "off_rtg": 104.4,
+            "def_rtg": 115.2,
+            "net_rtg": -10.8,
+            "pace": 95.2,
+            "fta_per_fga_pct": 0.217,
+            "fg3a_per_fga_pct": 0.522,
+            "ts_pct": 0.525,
+            "efg_pct": 0.486,
+            "tov_pct": 16.9,
+            "orb_pct": 32.7,
+            "ft_rate": 0.179,
+            "opp_efg_pct": 0.558,
+            "opp_tov_pct": 13.1,
+            "drb_pct": 77.3,
+            "opp_ft_rate": 0.203
+          }
+        }
+      },
+      "injuries": [
+        {
+          "player": "Michael Ajayi",
+          "team": "Charlotte Hornets",
+          "status": "Out",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "Grayson Allen",
+          "team": "Charlotte Hornets",
+          "status": "Out",
+          "detail": "Concussion Protocol"
+        },
+        {
+          "player": "Kylan Boswell",
+          "team": "Charlotte Hornets",
+          "status": "Out",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "Kon Knueppel",
+          "team": "Charlotte Hornets",
+          "status": "Out",
+          "detail": "Injury/Illness - Left Hamstring Strain"
+        },
+        {
+          "player": "Dennis Schroder",
+          "team": "Charlotte Hornets",
+          "status": "Out",
+          "detail": "Injury/Illness - Left Hamstring Strain"
+        },
+        {
+          "player": "Grant Williams",
+          "team": "Charlotte Hornets",
+          "status": "Out",
+          "detail": "Injury/Illness Management - Right Hamstring Injury"
+        },
+        {
+          "player": "Rafael Castro",
+          "team": "Atlanta Hawks",
+          "status": "Questionable",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "RayJ Dennis",
+          "team": "Atlanta Hawks",
+          "status": "Questionable",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "Kingston Flemings",
+          "team": "Atlanta Hawks",
+          "status": "Day-To-Day",
+          "detail": "Flemings (back) is questionable for Friday's game against the Hornets, Brad Rowland of the Locked On Podcast Network reports."
+        },
+        {
+          "player": "Kingston Flemings",
+          "team": "Atlanta Hawks",
+          "status": "Questionable",
+          "detail": "Injury/Illness - Lumbar Strain"
+        },
+        {
+          "player": "Mouhamed Gueye",
+          "team": "Atlanta Hawks",
+          "status": "Out",
+          "detail": "Injury/Illness - Left Foot Fracture"
+        },
+        {
+          "player": "Jock Landale",
+          "team": "Atlanta Hawks",
+          "status": "Out",
+          "detail": "Injury/Illness - Right Great Toe Sprain"
+        },
+        {
+          "player": "CJ McCollum",
+          "team": "Atlanta Hawks",
+          "status": "Out",
+          "detail": "Injury/Illness - Left Calf Strain"
+        },
+        {
+          "player": "Asa Newell",
+          "team": "Atlanta Hawks",
+          "status": "Out",
+          "detail": "Injury/Illness - Left Great Toe Surgery"
+        },
+        {
+          "player": "Henri Veesaar",
+          "team": "Atlanta Hawks",
+          "status": "Out",
+          "detail": "Injury/Illness - Right ACL Tear"
+        },
+        {
+          "player": "Jalen Wilson",
+          "team": "Atlanta Hawks",
+          "status": "Questionable",
+          "detail": "G League - Two-Way"
+        }
+      ],
+      "lineup": null,
+      "market_prices": {
+        "moneyline_away": {
+          "market_type": "moneyline",
+          "line": null,
+          "outcome": "Hornets",
+          "side": "away",
+          "jup_price_cents": 32.0,
+          "jup_provider": "polymarket",
+          "jup_markup_cents": 0.5,
+          "jup_markup_reason": null,
+          "p_market": 0.32062780269058294,
+          "comparison_source": "odds_api_devig",
+          "p_market_missing_reason": null,
+          "p_market_complement": false,
+          "labels": []
+        },
+        "moneyline_home": {
+          "market_type": "moneyline",
+          "line": null,
+          "outcome": "Hawks",
+          "side": "home",
+          "jup_price_cents": 69.0,
+          "jup_provider": "polymarket",
+          "jup_markup_cents": 0.5,
+          "jup_markup_reason": null,
+          "p_market": 0.6793721973094171,
+          "comparison_source": "odds_api_devig",
+          "p_market_missing_reason": null,
+          "p_market_complement": false,
+          "labels": []
+        }
+      },
+      "missing": [],
+      "conflicts": [
+        {
+          "field": "injuries:Kingston Flemings",
+          "values": [
+            {
+              "source": "ESPN",
+              "value": "Day-To-Day"
+            },
+            {
+              "source": "Official NBA Injury Report",
+              "value": "Questionable"
+            }
+          ]
+        }
+      ],
+      "status_reason": null,
+      "labels": []
+    },
+    {
+      "match_id": "nba-2026-11-20-phx-uta",
+      "sport": "nba",
+      "fetched_at": "2026-11-20T16:49:15.987576+00:00",
+      "status": "OK",
+      "sources": [
+        {
+          "data_kind": "jup_prices",
+          "source": "Jupiter Prediction API",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:45:39.704813+00:00"
+        },
+        {
+          "data_kind": "comparison_prices",
+          "source": "The Odds API",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:48:58.912957+00:00"
+        },
+        {
+          "data_kind": "nba_schedule_stats",
+          "source": "stats.nba.com",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:49:06.826385+00:00"
+        },
+        {
+          "data_kind": "nba_schedule_stats",
+          "source": "stats.nba.com",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:49:08.222768+00:00"
+        },
+        {
+          "data_kind": "nba_schedule_stats",
+          "source": "Basketball-Reference",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:49:09.531543+00:00"
+        },
+        {
+          "data_kind": "nba_injuries",
+          "source": "Official NBA Injury Report",
+          "tier": 1,
+          "fetched_at": "2026-11-20T16:49:09.765010+00:00"
+        },
+        {
+          "data_kind": "nba_injuries",
+          "source": "Rotowire",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:49:09.809143+00:00"
+        },
+        {
+          "data_kind": "nba_injuries",
+          "source": "ESPN",
+          "tier": 2,
+          "fetched_at": "2026-11-20T16:49:09.815424+00:00"
+        }
+      ],
+      "stats": {
+        "scoreboard": {
+          "game_id": "0022600049",
+          "start_time": "2026-11-20T21:30:00-05:00",
+          "status": "9:30 pm ET"
+        },
+        "standings": {
+          "away": {
+            "team": "Phoenix Suns",
+            "tricode": "PHX",
+            "wins": 7,
+            "losses": 7,
+            "win_pct": 0.5,
+            "conference": "West",
+            "division": "Pacific",
+            "division_rank": 3,
+            "playoff_rank": 11,
+            "league_rank": null,
+            "record": "7-7",
+            "home": "5-4",
+            "road": "2-3",
+            "l10": "6-4",
+            "current_streak": "W 2",
+            "points_pg": 114.1,
+            "opp_points_pg": 115.7,
+            "diff_points_pg": -1.6
+          },
+          "home": {
+            "team": "Utah Jazz",
+            "tricode": "UTA",
+            "wins": 3,
+            "losses": 13,
+            "win_pct": 0.188,
+            "conference": "West",
+            "division": "Northwest",
+            "division_rank": 5,
+            "playoff_rank": 14,
+            "league_rank": null,
+            "record": "3-13",
+            "home": "1-7",
+            "road": "2-6",
+            "l10": "2-8",
+            "current_streak": "W 2",
+            "points_pg": 108.8,
+            "opp_points_pg": 116.0,
+            "diff_points_pg": -7.3
+          }
+        },
+        "advanced": {
+          "away": {
+            "team": "Phoenix Suns",
+            "age": 26.9,
+            "wins": 7,
+            "losses": 7,
+            "wins_pyth": 6,
+            "losses_pyth": 8,
+            "mov": -1.64,
+            "sos": 1.52,
+            "srs": -0.13,
+            "off_rtg": 115.9,
+            "def_rtg": 117.5,
+            "net_rtg": -1.6,
+            "pace": 98.5,
+            "fta_per_fga_pct": 0.24,
+            "fg3a_per_fga_pct": 0.423,
+            "ts_pct": 0.584,
+            "efg_pct": 0.554,
+            "tov_pct": 12.7,
+            "orb_pct": 26.0,
+            "ft_rate": 0.184,
+            "opp_efg_pct": 0.55,
+            "opp_tov_pct": 14.9,
+            "drb_pct": 68.4,
+            "opp_ft_rate": 0.237
+          },
+          "home": {
+            "team": "Utah Jazz",
+            "age": 24.4,
+            "wins": 3,
+            "losses": 13,
+            "wins_pyth": 5,
+            "losses_pyth": 11,
+            "mov": -7.25,
+            "sos": 3.87,
+            "srs": -3.38,
+            "off_rtg": 108.5,
+            "def_rtg": 115.8,
+            "net_rtg": -7.3,
+            "pace": 98.9,
+            "fta_per_fga_pct": 0.28,
+            "fg3a_per_fga_pct": 0.428,
+            "ts_pct": 0.562,
+            "efg_pct": 0.524,
+            "tov_pct": 14.9,
+            "orb_pct": 25.3,
+            "ft_rate": 0.215,
+            "opp_efg_pct": 0.519,
+            "opp_tov_pct": 12.1,
+            "drb_pct": 74.6,
+            "opp_ft_rate": 0.29
+          }
+        }
+      },
+      "injuries": [
+        {
+          "player": "Mark Williams",
+          "team": "Phoenix Suns",
+          "status": "Out",
+          "detail": "Injury/Illness - Left Shoulder Surgery"
+        },
+        {
+          "player": "Jonas Aidoo",
+          "team": "Utah Jazz",
+          "status": "Out",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "Kobe Bufkin",
+          "team": "Utah Jazz",
+          "status": "Out",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "Harrison Ingram",
+          "team": "Utah Jazz",
+          "status": "Out",
+          "detail": "G League - Two-Way"
+        },
+        {
+          "player": "Jaren Jackson Jr.",
+          "team": "Utah Jazz",
+          "status": "Out",
+          "detail": "Injury/Illness - Right MCL Tear"
+        },
+        {
+          "player": "Lauri Markkanen",
+          "team": "Utah Jazz",
+          "status": "Out",
+          "detail": "Injury/Illness - Right Hand Fracture"
+        },
+        {
+          "player": "Jusuf Nurkic",
+          "team": "Utah Jazz",
+          "status": "Out",
+          "detail": "Injury/Illness Plate Tear - Right 2nd Plantar"
+        }
+      ],
+      "lineup": null,
+      "market_prices": {
+        "moneyline_away": {
+          "market_type": "moneyline",
+          "line": null,
+          "outcome": "Suns",
+          "side": "away",
+          "jup_price_cents": 63.0,
+          "jup_provider": "polymarket",
+          "jup_markup_cents": 0.5,
+          "jup_markup_reason": null,
+          "p_market": 0.6174334140435834,
+          "comparison_source": "odds_api_devig",
+          "p_market_missing_reason": null,
+          "p_market_complement": false,
+          "labels": []
+        },
+        "moneyline_home": {
+          "market_type": "moneyline",
+          "line": null,
+          "outcome": "Jazz",
+          "side": "home",
+          "jup_price_cents": 38.0,
+          "jup_provider": "polymarket",
+          "jup_markup_cents": 0.5,
+          "jup_markup_reason": null,
+          "p_market": 0.3825665859564165,
+          "comparison_source": "odds_api_devig",
+          "p_market_missing_reason": null,
+          "p_market_complement": false,
+          "labels": []
+        }
+      },
+      "missing": [],
+      "conflicts": [],
+      "status_reason": null,
+      "labels": []
+    }
+  ],
+  "summary": {
+    "matches": 3,
+    "ok": 3,
+    "data_incomplete": 0,
+    "hold": 0,
+    "model_only": 0,
+    "tanpa_xg": 0
+  },
+  "odds_api": {
+    "calls": 1,
+    "credits_used": 3
+  }
+}

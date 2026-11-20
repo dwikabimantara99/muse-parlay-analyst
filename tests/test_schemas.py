@@ -110,6 +110,20 @@ class TestSchemas(unittest.TestCase):
         with self.assertRaises(jsonschema.ValidationError):
             jsonschema.validate(instance=doc, schema=schema)
 
+    def test_match_data_dengan_labels_valid(self):
+        # Ekstensi 2b (koordinator): kunci opsional "labels" untuk
+        # TANPA_XG / MODEL_ONLY — aditif, dokumen lama tetap valid.
+        schema = load_json(REPO_ROOT / "schemas" / "match_data.schema.json")
+        doc = {
+            "match_id": "epl-2026-11-21-che-lee",
+            "sport": "football",
+            "fetched_at": "2026-11-20T18:00:00+07:00",
+            "status": "HOLD",
+            "labels": ["TANPA_XG"],
+            "sources": [],
+        }
+        jsonschema.validate(instance=doc, schema=schema)
+
     def test_match_data_minimal_valid(self):
         schema = load_json(REPO_ROOT / "schemas" / "match_data.schema.json")
         doc = {

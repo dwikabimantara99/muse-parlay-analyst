@@ -190,7 +190,9 @@ Aturan pengisian:
 Satu pintu: `cli.py` — `analyze` / `recheck` / `log` / `recap`.
 
 ```bash
-python cli.py analyze --input slate.json   # Tahap 2+ (belum tersedia di Tahap 1)
+python cli.py analyze --input slate.json [--out out.json]
+    # Tahap 2b ✓ — menarik data + validasi (langkah 2-3), tulis
+    # out/analysis_<slate_id>.json. Simulasi/tiket Tahap 3+.
 python cli.py recheck --ticket <id>        # Tahap 5  (belum tersedia di Tahap 1)
 python cli.py log --file ticket.json       # Tahap 1  ✓
 python cli.py recap                        # Tahap 1  ✓
