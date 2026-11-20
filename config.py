@@ -63,9 +63,7 @@ def load_playstyle(path: str | Path | None = None) -> dict:
     cfg = load_yaml(path or DEFAULT_PLAYSTYLE_PATH)
     missing = [s for s in REQUIRED_PLAYSTYLE_SECTIONS if s not in cfg]
     if missing:
-        raise ConfigError(
-            f"playstyle.yaml kehilangan bagian: {', '.join(missing)}"
-        )
+        raise ConfigError(f"playstyle.yaml kehilangan bagian: {', '.join(missing)}")
     return cfg
 
 
@@ -74,9 +72,7 @@ def load_sources(path: str | Path | None = None) -> dict:
     cfg = load_yaml(path or DEFAULT_SOURCES_PATH)
     missing = [k for k in REQUIRED_SOURCES_KEYS if k not in cfg]
     if missing:
-        raise ConfigError(
-            f"sources.yaml kehilangan bagian: {', '.join(missing)}"
-        )
+        raise ConfigError(f"sources.yaml kehilangan bagian: {', '.join(missing)}")
     return cfg
 
 
@@ -87,8 +83,6 @@ def get_value(cfg: dict, *keys: str):
     node: object = cfg
     for key in keys:
         if not isinstance(node, dict) or key not in node:
-            raise ConfigError(
-                "kunci config tidak ditemukan: " + ".".join(keys)
-            )
+            raise ConfigError("kunci config tidak ditemukan: " + ".".join(keys))
         node = node[key]
     return node

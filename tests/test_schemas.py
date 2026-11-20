@@ -70,8 +70,7 @@ class TestSchemas(unittest.TestCase):
         for leg in ticket["legs"]:
             # result & price_close_cents hanya ada di tiket, bukan di leg murni.
             leg_only = {
-                k: v for k, v in leg.items()
-                if k not in ("result", "price_close_cents")
+                k: v for k, v in leg.items() if k not in ("result", "price_close_cents")
             }
             jsonschema.validate(instance=leg_only, schema=leg_schema)
 

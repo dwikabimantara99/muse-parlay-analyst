@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import jsonschema
@@ -124,9 +124,7 @@ def compute_profit_loss(
     raise LedgerError(f"hasil tiket tidak dikenal: {result!r}")
 
 
-def recompute_multiplier(
-    prices_cents: list[float], combo_spread_pct: float
-) -> float:
+def recompute_multiplier(prices_cents: list[float], combo_spread_pct: float) -> float:
     """Hitung ulang pengali dari harga ¢ kaki-kaki yang tersisa.
 
     Rumus DECISIONS.md D8: Π(100 / harga_¢_i) × (1 − spread/100).
@@ -134,9 +132,7 @@ def recompute_multiplier(
     kalau masih ada kaki; kalau semua kaki VOID/PUSH, tiket jadi VOID).
     """
     if not prices_cents:
-        raise LedgerError(
-            "tidak bisa menghitung ulang pengali: tidak ada kaki tersisa"
-        )
+        raise LedgerError("tidak bisa menghitung ulang pengali: tidak ada kaki tersisa")
     product = 1.0
     for price in prices_cents:
         if price is None or price <= 0 or price >= 100:
@@ -177,8 +173,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if sql_row is not None and "CASHOUT" not in (sql_row[0] or ""):
         conn.execute("ALTER TABLE tickets RENAME TO tickets_old")
         conn.executescript(TICKETS_SCHEMA_SQL)
-        conn.execute(
-            """
+        conn.execute("""
             INSERT INTO tickets
                 (id, placed_at, type, stake, multiplier, result,
                  profit_loss, cashout_amount, multiplier_original,
@@ -187,8 +182,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
                  profit_loss, cashout_amount, multiplier_original,
                  settled_at, slate_id, option_label, combo_spread_pct, notes
             FROM tickets_old
-            """
-        )
+            """)
         conn.execute("DROP TABLE tickets_old")
     conn.commit()
 
@@ -296,7 +290,7 @@ def log_ticket(conn: sqlite3.Connection, ticket: dict) -> str:
         )
     _check_consistency(result, [leg.get("result") for leg in ticket["legs"]])
     profit_loss = compute_profit_loss(stake, multiplier, result, cashout_amount)
-    placed_at = ticket.get("placed_at") or datetime.now(timezone.utc).isoformat()
+    placed_at = ticket.get("placed_at") or datetime.now(UTC).isoformat()
     settled_at = placed_at if result != "PENDING" else None
 
     try:
@@ -386,8 +380,7 @@ def settle_ticket(
     """
     if result not in TICKET_RESULTS or result == "PENDING":
         raise LedgerError(
-            "hasil settlement harus WIN/LOSS/PUSH/VOID/CASHOUT, "
-            f"bukan {result!r}"
+            "hasil settlement harus WIN/LOSS/PUSH/VOID/CASHOUT, " f"bukan {result!r}"
         )
     row = conn.execute(
         "SELECT stake, multiplier, multiplier_original, combo_spread_pct"
@@ -415,8 +408,7 @@ def settle_ticket(
         (ticket_id,),
     ).fetchall()
     legs_for_calc = [
-        {"result": leg["result"], "price_cents": leg["price_buy_cents"]}
-        for leg in legs
+        {"result": leg["result"], "price_cents": leg["price_buy_cents"]} for leg in legs
     ]
     multiplier = float(row["multiplier"])
     multiplier_original = row["multiplier_original"]
@@ -443,7 +435,7 @@ def settle_ticket(
             cashout_amount,
             multiplier,
             multiplier_original,
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
             ticket_id,
         ),
     )
@@ -453,9 +445,7 @@ def settle_ticket(
 
 def get_ticket(conn: sqlite3.Connection, ticket_id: str) -> dict | None:
     """Ambil satu tiket + kaki-kakinya, atau None bila tidak ada."""
-    row = conn.execute(
-        "SELECT * FROM tickets WHERE id = ?", (ticket_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
     if row is None:
         return None
     ticket = dict(row)

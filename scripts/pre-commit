@@ -1,0 +1,25 @@
+#!/bin/sh
+# Hook pre-commit muse-parlay-analyst (DECISIONS.md E2).
+# Menjalankan ruff + black + tes unit sebelum commit.
+# Dipasang dengan: sh scripts/install-hooks.sh
+# CI (.github/workflows/tests.yml) menjalankan pemeriksaan yang sama.
+set -e
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
+run_tool() {
+    # $1 = nama tool (ruff/black), $2... = argumen.
+    tool=$1
+    shift
+    if python3 -m "$tool" --version >/dev/null 2>&1; then
+        python3 -m "$tool" "$@"
+    elif command -v "$tool" >/dev/null 2>&1; then
+        "$tool" "$@"
+    else
+        echo "pre-commit: $tool tidak ditemukan, lewati (pip install -r requirements-dev.txt)"
+    fi
+}
+
+run_tool ruff check .
+run_tool black --check .
+python3 -m unittest discover -s tests -q

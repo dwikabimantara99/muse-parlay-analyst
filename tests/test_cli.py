@@ -31,8 +31,11 @@ class TestCli(unittest.TestCase):
     def test_log_dua_tiket_lalu_recap(self):
         for name in ("ticket_asuransi.json", "ticket_utama.json"):
             res = run_cli(
-                "log", "--file", str(REPO_ROOT / "examples" / name),
-                "--db", self.db,
+                "log",
+                "--file",
+                str(REPO_ROOT / "examples" / name),
+                "--db",
+                self.db,
             )
             self.assertEqual(res.returncode, 0, res.stderr)
         res = run_cli("recap", "--db", self.db)
@@ -41,9 +44,13 @@ class TestCli(unittest.TestCase):
         self.assertIn("ROI: +41.00%", res.stdout)
 
     def test_recap_json_bisa_di_parse(self):
-        run_cli("log", "--file",
-                str(REPO_ROOT / "examples" / "ticket_asuransi.json"),
-                "--db", self.db)
+        run_cli(
+            "log",
+            "--file",
+            str(REPO_ROOT / "examples" / "ticket_asuransi.json"),
+            "--db",
+            self.db,
+        )
         res = run_cli("recap", "--db", self.db, "--json")
         self.assertEqual(res.returncode, 0, res.stderr)
         data = json.loads(res.stdout)
@@ -65,8 +72,9 @@ class TestCli(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
 
     def test_analyze_belum_tersedia(self):
-        res = run_cli("analyze", "--input",
-                      str(REPO_ROOT / "examples" / "slate_contoh.json"))
+        res = run_cli(
+            "analyze", "--input", str(REPO_ROOT / "examples" / "slate_contoh.json")
+        )
         self.assertEqual(res.returncode, 2)
         self.assertIn("Tahap 2", res.stderr)
 
@@ -88,13 +96,20 @@ class TestCli(unittest.TestCase):
         pending_file = Path(self.tmp.name) / "pending-cashout.json"
         pending_file.write_text(json.dumps(ticket), encoding="utf-8")
         self.assertEqual(
-            run_cli("log", "--file", str(pending_file), "--db", self.db)
-            .returncode,
+            run_cli("log", "--file", str(pending_file), "--db", self.db).returncode,
             0,
         )
-        res = run_cli("log", "--settle", "tkt-cli-cashout",
-                      "--result", "CASHOUT", "--cashout-amount", "75",
-                      "--db", self.db)
+        res = run_cli(
+            "log",
+            "--settle",
+            "tkt-cli-cashout",
+            "--result",
+            "CASHOUT",
+            "--cashout-amount",
+            "75",
+            "--db",
+            self.db,
+        )
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("$+15.00", res.stdout)
 
@@ -111,8 +126,15 @@ class TestCli(unittest.TestCase):
         pending_file = Path(self.tmp.name) / "pending-cashout-bad.json"
         pending_file.write_text(json.dumps(ticket), encoding="utf-8")
         run_cli("log", "--file", str(pending_file), "--db", self.db)
-        res = run_cli("log", "--settle", "tkt-cli-cashout-bad",
-                      "--result", "CASHOUT", "--db", self.db)
+        res = run_cli(
+            "log",
+            "--settle",
+            "tkt-cli-cashout-bad",
+            "--result",
+            "CASHOUT",
+            "--db",
+            self.db,
+        )
         self.assertEqual(res.returncode, 1)
 
     def test_settle_lewat_cli(self):
@@ -128,12 +150,12 @@ class TestCli(unittest.TestCase):
         pending_file = Path(self.tmp.name) / "pending.json"
         pending_file.write_text(json.dumps(ticket), encoding="utf-8")
         self.assertEqual(
-            run_cli("log", "--file", str(pending_file), "--db", self.db)
-            .returncode,
+            run_cli("log", "--file", str(pending_file), "--db", self.db).returncode,
             0,
         )
-        res = run_cli("log", "--settle", "tkt-cli-pending", "--result", "WIN",
-                      "--db", self.db)
+        res = run_cli(
+            "log", "--settle", "tkt-cli-pending", "--result", "WIN", "--db", self.db
+        )
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("$+81.00", res.stdout)
 

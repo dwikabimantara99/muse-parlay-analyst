@@ -92,7 +92,9 @@ class TestLogTicket(unittest.TestCase):
         saved = store.get_ticket(self.conn, "tkt-pending-01")
         self.assertIsNone(saved["profit_loss"])
         profit = store.settle_ticket(
-            self.conn, "tkt-pending-01", "WIN",
+            self.conn,
+            "tkt-pending-01",
+            "WIN",
             {"leg-contoh-01": "WIN", "leg-contoh-02": "WIN"},
         )
         self.assertAlmostEqual(profit, 81.0)

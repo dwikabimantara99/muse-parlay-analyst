@@ -37,6 +37,7 @@ def _db_arg(parser: argparse.ArgumentParser) -> None:
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
+    """Jalankan analisis slate (belum tersedia — Tahap 2+)."""
     print(
         "analyze belum tersedia: Tahap 2 (data) dan Tahap 3 (mesin hitung) "
         "belum dibangun. Lihat README.md untuk status tahapan.",
@@ -46,6 +47,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
 
 def cmd_recheck(args: argparse.Namespace) -> int:
+    """Cek ulang tiket sebelum laga (belum tersedia — Tahap 5)."""
     print(
         "recheck belum tersedia: Tahap 5 (Telegram) belum dibangun. "
         "Lihat README.md untuk status tahapan.",
@@ -66,6 +68,7 @@ def _parse_leg_results(raw: list[str] | None) -> dict[str, str]:
 
 
 def cmd_log(args: argparse.Namespace) -> int:
+    """Catat tiket dari file JSON, atau selesaikan tiket PENDING."""
     conn = store.connect(args.db)
     if args.settle:
         try:
@@ -75,7 +78,9 @@ def cmd_log(args: argparse.Namespace) -> int:
             return 1
         try:
             profit = store.settle_ticket(
-                conn, args.settle, args.result,
+                conn,
+                args.settle,
+                args.result,
                 leg_results=leg_results,
                 cashout_amount=args.cashout_amount,
             )
@@ -85,15 +90,21 @@ def cmd_log(args: argparse.Namespace) -> int:
         saved = store.get_ticket(conn, args.settle)
         extra = ""
         if saved and saved.get("multiplier_original") is not None:
-            extra = (f" (pengali dihitung ulang {saved['multiplier_original']}"
-                     f"x -> {saved['multiplier']:.4f}x karena kaki VOID/PUSH)")
-        print(f"tiket {args.settle} diselesaikan: {saved['result']}, "
-              f"untung/rugi ${profit:+.2f}{extra}")
+            extra = (
+                f" (pengali dihitung ulang {saved['multiplier_original']}"
+                f"x -> {saved['multiplier']:.4f}x karena kaki VOID/PUSH)"
+            )
+        print(
+            f"tiket {args.settle} diselesaikan: {saved['result']}, "
+            f"untung/rugi ${profit:+.2f}{extra}"
+        )
         return 0
 
     if not args.file:
-        print("error: pakai --file ticket.json atau --settle <id> --result ...",
-              file=sys.stderr)
+        print(
+            "error: pakai --file ticket.json atau --settle <id> --result ...",
+            file=sys.stderr,
+        )
         return 1
     try:
         ticket = json.loads(Path(args.file).read_text(encoding="utf-8"))
@@ -110,15 +121,20 @@ def cmd_log(args: argparse.Namespace) -> int:
     profit_text = f"${profit:+.2f}" if profit is not None else "pending"
     extra = ""
     if saved and saved.get("multiplier_original") is not None:
-        extra = (f", pengali awal {saved['multiplier_original']}x "
-                 f"(dihitung ulang karena kaki VOID/PUSH)")
-    print(f"tiket {ticket_id} dicatat ({saved['type']}, "
-          f"modal ${saved['stake']:.2f}, pengali {saved['multiplier']}x, "
-          f"hasil {saved['result']}, untung/rugi {profit_text}{extra})")
+        extra = (
+            f", pengali awal {saved['multiplier_original']}x "
+            f"(dihitung ulang karena kaki VOID/PUSH)"
+        )
+    print(
+        f"tiket {ticket_id} dicatat ({saved['type']}, "
+        f"modal ${saved['stake']:.2f}, pengali {saved['multiplier']}x, "
+        f"hasil {saved['result']}, untung/rugi {profit_text}{extra})"
+    )
     return 0
 
 
 def cmd_recap(args: argparse.Namespace) -> int:
+    """Tampilkan rekap untung/rugi ledger (teks atau JSON)."""
     conn = store.connect(args.db)
     data = recap_mod.compute_recap(conn)
     if args.json:
@@ -129,6 +145,7 @@ def cmd_recap(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Bangun parser argumen CLI (analyze / recheck / log / recap)."""
     parser = argparse.ArgumentParser(
         prog="cli.py",
         description="muse-parlay-analyst — satu pintu masuk (Blueprint §10).",
@@ -145,32 +162,44 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_log = sub.add_parser("log", help="catat / selesaikan tiket (Tahap 1)")
     p_log.add_argument("--file", help="file ticket.json (sesuai skema)")
-    p_log.add_argument("--settle", metavar="TICKET_ID",
-                       help="selesaikan tiket PENDING")
-    p_log.add_argument("--result",
-                       choices=["WIN", "LOSS", "PUSH", "VOID", "CASHOUT"],
-                       help="hasil untuk --settle")
-    p_log.add_argument("--cashout-amount", type=float, default=None,
-                       help="jumlah cashout USD (wajib bila --result CASHOUT)")
-    p_log.add_argument("--leg-result", action="append", default=None,
-                       metavar="LEG_ID=HASIL",
-                       help="hasil per kaki, boleh diulang: --leg-result leg-01=WIN")
+    p_log.add_argument("--settle", metavar="TICKET_ID", help="selesaikan tiket PENDING")
+    p_log.add_argument(
+        "--result",
+        choices=["WIN", "LOSS", "PUSH", "VOID", "CASHOUT"],
+        help="hasil untuk --settle",
+    )
+    p_log.add_argument(
+        "--cashout-amount",
+        type=float,
+        default=None,
+        help="jumlah cashout USD (wajib bila --result CASHOUT)",
+    )
+    p_log.add_argument(
+        "--leg-result",
+        action="append",
+        default=None,
+        metavar="LEG_ID=HASIL",
+        help="hasil per kaki, boleh diulang: --leg-result leg-01=WIN",
+    )
     _db_arg(p_log)
     p_log.set_defaults(func=cmd_log)
 
     p_recap = sub.add_parser("recap", help="rekap untung/rugi (Tahap 1)")
-    p_recap.add_argument("--json", action="store_true",
-                         help="keluarkan JSON, bukan teks")
+    p_recap.add_argument(
+        "--json", action="store_true", help="keluarkan JSON, bukan teks"
+    )
     _db_arg(p_recap)
     p_recap.set_defaults(func=cmd_recap)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Titik masuk CLI; mengembalikan exit code (0 sukses, 1 error, 2 belum tersedia)."""
     args = build_parser().parse_args(argv)
     if args.command == "log" and args.settle and not args.result:
-        print("error: --settle butuh --result WIN|LOSS|PUSH|VOID|CASHOUT",
-              file=sys.stderr)
+        print(
+            "error: --settle butuh --result WIN|LOSS|PUSH|VOID|CASHOUT", file=sys.stderr
+        )
         return 1
     return args.func(args)
 

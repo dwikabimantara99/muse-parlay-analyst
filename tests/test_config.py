@@ -131,9 +131,7 @@ class TestPlaystyle(unittest.TestCase):
         # D11: definisi pemain kunci bola.
         key_def = f["key_player_definition"]
         self.assertEqual(key_def["goalkeeper"], "kiper utama")
-        self.assertEqual(
-            key_def["centre_backs"], "2 bek tengah dengan menit terbanyak"
-        )
+        self.assertEqual(key_def["centre_backs"], "2 bek tengah dengan menit terbanyak")
         self.assertEqual(key_def["top_attacker"], "pemain xG+xA terbanyak")
         self.assertEqual(key_def["minutes_threshold_pct"], 70)
 
@@ -156,9 +154,7 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(self.cfg["data"]["stale_hours_injury_lineup"], 3)
         self.assertEqual(self.cfg["data"]["recheck_window_minutes"], [30, 60])
         # B2: cedera & lineup dicek silang min 2 sumber.
-        self.assertEqual(
-            self.cfg["data"]["cross_check_min_sources_injury_lineup"], 2
-        )
+        self.assertEqual(self.cfg["data"]["cross_check_min_sources_injury_lineup"], 2)
         self.assertEqual(self.cfg["calibration"]["report_every_legs"], 50)
 
     def test_simulasi_tetap_tbd_sampai_fit(self):
@@ -239,14 +235,10 @@ class TestSources(unittest.TestCase):
         rules = src["rules"]
         self.assertTrue(rules["use_highest_tier_available"])
         self.assertTrue(rules["record_tier_source_time"])
-        self.assertEqual(
-            rules["cross_check_min_sources_injury_lineup"], 2
-        )
+        self.assertEqual(rules["cross_check_min_sources_injury_lineup"], 2)
         self.assertTrue(rules["show_conflicting_sources"])
         self.assertEqual(rules["all_sources_dead"], "DATA_INCOMPLETE")
-        self.assertEqual(
-            rules["xg_chain"], ["resmi", "Understat", "Sofascore/FotMob"]
-        )
+        self.assertEqual(rules["xg_chain"], ["resmi", "Understat", "Sofascore/FotMob"])
 
     def test_tidak_ada_api_key_di_sources(self):
         # API key hanya di .env — pastikan tidak ada nilai key di sources.yaml.

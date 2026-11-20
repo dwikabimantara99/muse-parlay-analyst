@@ -1,6 +1,5 @@
 """Tes DECISIONS.md A: kaki VOID/PUSH (pengali hitung ulang) + CASHOUT."""
 
-import json
 import sqlite3
 import sys
 import tempfile
@@ -71,8 +70,7 @@ def make_leg(leg_id, price, result=None):
     }
 
 
-def make_ticket(ticket_id, legs, result="PENDING", stake=50.0,
-                multiplier=3.0, **extra):
+def make_ticket(ticket_id, legs, result="PENDING", stake=50.0, multiplier=3.0, **extra):
     ticket = {
         "ticket_id": ticket_id,
         "type": "Utama",
@@ -96,7 +94,8 @@ class TestRecomputeMultiplier(unittest.TestCase):
     def test_satu_kaki(self):
         self.assertAlmostEqual(
             store.recompute_multiplier([66], 5.5),
-            (100 / 66) * 0.945, places=6,
+            (100 / 66) * 0.945,
+            places=6,
         )
 
     def test_kosong_melempar(self):
@@ -125,9 +124,7 @@ class TestVoidPush(unittest.TestCase):
             make_leg("leg-b", 78, "VOID"),
             make_leg("leg-c", 66, "WIN"),
         ]
-        store.log_ticket(
-            self.conn, make_ticket("tkt-void-1", legs, result="WIN")
-        )
+        store.log_ticket(self.conn, make_ticket("tkt-void-1", legs, result="WIN"))
         saved = store.get_ticket(self.conn, "tkt-void-1")
         # Sisa kaki 74 & 66: (100/74)x(100/66)x0.945 = 1.9349...
         self.assertAlmostEqual(saved["multiplier"], 1.93490, places=4)
@@ -137,9 +134,7 @@ class TestVoidPush(unittest.TestCase):
 
     def test_log_semua_kaki_void_jadi_void(self):
         legs = [make_leg("leg-a", 74, "VOID"), make_leg("leg-b", 78, "PUSH")]
-        store.log_ticket(
-            self.conn, make_ticket("tkt-void-all", legs, result="VOID")
-        )
+        store.log_ticket(self.conn, make_ticket("tkt-void-all", legs, result="VOID"))
         saved = store.get_ticket(self.conn, "tkt-void-all")
         self.assertEqual(saved["result"], "VOID")
         self.assertEqual(saved["profit_loss"], 0.0)
@@ -147,16 +142,15 @@ class TestVoidPush(unittest.TestCase):
     def test_log_semua_kaki_void_tapi_win_ditolak(self):
         legs = [make_leg("leg-a", 74, "VOID"), make_leg("leg-b", 78, "VOID")]
         with self.assertRaises(store.LedgerError):
-            store.log_ticket(
-                self.conn, make_ticket("tkt-void-bad", legs, result="WIN")
-            )
+            store.log_ticket(self.conn, make_ticket("tkt-void-bad", legs, result="WIN"))
 
     def test_settle_dengan_kaki_void(self):
-        legs = [make_leg("leg-a", 74), make_leg("leg-b", 78),
-                make_leg("leg-c", 66)]
+        legs = [make_leg("leg-a", 74), make_leg("leg-b", 78), make_leg("leg-c", 66)]
         store.log_ticket(self.conn, make_ticket("tkt-settle-void", legs))
         profit = store.settle_ticket(
-            self.conn, "tkt-settle-void", "WIN",
+            self.conn,
+            "tkt-settle-void",
+            "WIN",
             {"leg-a": "WIN", "leg-b": "VOID", "leg-c": "WIN"},
         )
         self.assertAlmostEqual(profit, 46.7448, places=2)
@@ -168,7 +162,9 @@ class TestVoidPush(unittest.TestCase):
         legs = [make_leg("leg-a", 74), make_leg("leg-b", 78)]
         store.log_ticket(self.conn, make_ticket("tkt-settle-allvoid", legs))
         profit = store.settle_ticket(
-            self.conn, "tkt-settle-allvoid", "WIN",
+            self.conn,
+            "tkt-settle-allvoid",
+            "WIN",
             {"leg-a": "VOID", "leg-b": "PUSH"},
         )
         self.assertEqual(profit, 0.0)
@@ -204,8 +200,7 @@ class TestConsistency(unittest.TestCase):
         legs = [make_leg("leg-a", 74, "WIN"), make_leg("leg-b", 78, "WIN")]
         with self.assertRaises(store.LedgerError):
             store.log_ticket(
-                self.conn, make_ticket("tkt-inkonsisten-2", legs,
-                                       result="LOSS")
+                self.conn, make_ticket("tkt-inkonsisten-2", legs, result="LOSS")
             )
 
 
@@ -234,8 +229,9 @@ class TestCashout(unittest.TestCase):
         legs = [make_leg("leg-a", 74, "WIN")]
         store.log_ticket(
             self.conn,
-            make_ticket("tkt-cashout-1", legs, result="CASHOUT",
-                        stake=60.0, cashout_amount=75.0),
+            make_ticket(
+                "tkt-cashout-1", legs, result="CASHOUT", stake=60.0, cashout_amount=75.0
+            ),
         )
         saved = store.get_ticket(self.conn, "tkt-cashout-1")
         self.assertAlmostEqual(saved["profit_loss"], 15.0)
@@ -246,15 +242,12 @@ class TestCashout(unittest.TestCase):
         with self.assertRaises(store.LedgerError):
             store.log_ticket(
                 self.conn,
-                make_ticket("tkt-cashout-bad", legs, result="CASHOUT",
-                            stake=60.0),
+                make_ticket("tkt-cashout-bad", legs, result="CASHOUT", stake=60.0),
             )
 
     def test_settle_cashout(self):
         legs = [make_leg("leg-a", 74)]
-        store.log_ticket(
-            self.conn, make_ticket("tkt-cashout-2", legs, stake=60.0)
-        )
+        store.log_ticket(self.conn, make_ticket("tkt-cashout-2", legs, stake=60.0))
         profit = store.settle_ticket(
             self.conn, "tkt-cashout-2", "CASHOUT", cashout_amount=45.0
         )
@@ -292,9 +285,7 @@ class TestMigration(unittest.TestCase):
                 " '2026-11-20', 'Utama', 60, 2.35, 'CASHOUT', 15.0, 75.0)"
             )
             conn.commit()
-            self.assertEqual(
-                store.get_ticket(conn, "tkt-baru")["result"], "CASHOUT"
-            )
+            self.assertEqual(store.get_ticket(conn, "tkt-baru")["result"], "CASHOUT")
             conn.close()
 
 
