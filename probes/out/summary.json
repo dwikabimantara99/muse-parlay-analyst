@@ -1,0 +1,96 @@
+{
+  "probed_at": "2026-11-20T15:34:11.505336+00:00",
+  "probes": {
+    "jupiter": {
+      "source": "Jupiter Prediction API",
+      "tier": 1,
+      "accessible_from_vm": true,
+      "verdict": "PAKAI",
+      "requests": 4
+    },
+    "polymarket": {
+      "source": "Polymarket API",
+      "tier": 2,
+      "accessible_from_vm": true,
+      "verdict": "PAKAI",
+      "requests": 3
+    },
+    "kalshi": {
+      "source": "Kalshi API",
+      "tier": 2,
+      "accessible_from_vm": true,
+      "verdict": "PAKAI",
+      "requests": 3
+    },
+    "odds_api": {
+      "source": "The Odds API",
+      "tier": 2,
+      "accessible_from_vm": true,
+      "verdict": "CADANGAN",
+      "requests": 2
+    },
+    "nba_com": {
+      "source": "nba.com / stats.nba.com",
+      "tier": 1,
+      "accessible_from_vm": true,
+      "verdict": "CADANGAN",
+      "requests": 3
+    },
+    "espn": {
+      "source": "ESPN JSON publik",
+      "tier": 2,
+      "accessible_from_vm": true,
+      "verdict": "PAKAI",
+      "requests": 3
+    },
+    "bbref": {
+      "source": "Basketball-Reference",
+      "tier": 2,
+      "accessible_from_vm": true,
+      "verdict": "PAKAI",
+      "requests": 2
+    },
+    "nba_injury_report": {
+      "source": "Official NBA Injury Report",
+      "tier": 1,
+      "accessible_from_vm": true,
+      "verdict": "PAKAI",
+      "requests": 5
+    },
+    "rotowire": {
+      "source": "Rotowire (cedera NBA)",
+      "tier": 2,
+      "accessible_from_vm": true,
+      "verdict": "PAKAI",
+      "requests": 2
+    },
+    "understat": {
+      "source": "Understat (xG)",
+      "tier": 2,
+      "accessible_from_vm": false,
+      "verdict": "JANGAN",
+      "requests": 2
+    },
+    "sofascore": {
+      "source": "Sofascore",
+      "tier": 2,
+      "accessible_from_vm": false,
+      "verdict": "JANGAN",
+      "requests": 3
+    },
+    "fotmob": {
+      "source": "FotMob",
+      "tier": 2,
+      "accessible_from_vm": true,
+      "verdict": "PAKAI",
+      "requests": 2
+    },
+    "official_leagues": {
+      "source": "Situs/data resmi liga (bola)",
+      "tier": 1,
+      "accessible_from_vm": true,
+      "verdict": "CADANGAN",
+      "requests": 10
+    }
+  }
+}

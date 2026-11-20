@@ -1,0 +1,105 @@
+{
+  "source": "Official NBA Injury Report",
+  "tier": 1,
+  "probed_at": "2026-11-20T15:34:36.433212+00:00",
+  "accessible_from_vm": true,
+  "format": "PDF (bila tautan ditemukan) / HTML / JSON",
+  "rate_limit": "UNKNOWN",
+  "data_available": [
+    "PDF Official NBA Injury Report (terverifikasi bisa diunduh)"
+  ],
+  "risk_notes": [
+    "PDF harus di-parse otomatis; format PDF bisa berubah.",
+    "Cedera wajib dicek silang minimal 2 sumber (B2): ESPN + Rotowire."
+  ],
+  "requests": [
+    {
+      "url": "https://www.nba.com/injuries",
+      "status": 404,
+      "from_cache": false,
+      "elapsed_seconds": 0.64,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html>\n                <html lang=\"en\">\n                <head>\n                    <meta charset=\"UTF-8\">\n                    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n                    <title>Content Unavailable</title>\n                    <link href=\"https://fonts.googleapis.com/css2?family=Roboto&display=swap\" rel=\"stylesheet\">\n                </head>\n                <body>\n                    <div class=\"header\">\n                        <svg height=\"60"
+    },
+    {
+      "url": "https://official.nba.com/",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.58,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "\n<!DOCTYPE html>\n<html lang=\"en-US\" prefix=\"og: http://ogp.me/ns# fb: http://ogp.me/ns/fb# article: http://ogp.me/ns/article# video: http://ogp.me/ns/video#\" >\n<head>\n    <meta charset=\"UTF-8\"><script type=\"text/javascript\">(window.NREUM||(NREUM={})).init={\"privacy\":{\"cookies_enabled\":true},\"ajax\":{\"deny_list\":[\"bam.nr-data.net\"]},\"feature_flags\":[\"rum_v2\"],\"distributed_tracing\":{\"enabled\":true}};(window.NREUM||(NREUM={})).loader_config={\"agentID\":\"1589293841\",\"accountID\":\"1759872\",\"trustKey\":\"2"
+    },
+    {
+      "url": "https://stats.nba.com/js/data/widgets/injuries.json",
+      "status": 404,
+      "from_cache": false,
+      "elapsed_seconds": 1.76,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html>\n                <html lang=\"en\">\n                <head>\n                    <meta charset=\"UTF-8\">\n                    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n                    <title>Content Unavailable</title>\n                    <link href=\"https://fonts.googleapis.com/css2?family=Roboto&display=swap\" rel=\"stylesheet\">\n                </head>\n                <body>\n                    <div class=\"header\">\n                        <svg height=\"60"
+    },
+    {
+      "url": "https://official.nba.com/nba-injury-report-2026-27-season/",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.62,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html>\n<html lang=\"en-US\" prefix=\"og: http://ogp.me/ns# fb: http://ogp.me/ns/fb# article: http://ogp.me/ns/article# video: http://ogp.me/ns/video#\" >\n<head>\n    <meta charset=\"UTF-8\"><script type=\"text/javascript\">(window.NREUM||(NREUM={})).init={\"privacy\":{\"cookies_enabled\":true},\"ajax\":{\"deny_list\":[\"bam.nr-data.net\"]},\"feature_flags\":[\"rum_v2\"],\"distributed_tracing\":{\"enabled\":true}};(window.NREUM||(NREUM={})).loader_config={\"agentID\":\"1589293841\",\"accountID\":\"1759872\",\"trustKey\":\"28"
+    },
+    {
+      "url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-20_12_00AM.pdf",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.72,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "%PDF-1.4\n%����\n1 0 obj\n<<\n/CreationDate(D:20261120000003-05'00')\n/Creator(GemBox.Document 3.1 for .NET Framework 3.5 - 4.8)\n/Producer(GemBox.Document 3.1 for .NET Framework 3.5 - 4.8)\n>>\nendobj\n2 0 obj\n<<\n/Type/Metadata\n/Subtype/XML\n/Length 928\n>>\nstream\n<?xpacket begin=\"ď»ż\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\r\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"3.1-701\">\r\n<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\r\n<rdf:Description rdf:about=\"\" xmlns:pdf=\"http://ns.adobe.com/pdf/1."
+    }
+  ],
+  "verdict": "PAKAI",
+  "unknown": [],
+  "links_found_on_injuries_page": [],
+  "update_schedule_mentions": [
+    "Reports are updated on a continual basis throughout the day.",
+    "In addition, teams are required to submit a game-day injury report between 11 am and 1 pm local time (and between 8 and 10 am for tip-offs 5 pm or earlier) on game days (besides the second game of a back-to-back)."
+  ],
+  "links_found_on_extra_pages": [
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-Official-NBA-Playing-Rules.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-NBA-Officials-Guide-10-14-26.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-NBA-Officiating-Staff.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-NBA-Officials-Headshots.pdf",
+    "https://official.nba.com/nba-injury-report-2026-27-season/",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-NBA-Concussion-Policy-Summary.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2024/06/2023-NBA-Collective-Bargaining-Agreement-Final.pdf",
+    "/wp-content/uploads/sites/4/2024/11/2024-25-CBA-101.pdf",
+    "/wp-content/uploads/sites/4/2024/06/NBA-Consitution-By-Laws-June-2024.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/03/2026-NBA-Undergraduate-Advisory-Committee-Brochure.pdf"
+  ],
+  "official_report_page_url": "https://official.nba.com/nba-injury-report-2026-27-season/",
+  "official_report_page_status": 200,
+  "links_found_on_report_page": [
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-Official-NBA-Playing-Rules.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-NBA-Officials-Guide-10-14-26.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-NBA-Officiating-Staff.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-NBA-Officials-Headshots.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/10/2026-27-NBA-Concussion-Policy-Summary.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2024/06/2023-NBA-Collective-Bargaining-Agreement-Final.pdf",
+    "/wp-content/uploads/sites/4/2024/11/2024-25-CBA-101.pdf",
+    "/wp-content/uploads/sites/4/2024/06/NBA-Consitution-By-Laws-June-2024.pdf",
+    "https://ak-static.cms.nba.com/wp-content/uploads/sites/4/2026/03/2026-NBA-Undergraduate-Advisory-Committee-Brochure.pdf",
+    "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-20_12_00AM.pdf"
+  ],
+  "official_pdf_url": "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-20_12_00AM.pdf",
+  "official_pdf_status": 200,
+  "official_pdf_content_type": "application/pdf",
+  "urls_tried": [
+    "https://www.nba.com/injuries",
+    "https://official.nba.com/",
+    "https://stats.nba.com/js/data/widgets/injuries.json",
+    "https://official.nba.com/nba-injury-report-2026-27-season/",
+    "https://ak-static.cms.nba.com/referee/injury/Injury-Report_2026-11-20_12_00AM.pdf"
+  ]
+}

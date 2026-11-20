@@ -1,0 +1,37 @@
+{
+  "source": "Rotowire (cedera NBA)",
+  "tier": 2,
+  "probed_at": "2026-11-20T15:34:41.884597+00:00",
+  "accessible_from_vm": true,
+  "format": "HTML (scraping)",
+  "rate_limit": "UNKNOWN (tidak ada header rate limit yang terlihat)",
+  "data_available": [
+    "injury-report.php: 346302 karakter, penanda status cedera: ['Out']",
+    "injury-report.php: 43 karakter, penanda status cedera: tidak ada"
+  ],
+  "risk_notes": [
+    "Scraping HTML: format bisa berubah; butuh tes kesehatan scraper."
+  ],
+  "requests": [
+    {
+      "url": "https://www.rotowire.com/basketball/injury-report.php",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.09,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n            <script src=\"https://bet.rotowire.com/js/app.js\"></script>\n        \n    <script>\n        window.dataLayer = window.dataLayer || [];\n        window.dataLayer.push({\"sport_name\":\"nba\",\"sport_content\":\"fantasy\",\"event\":\"content_grouping\"});\n    </script>    <script async src=\"https://js.verisoul.ai/prod/bundle.js\" verisoul-project-id=\"9c5ac82a-bf8d-4e7d-a611-666111119352\"></script>\n    <script>!function(e){if(e.Verisoul)return;const r=[],t={},o=n"
+    },
+    {
+      "url": "https://www.rotowire.com/basketball/tables/injury-report.php",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.26,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"error\":\"The TEAM parameter is required.\"}"
+    }
+  ],
+  "verdict": "PAKAI",
+  "unknown": []
+}

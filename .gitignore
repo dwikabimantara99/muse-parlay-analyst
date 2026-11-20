@@ -24,8 +24,9 @@ venv/
 *.egg-info/
 
 # Output analisis lokal (JSON per laga / slate) — bukan bagian repo
-data/
-out/
+# (akar repo saja; probes/out/*.json adalah bukti probe dan DI-commit)
+/data/
+/out/
 *.log
 
 # Editor / OS

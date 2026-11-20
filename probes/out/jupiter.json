@@ -1,0 +1,213 @@
+{
+  "source": "Jupiter Prediction API",
+  "tier": 1,
+  "probed_at": "2026-11-20T15:34:11.505365+00:00",
+  "accessible_from_vm": true,
+  "format": "JSON REST",
+  "rate_limit": "keyed 1 RPS (jeda 1,1 dtk); fallback keyless 0,5 RPS (jeda 2,2 dtk)",
+  "data_available": [
+    "event sports + pasar (moneyline, spreads, totals, BTTS, dll.)",
+    "sportsMarketType + sportsLine per pasar",
+    "provider asal per pasar (polymarket/kalshi)",
+    "harga beli/jual Yes/No per pasar (micro-USD)",
+    "pencarian event + detail event/pasar"
+  ],
+  "risk_notes": [
+    "API masih beta (bisa berubah tanpa pemberitahuan).",
+    "HANYA BACA: endpoint order/posisi/claim dilarang (DECISIONS.md K3)."
+  ],
+  "requests": [
+    {
+      "url": "https://api.jup.ag/prediction/v1/events?category=sports&limit=100",
+      "status": 200,
+      "mode": "keyed",
+      "from_cache": true,
+      "elapsed_seconds": 9.41,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "9",
+        "x-ratelimit-reset": "1795188486"
+      },
+      "error": null,
+      "body_sample": "{\"data\":[{\"eventId\":\"POLY-1323813\",\"isActive\":true,\"isLive\":false,\"category\":\"sports\",\"subcategory\":\"nba\",\"tags\":[\"sports\",\"nba\",\"games\",\"basketball\"],\"metadata\":{\"slug\":\"nba-was-chi-2026-11-20\",\"title\":\"Wizards vs. Bulls\",\"isLive\":false,\"league\":\"NBA 2026\",\"series\":\"polymarket\",\"eventId\":\"POLY-1323813\",\"imageUrl\":\"https://polymarket-upload.s3.us-east-2.amazonaws.com/super+cool+basketball+in+red+and+blue+wow.png\",\"subtitle\":\"\",\"closeTime\":\"2026-11-21T01:00:00Z\"},\"volumeUsd\":\"528512000000\",\"volum"
+    },
+    {
+      "url": "https://api.jup.ag/prediction/v1/events/search?query=NBA",
+      "status": 200,
+      "mode": "keyed",
+      "from_cache": true,
+      "elapsed_seconds": 0.35,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "8",
+        "x-ratelimit-reset": "1795188486"
+      },
+      "error": null,
+      "body_sample": "{\"data\":[{\"eventId\":\"POLY-478277\",\"isActive\":true,\"isLive\":false,\"category\":\"sports\",\"subcategory\":\"nba\",\"tags\":[\"nba-finals\",\"basketball\",\"nba\",\"sports\",\"props\",\"nba-tip-off\"],\"metadata\":{\"slug\":\"nba-2027-champion\",\"title\":\"NBA: 2027 Champion\",\"isLive\":false,\"series\":\"polymarket\",\"eventId\":\"POLY-478277\",\"imageUrl\":\"https://polymarket-upload.s3.us-east-2.amazonaws.com/nba-2027-champion-24BdgvW8NhXC.jpg\",\"subtitle\":\"\",\"closeTime\":\"2027-07-01T00:00:00Z\"},\"volumeUsd\":\"40460669000000\",\"volume24hr\":\""
+    },
+    {
+      "url": "https://api.jup.ag/prediction/v1/events/POLY-1323813",
+      "status": 200,
+      "mode": "keyed",
+      "from_cache": true,
+      "elapsed_seconds": 0.46,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "8",
+        "x-ratelimit-reset": "1795188495"
+      },
+      "error": null,
+      "body_sample": "{\"eventId\":\"POLY-1323813\",\"isActive\":true,\"isLive\":false,\"category\":\"sports\",\"subcategory\":\"nba\",\"tags\":[\"sports\",\"nba\",\"games\",\"basketball\"],\"metadata\":{\"slug\":\"nba-was-chi-2026-11-20\",\"title\":\"Wizards vs. Bulls\",\"isLive\":false,\"league\":\"NBA 2026\",\"series\":\"polymarket\",\"eventId\":\"POLY-1323813\",\"imageUrl\":\"https://polymarket-upload.s3.us-east-2.amazonaws.com/super+cool+basketball+in+red+and+blue+wow.png\",\"subtitle\":\"\",\"closeTime\":\"2026-11-21T01:00:00Z\"},\"volumeUsd\":\"528512000000\",\"volume24hr\":\"5"
+    },
+    {
+      "url": "https://api.jup.ag/prediction/v1/markets/POLY-6742003-0",
+      "status": 200,
+      "mode": "keyed",
+      "from_cache": true,
+      "elapsed_seconds": 0.36,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "7",
+        "x-ratelimit-reset": "1795188495"
+      },
+      "error": null,
+      "body_sample": "{\"provider\":\"polymarket\",\"marketId\":\"POLY-6742003-0\",\"status\":\"open\",\"result\":null,\"marketResultPubkey\":null,\"title\":\"Wizards\",\"openTime\":1793948374,\"closeTime\":1795222800,\"isTeamMarket\":true,\"rulesPrimary\":\"In the upcoming NBA game between Wizards and Bulls, originally scheduled for Friday, November 20, 2026 at 8:00 PM ET (as of creation of the first market related to the event):\\nIf the Wizards win, the market will resolve to \\\"Wizards\\\".\\nIf the Bulls win, the market will resolve to \\\"Bulls\\\""
+    }
+  ],
+  "verdict": "PAKAI",
+  "unknown": [],
+  "api_key_present": true,
+  "mode_used": "keyed",
+  "fallback_used": false,
+  "events_returned": 100,
+  "markets_returned": 5720,
+  "search_nba_results": 10,
+  "provider_by_market_type": {
+    "polymarket | both_teams_to_score": 31,
+    "polymarket | both_teams_to_score_first_half": 20,
+    "polymarket | both_teams_to_score_second_half": 1,
+    "polymarket | f1_race_winner": 23,
+    "polymarket | first_half_spreads": 72,
+    "polymarket | first_half_totals": 310,
+    "polymarket | handicap": 12,
+    "polymarket | moneyline": 195,
+    "polymarket | null": 409,
+    "polymarket | second_half_totals": 130,
+    "polymarket | soccer_anytime_goalscorer": 79,
+    "polymarket | soccer_exact_score": 1147,
+    "polymarket | soccer_first_corner": 2,
+    "polymarket | soccer_first_half_team_totals": 320,
+    "polymarket | soccer_first_half_total_corners": 78,
+    "polymarket | soccer_first_to_score": 60,
+    "polymarket | soccer_game_corners_odd_even": 2,
+    "polymarket | soccer_halftime_result": 93,
+    "polymarket | soccer_player_goals": 158,
+    "polymarket | soccer_player_goals_plus_assists": 177,
+    "polymarket | soccer_second_half_result": 3,
+    "polymarket | soccer_second_half_team_totals": 16,
+    "polymarket | soccer_second_half_total_corners": 6,
+    "polymarket | soccer_team_total_corners": 208,
+    "polymarket | soccer_team_totals": 744,
+    "polymarket | spreads": 640,
+    "polymarket | tennis_game_handicap": 2,
+    "polymarket | tennis_match_totals": 18,
+    "polymarket | tennis_set_totals": 6,
+    "polymarket | total_corners": 182,
+    "polymarket | totals": 576
+  },
+  "sports_line_samples": {
+    "first_half_spreads": [
+      "-1.5",
+      "-2.5"
+    ],
+    "first_half_totals": [
+      "0.5",
+      "1.5",
+      "2.5",
+      "3.5",
+      "4.5"
+    ],
+    "handicap": [
+      "-1.5"
+    ],
+    "second_half_totals": [
+      "0.5",
+      "1.5",
+      "2.5",
+      "3.5",
+      "4.5"
+    ],
+    "soccer_first_half_team_totals": [
+      "0.5",
+      "1.5",
+      "2.5",
+      "3.5"
+    ],
+    "soccer_first_half_total_corners": [
+      "3.5",
+      "4.5",
+      "5.5"
+    ],
+    "soccer_player_goals": [
+      "1.5",
+      "2.5"
+    ],
+    "soccer_player_goals_plus_assists": [
+      "0.5",
+      "1.5",
+      "2.5"
+    ],
+    "soccer_second_half_team_totals": [
+      "0.5",
+      "1.5",
+      "2.5",
+      "3.5"
+    ],
+    "soccer_second_half_total_corners": [
+      "3.5",
+      "4.5",
+      "5.5"
+    ],
+    "soccer_team_total_corners": [
+      "2.5",
+      "3.5",
+      "4.5",
+      "5.5"
+    ],
+    "soccer_team_totals": [
+      "0.5",
+      "1.5",
+      "2.5",
+      "3.5",
+      "4.5"
+    ],
+    "spreads": [
+      "-1.5",
+      "-2.5",
+      "-3.5",
+      "-4.5",
+      "-5.5"
+    ],
+    "tennis_game_handicap": [
+      "-2.5"
+    ],
+    "tennis_match_totals": [
+      "21.5",
+      "22.5",
+      "23.5"
+    ],
+    "tennis_set_totals": [
+      "2.5"
+    ],
+    "total_corners": [
+      "10.5",
+      "11.5",
+      "12.5",
+      "13.5",
+      "7.5"
+    ],
+    "totals": [
+      "0.5",
+      "1.5",
+      "2.5",
+      "3.5",
+      "4.5"
+    ]
+  }
+}

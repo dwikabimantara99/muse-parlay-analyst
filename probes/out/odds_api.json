@@ -1,0 +1,38 @@
+{
+  "source": "The Odds API",
+  "tier": 2,
+  "probed_at": "2026-11-20T15:34:21.302073+00:00",
+  "accessible_from_vm": true,
+  "format": "JSON REST (butuh key)",
+  "rate_limit": "450 kredit/bulan, peringatan 80% (DECISIONS.md D3) — belum bisa diverifikasi tanpa key",
+  "data_available": [
+    "endpoint terjangkau; key dibutuhkan (401)"
+  ],
+  "risk_notes": [
+    "Butuh ODDS_API_KEY dari user sebelum bisa dipakai (D3).",
+    "1 panggilan bisa makan beberapa kredit; cache 30 menit, maks 2 panggilan per analisis."
+  ],
+  "requests": [
+    {
+      "url": "https://api.the-odds-api.com/v4/sports/",
+      "status": 401,
+      "from_cache": false,
+      "elapsed_seconds": 0.72,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"message\":\"API key is missing\",\"error_code\":\"MISSING_KEY\",\"details_url\":\"https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html#missing-key\"}\n"
+    },
+    {
+      "url": "https://api.the-odds-api.com/v4/sports/basketball_nba/odds?regions=eu",
+      "status": 401,
+      "from_cache": false,
+      "elapsed_seconds": 0.48,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"message\":\"API key is missing\",\"error_code\":\"MISSING_KEY\",\"details_url\":\"https://the-odds-api.com/liveapi/guides/v4/api-error-codes.html#missing-key\"}\n"
+    }
+  ],
+  "verdict": "CADANGAN",
+  "unknown": [],
+  "api_key_present": false
+}

@@ -1,0 +1,46 @@
+{
+  "source": "Polymarket API",
+  "tier": 2,
+  "probed_at": "2026-11-20T15:34:14.805512+00:00",
+  "accessible_from_vm": true,
+  "format": "JSON REST",
+  "rate_limit": "UNKNOWN (tidak ada header rate limit yang terlihat)",
+  "data_available": [
+    "gamma-api.polymarket.com/events: 5 item, kunci contoh: ['active', 'archived', 'category', 'closed', 'closedTime', 'commentCount', 'competitive', 'createdAt']",
+    "gamma-api.polymarket.com/markets: 5 item, kunci contoh: ['acceptingOrders', 'acceptingOrdersTimestamp', 'active', 'approved', 'archived', 'automaticallyActive', 'bestAsk', 'bestBid']"
+  ],
+  "risk_notes": [
+    "Pembanding independen (P2): hanya dipakai bila provider asal pasar jup.ag BUKAN polymarket."
+  ],
+  "requests": [
+    {
+      "url": "https://gamma-api.polymarket.com/events?limit=5&active=true",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.95,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "[{\"id\":\"2890\",\"ticker\":\"nba-will-the-mavericks-beat-the-grizzlies-by-more-than-5pt5-points-in-their-december-4-matchup\",\"slug\":\"nba-will-the-mavericks-beat-the-grizzlies-by-more-than-5pt5-points-in-their-december-4-matchup\",\"title\":\"NBA: Will the Mavericks beat the Grizzlies by more than 5.5 points in their December 4 matchup?\",\"description\":\"In the upcoming NBA game, scheduled for December 4:\\n\\nIf the Dallas Mavericks win by over 5.5 points, the market will resolve to “Yes”.\\n\\nIf the Memphis "
+    },
+    {
+      "url": "https://gamma-api.polymarket.com/markets?limit=5&active=true",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.86,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "[{\"id\":\"559651\",\"question\":\"Xi Jinping out before 2027?\",\"conditionId\":\"0xa467b14d51f01b957109d9cbb1d6c124fab2a089d52ed8f471d23c2812e743b7\",\"slug\":\"xi-jinping-out-before-2027\",\"resolutionSource\":\"\",\"endDate\":\"2027-01-01T04:59:00Z\",\"liquidity\":\"316233.89941\",\"startDate\":\"2025-07-03T20:37:00.228Z\",\"image\":\"https://polymarket-upload.s3.us-east-2.amazonaws.com/xi-jinping-out-in-2025-EjF4SM20eaa3.jpg\",\"icon\":\"https://polymarket-upload.s3.us-east-2.amazonaws.com/xi-jinping-out-in-2025-EjF4SM20eaa3.jpg"
+    },
+    {
+      "url": "https://clob.polymarket.com/markets?limit=5",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.9,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"data\":[{\"enable_order_book\":false,\"active\":true,\"closed\":true,\"archived\":false,\"accepting_orders\":false,\"accepting_order_timestamp\":null,\"minimum_order_size\":5,\"minimum_tick_size\":0.01,\"condition_id\":\"0xb62f71aef4c9972ddb75ec977b48156e1cc72e30f0e36b0f12c14de7fd94c777\",\"question_id\":\"\",\"question\":\"Will Benjamin Netanyahu remain prime minister of Israel through June 30, 2021?\",\"description\":\"This is a market on whether Benjamin Netanyahu will remain prime minister of Israel through the resolutio"
+    }
+  ],
+  "verdict": "PAKAI",
+  "unknown": []
+}

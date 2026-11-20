@@ -1,0 +1,38 @@
+{
+  "source": "Basketball-Reference",
+  "tier": 2,
+  "probed_at": "2026-11-20T15:34:33.396357+00:00",
+  "accessible_from_vm": true,
+  "format": "HTML (scraping)",
+  "rate_limit": "Tidak dipublikasikan; BBRef dikenal membatasi request agresif (probe memakai jeda 4 dtk)",
+  "data_available": [
+    "NBA_2026_standings.html: HTML 290478 karakter, penanda ditemukan: tidak ada",
+    "NBA_2026_advanced.html: HTML 2214959 karakter, penanda ditemukan: ['BPM', 'MP']"
+  ],
+  "risk_notes": [
+    "Scraping HTML: format bisa berubah; butuh tes kesehatan scraper.",
+    "Patuhi batas situs: jeda antar request, cache agresif."
+  ],
+  "requests": [
+    {
+      "url": "https://www.basketball-reference.com/leagues/NBA_2026_standings.html",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.98,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "\n<!DOCTYPE html>\n<html data-version=\"klecko-\" data-root=\"/home/bbr/build\" lang=\"en\" class=\"no-js\" >\n<head>\n    <meta charset=\"utf-8\">\n    <meta http-equiv=\"x-ua-compatible\" content=\"ie=edge\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=2.0\" />\n    <link rel=\"dns-prefetch\" href=\"https://cdn.ssref.net/req/202611091\" />\n<script>\n/* https://docs.osano.com/hc/en-us/articles/22469433444372-Google-Consent-Mode-v2  */\n  window.dataLayer = window.dataLayer ||[]"
+    },
+    {
+      "url": "https://www.basketball-reference.com/leagues/NBA_2026_advanced.html",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.42,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "\n<!DOCTYPE html>\n<html data-version=\"klecko-\" data-root=\"/home/bbr/build\" lang=\"en\" class=\"no-js\" >\n<head>\n    <meta charset=\"utf-8\">\n    <meta http-equiv=\"x-ua-compatible\" content=\"ie=edge\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=2.0\" />\n    <link rel=\"dns-prefetch\" href=\"https://cdn.ssref.net/req/202611091\" />\n<script>\n/* https://docs.osano.com/hc/en-us/articles/22469433444372-Google-Consent-Mode-v2  */\n  window.dataLayer = window.dataLayer ||[]"
+    }
+  ],
+  "verdict": "PAKAI",
+  "unknown": []
+}

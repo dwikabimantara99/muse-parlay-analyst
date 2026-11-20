@@ -1,0 +1,50 @@
+{
+  "source": "Sofascore",
+  "tier": 2,
+  "probed_at": "2026-11-20T15:34:47.897558+00:00",
+  "accessible_from_vm": false,
+  "format": null,
+  "rate_limit": "header: {'Retry-After': '0'}",
+  "data_available": [],
+  "risk_notes": [
+    "API tidak resmi/tidak didokumentasikan: bisa berubah atau diblokir tanpa pemberitahuan; butuh tes kesehatan.",
+    "Sering 403 bila header tidak lengkap."
+  ],
+  "requests": [
+    {
+      "url": "https://www.sofascore.com/api/v1/sport/football/scheduled-events/2026-11-20",
+      "status": 403,
+      "from_cache": false,
+      "elapsed_seconds": 0.44,
+      "rate_limit_headers": {
+        "Retry-After": "0"
+      },
+      "error": null,
+      "body_sample": "{\"error\": {\"code\": 403, \"reason\": \"challenge\" }}"
+    },
+    {
+      "url": "https://www.sofascore.com/api/v1/sport/football/unique-tournament/17/seasons",
+      "status": 403,
+      "from_cache": false,
+      "elapsed_seconds": 0.21,
+      "rate_limit_headers": {
+        "Retry-After": "0"
+      },
+      "error": null,
+      "body_sample": "{\"error\": {\"code\": 403, \"reason\": \"challenge\" }}"
+    },
+    {
+      "url": "https://www.sofascore.com/api/v1/sport/football/events/live",
+      "status": 403,
+      "from_cache": false,
+      "elapsed_seconds": 0.18,
+      "rate_limit_headers": {
+        "Retry-After": "0"
+      },
+      "error": null,
+      "body_sample": "{\"error\": {\"code\": 403, \"reason\": \"challenge\" }}"
+    }
+  ],
+  "verdict": "JANGAN",
+  "unknown": []
+}

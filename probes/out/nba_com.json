@@ -1,0 +1,48 @@
+{
+  "source": "nba.com / stats.nba.com",
+  "tier": 1,
+  "probed_at": "2026-11-20T15:34:26.782592+00:00",
+  "accessible_from_vm": true,
+  "format": "JSON REST",
+  "rate_limit": "UNKNOWN (tidak ada header rate limit yang terlihat)",
+  "data_available": [
+    "stats/leaguestandingsv3?LeagueID=00&Season=2025-26&SeasonTyp: JSON, kunci atas: ['parameters', 'resource', 'resultSets']",
+    "stats/scoreboardv2?GameDate=11/20/2026&LeagueID=00&DayOffset: JSON, kunci atas: ['parameters', 'resource', 'resultSets']"
+  ],
+  "risk_notes": [
+    "stats.nba.com dikenal memblokir IP cloud/server — bila gagal, ESPN (jenjang 2) jadi utama untuk jadwal/statistik."
+  ],
+  "requests": [
+    {
+      "url": "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json",
+      "status": 403,
+      "from_cache": false,
+      "elapsed_seconds": 0.57,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<HTML><HEAD>\n<TITLE>Access Denied</TITLE>\n</HEAD><BODY>\n<H1>Access Denied</H1>\n \nYou don't have permission to access \"http&#58;&#47;&#47;cdn&#46;nba&#46;com&#47;static&#47;json&#47;liveData&#47;scoreboard&#47;todaysScoreboard&#95;00&#46;json\" on this server.<P>\nReference&#32;&#35;18&#46;9178ce17&#46;1795188867&#46;4c4a44bc\n<P>https&#58;&#47;&#47;errors&#46;edgesuite&#46;net&#47;18&#46;9178ce17&#46;1795188867&#46;4c4a44bc</P>\n</BODY>\n</HTML>\n"
+    },
+    {
+      "url": "https://stats.nba.com/stats/leaguestandingsv3?LeagueID=00&Season=2025-26&SeasonType=Regular%20Season",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.24,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"resource\":\"leaguestandings\",\"parameters\":{\"LeagueID\":\"00\",\"SeasonYear\":\"2025-26\",\"SeasonType\":\"Regular Season\"},\"resultSets\":[{\"name\":\"Standings\",\"headers\":[\"LeagueID\",\"SeasonID\",\"TeamID\",\"TeamCity\",\"TeamName\",\"TeamSlug\",\"Conference\",\"ConferenceRecord\",\"PlayoffRank\",\"ClinchIndicator\",\"Division\",\"DivisionRecord\",\"DivisionRank\",\"WINS\",\"LOSSES\",\"WinPCT\",\"LeagueRank\",\"Record\",\"HOME\",\"ROAD\",\"L10\",\"Last10Home\",\"Last10Road\",\"OT\",\"ThreePTSOrLess\",\"TenPTSOrMore\",\"LongHomeStreak\",\"strLongHomeStreak\",\"Lo"
+    },
+    {
+      "url": "https://stats.nba.com/stats/scoreboardv2?GameDate=11/20/2026&LeagueID=00&DayOffset=0",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.73,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"resource\":\"scoreboardV2\",\"parameters\":{\"LeagueID\":\"00\",\"GameDate\":\"11/20/2026\",\"DayOffset\":0},\"resultSets\":[{\"name\":\"GameHeader\",\"headers\":[\"GAME_DATE_EST\",\"GAME_SEQUENCE\",\"GAME_ID\",\"GAME_STATUS_ID\",\"GAME_STATUS_TEXT\",\"GAMECODE\",\"HOME_TEAM_ID\",\"VISITOR_TEAM_ID\",\"SEASON\",\"LIVE_PERIOD\",\"LIVE_PC_TIME\",\"NATL_TV_BROADCASTER_ABBREVIATION\",\"HOME_TV_BROADCASTER_ABBREVIATION\",\"AWAY_TV_BROADCASTER_ABBREVIATION\",\"LIVE_PERIOD_TIME_BCAST\",\"ARENA_NAME\",\"WH_STATUS\",\"WNBA_COMMISSIONER_FLAG\"],\"rowSet\":[[\"2026-"
+    }
+  ],
+  "verdict": "CADANGAN",
+  "unknown": [
+    "sebagian endpoint gagal (lihat requests)"
+  ]
+}

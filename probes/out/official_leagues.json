@@ -1,0 +1,187 @@
+{
+  "source": "Situs/data resmi liga (bola)",
+  "tier": 1,
+  "probed_at": "2026-11-20T15:35:00.102945+00:00",
+  "accessible_from_vm": true,
+  "format": "campuran: JSON (bila ada) + HTML",
+  "rate_limit": "UNKNOWN (tidak ada header rate limit yang terlihat)",
+  "data_available": [
+    "Premier League: endpoint JSON publik terverifikasi",
+    "UEFA: halaman terjangkau, format text/html (bukan JSON langsung)",
+    "LaLiga: halaman terjangkau, format text/html; charset=utf-8 (bukan JSON langsung)",
+    "Bundesliga: halaman terjangkau, format text/html;charset=UTF-8 (bukan JSON langsung)",
+    "Ligue 1: halaman terjangkau, format text/html; charset=utf-8 (bukan JSON langsung)"
+  ],
+  "risk_notes": [
+    "Situs resmi liga umumnya tidak menyediakan API JSON publik yang stabil; halaman HTML/JS berat dan bisa berubah.",
+    "xG resmi hampir tidak ada — rantai xG tetap Understat → Sofascore/FotMob (B4)."
+  ],
+  "requests": [
+    {
+      "league": "Premier League",
+      "url": "https://footballapi.pulselive.com/football/fixtures?comps=1&page=0&pageSize=5&sort=asc",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.95,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"pageInfo\":{\"page\":0,\"numPages\":2710,\"pageSize\":5,\"numEntries\":13546},\"content\":[{\"gameweek\":{\"id\":2.0,\"compSeason\":{\"label\":\"1992/93\",\"competition\":{\"abbreviation\":\"EN_PR\",\"description\":\"Premier League\",\"level\":\"SEN\",\"source\":\"\",\"id\":1.0},\"id\":1.0},\"gameweek\":1.0,\"competitionPhase\":{\"id\":1.0,\"type\":\"L\",\"gameweekRange\":[0.0,0.0]}},\"kickoff\":{\"completeness\":3.0,\"millis\":7.138872E11,\"label\":\"Sat 15 Aug 1992, 15:00 BST\",\"gmtOffset\":1.0},\"provisionalKickoff\":{\"completeness\":0.0},\"teams\":[{\"team\":{\""
+    },
+    {
+      "league": "UEFA",
+      "url": "https://www.uefa.com/uefachampionsleague/fixtures/",
+      "status": 404,
+      "from_cache": false,
+      "elapsed_seconds": 0.88,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "\n\n\n\n\n\n\n\n\n<!DOCTYPE html>\n<html lang=\"en\" dir=\"ltr\" data-lang=\"en\" data-culture=\"en-GB\">\n\n<head prefix=\"og: http://ogp.me/ns# fb: http://ogp.me/ns/fb# website: http://ogp.me/ns/website# \">\n  <title>Error 404 - The official website for European football | UEFA.com</title>\n  <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\" />\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\n  <meta charset=\"utf-8\" />\n  <meta name=\"description\" content=\"UEFA.com is the official site of UEF"
+    },
+    {
+      "league": "UEFA",
+      "url": "https://www.uefa.com/uefachampionsleague/",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 1.08,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "\n\n\n\n\n\n\n\n\n<!DOCTYPE html>\n<html lang=\"en\" dir=\"ltr\" data-lang=\"en\" data-culture=\"en-GB\">\n\n<head prefix=\"og: http://ogp.me/ns# fb: http://ogp.me/ns/fb# website: http://ogp.me/ns/website# \">\n  <title>UEFA Champions League | UEFA.com</title>\n  <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\" />\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\n  <meta charset=\"utf-8\" />\n  <meta name=\"description\" content=\"The official site of the world&#x27;s greatest club competition. Get "
+    },
+    {
+      "league": "LaLiga",
+      "url": "https://www.laliga.com/en-GB/matches/laliga-ea-sports",
+      "status": 404,
+      "from_cache": false,
+      "elapsed_seconds": 1.13,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html><html lang=\"es\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><title>Página web oficial de LALIGA | LALIGA</title><meta name=\"robots\" content=\"index,follow\"/><meta name=\"googlebot\" content=\"index,follow\"/><meta name=\"description\" content=\"Toda la información de LALIGA EA SPORTS y LALIGA HYPERMOTION, horarios, resultados, clasificación, noticias, estadísticas, y mucho más...\"/><meta name=\"twitter:card\" content=\"summary_large_image\"/><meta name=\"tw"
+    },
+    {
+      "league": "LaLiga",
+      "url": "https://www.laliga.com/en-GB",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 2.13,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><meta name=\"twitter:card\" content=\"summary_large_image\"/><meta name=\"twitter:site\" content=\"@laliga\"/><meta name=\"twitter:creator\" content=\"@laliga\"/><meta property=\"og:type\" content=\"website\"/><meta property=\"og:site_name\" content=\"Página web oficial de LALIGA | LALIGA\"/><script type=\"application/ld+json\">\n  {\n    \"@context\": \"https://schema.org\",\n    \"@type\":\"SiteNavigationElement\",\n"
+    },
+    {
+      "league": "Serie A",
+      "url": "https://www.legaseriea.it/en/serie-a/fixtures",
+      "status": 307,
+      "from_cache": false,
+      "elapsed_seconds": 0.99,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0000\u0003�}�r�8��`\u0015=��q�-�[�v�ɲ�Ҵly$�jk�\n\u0005H�\u0012�(�\r�v��\u001d��p�\u0000���>�>�E\u0002�DI\u0000%�T�����D�Ed���\u00062\u0013�\u001f��j؝��X\u0006?�\u0000�EԻ(�f!�$f�s�g�ҏ?,\b�~�aI\u0004F�\u0002�1\u0011\u0017�D�V�t�~\u000e�\\��(y�\u0018\u0017%�P�P\\���'\u0016\u0017\u001ey�.��\u0013DC*(\u000e���\u0001��\u0001$��G�IpQ�8\t\u0018�J\b�\u0017���4\u0012%�\u0013�.�9e���E)`�%��Ŀ(�IY�b�\u0005u��E\u0012~�Ϟ�\u0013a���l\u0010ҨU�e���\r���\u00182S�(殁��x��h7,�Uq\u001a�]u<�+�\n\u0000\bǫн(�~��L!\u001d�hW�u˯�5��6�6vݶ�|1�\u0012���QdU��z���I���9b�m�-��\u0004{�߮�+�旣���U�\r\u001f{��t�f�V)1Z�Y-[��W�+\u0015ۯ4*v�b1Z�Z�Z\u0015\u0017�\u001d\\&v\u0013;MҪ|1\u001a���y�\u001c\u001cXr�XͲ�����n����ȹQ\u0003�VL?\u0013\u000b{?'q~�@o\u0015T\u0004��\u0001�c4&�\u0012�A����S��\u0000�#NL\u0005��L��q=�2�,�AN\u0016\u0004��{���\u000bm�"
+    },
+    {
+      "league": "Serie A",
+      "url": "https://www.legaseriea.it/en",
+      "status": 307,
+      "from_cache": false,
+      "elapsed_seconds": 1.02,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0000\u0003�}�r�8��`\u0015=��q�-�[�v�ɲ�Ҵly$�jk�\n\u0005H�\u0012�(�\r�v��\u001d��p�\u0000���>�>�E\u0002�DI\u0000%�T�����D�Ed���\u00062\u0013�\u001f��j؝��X\u0006?�\u0000�EԻ(�f!�$f�s�g�ҏ?,\b�~�aI\u0004F�\u0002�1\u0011\u0017�D�V�t�~\u000e�\\��(y�\u0018\u0017%�P�P\\���'\u0016\u0017\u001ey�.��\u0013DC*(\u000e���\u0001��\u0001$��G�IpQ�8\t\u0018�J\b�\u0017���4\u0012%�\u0013�.�9e���E)`�%��Ŀ(�IY�b�\u0005u��E\u0012~�Ϟ�\u0013a���l\u0010ҨU�e���\r���\u00182S�(殁��x��h7,�Uq\u001a�]u<�+�\n\u0000\bǫн(�~��L!\u001d�hW�u˯�5��6�6vݶ�|1�\u0012���QdU��z���I���9b�m�-��\u0004{�߮�+�旣���U�\r\u001f{��t�f�V)1Z�Y-[��W�+\u0015ۯ4*v�b1Z�Z�Z\u0015\u0017�\u001d\\&v\u0013;MҪ|1\u001a���y�\u001c\u001cXr�XͲ�����n����ȹQ\u0003�VL?\u0013\u000b{?'q~�@o\u0015T\u0004��\u0001�c4&�\u0012�A����S��\u0000�#NL\u0005��L��q=�2�,�AN\u0016\u0004��{���\u000bm�"
+    },
+    {
+      "league": "Bundesliga",
+      "url": "https://www.bundesliga.com/en/bundesliga/matches",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 2.47,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html><html lang=\"en\" dir=\"ltr\"><head>\n\t\t<meta charset=\"utf-8\">\n\t\t<title>Bundesliga | Matchday 10 | 2026/27 Season </title>\n\t\t<script type=\"text/javascript\" src=\"/ruxitagentjs_ICA15789NPRTUVXfqrux_10349261020121938.js\" data-dtconfig=\"rid=RID_1173093888|rpid=-35628266|domain=bundes-webec-ratdcgsjc0xl-1613381218.eu-central-1.elb.amazonaws.com|reportUrl=https://bf15230cxd.bf.dynatrace.com/bf|app=cfa13e04477d102f|coo=1|cors=1|srtbv=4|owasp=1|featureHash=ICA15789NPRTUVXfqrux|rdnt=1|uxrgce=1|"
+    },
+    {
+      "league": "Ligue 1",
+      "url": "https://www.ligue1.com/matches",
+      "status": 404,
+      "from_cache": false,
+      "elapsed_seconds": 2.85,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\" data-next-head=\"\"/><meta name=\"viewport\" content=\"width=device-width\" data-next-head=\"\"/><script async=\"\" src=\"https://pagead2.googlesyndication.com/tag/js/gpt.js\"></script><title data-next-head=\"\">Ligue 1 McDonald&#x27;s</title><meta name=\"robots\" content=\"index,follow\" data-next-head=\"\"/><meta name=\"description\" content=\"Ligue 1 McDonald&#x27;s\" data-next-head=\"\"/><meta name=\"twitter:card\" content=\"summary_large_image\" data-next-head=\""
+    },
+    {
+      "league": "Ligue 1",
+      "url": "https://www.ligue1.com/",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 2.44,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html><html lang=\"catchAll\"><head><meta charSet=\"utf-8\" data-next-head=\"\"/><meta name=\"viewport\" content=\"width=device-width\" data-next-head=\"\"/><script async=\"\" src=\"https://pagead2.googlesyndication.com/tag/js/gpt.js\"></script><link rel=\"preload\" href=\"/fonts/GTAmerica-Bold.woff2\" as=\"font\" type=\"font/woff2\" crossorigin=\"anonymous\" data-next-head=\"\"/><link rel=\"preload\" href=\"/fonts/GTAmerica-Regular.woff2\" as=\"font\" type=\"font/woff2\" crossorigin=\"anonymous\" data-next-head=\"\"/><link r"
+    }
+  ],
+  "verdict": "CADANGAN",
+  "unknown": [
+    "hanya 1/6 liga dengan endpoint JSON terverifikasi; sisanya perlu penelusuran lanjutan di 2b (atau pakai jenjang 2)"
+  ],
+  "per_league": {
+    "Premier League": {
+      "url": "https://footballapi.pulselive.com/football/fixtures?comps=1&page=0&pageSize=5&sort=asc",
+      "first_url": "https://footballapi.pulselive.com/football/fixtures?comps=1&page=0&pageSize=5&sort=asc",
+      "status": 200,
+      "content_type": "application/json;charset=UTF-8",
+      "is_json": true,
+      "body_chars": 7379,
+      "has_next_data": false,
+      "error": null
+    },
+    "UEFA": {
+      "url": "https://www.uefa.com/uefachampionsleague/",
+      "first_url": "https://www.uefa.com/uefachampionsleague/fixtures/",
+      "status": 200,
+      "content_type": "text/html",
+      "is_json": false,
+      "body_chars": 339590,
+      "has_next_data": false,
+      "error": null
+    },
+    "LaLiga": {
+      "url": "https://www.laliga.com/en-GB",
+      "first_url": "https://www.laliga.com/en-GB/matches/laliga-ea-sports",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "is_json": false,
+      "body_chars": 785525,
+      "has_next_data": true,
+      "error": null
+    },
+    "Serie A": {
+      "url": "https://www.legaseriea.it/en",
+      "first_url": "https://www.legaseriea.it/en/serie-a/fixtures",
+      "status": 307,
+      "content_type": "text/html; charset=utf-8",
+      "is_json": false,
+      "body_chars": 12548,
+      "has_next_data": false,
+      "error": null
+    },
+    "Bundesliga": {
+      "url": "https://www.bundesliga.com/en/bundesliga/matches",
+      "first_url": "https://www.bundesliga.com/en/bundesliga/matches",
+      "status": 200,
+      "content_type": "text/html;charset=UTF-8",
+      "is_json": false,
+      "body_chars": 849761,
+      "has_next_data": false,
+      "error": null
+    },
+    "Ligue 1": {
+      "url": "https://www.ligue1.com/",
+      "first_url": "https://www.ligue1.com/matches",
+      "status": 200,
+      "content_type": "text/html; charset=utf-8",
+      "is_json": false,
+      "body_chars": 73979,
+      "has_next_data": true,
+      "error": null
+    }
+  }
+}

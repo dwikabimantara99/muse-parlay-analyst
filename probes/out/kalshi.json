@@ -1,0 +1,51 @@
+{
+  "source": "Kalshi API",
+  "tier": 2,
+  "probed_at": "2026-11-20T15:34:17.858255+00:00",
+  "accessible_from_vm": true,
+  "format": "JSON REST",
+  "rate_limit": "header: {'x-ratelimit-remaining': '550', 'x-ratelimit-reset': '0.25', 'x-ratelimit-limit': '600'}",
+  "data_available": [
+    "events: 5 item, kunci contoh: ['category', 'collateral_return_type', 'event_ticker', 'exchange_index', 'last_updated_ts', 'mutually_exclusive', 'series_ticker', 'settlement_sources']",
+    "markets: 5 item, kunci contoh: ['can_close_early', 'close_time', 'created_time', 'custom_strike', 'event_ticker', 'exchange_index', 'expected_expiration_time', 'expiration_value']",
+    "series: 16757 item, kunci contoh: ['additional_prohibitions', 'categories', 'category', 'contract_terms_url', 'contract_url', 'exchange_index', 'fee_multiplier', 'fee_type']"
+  ],
+  "risk_notes": [
+    "Pembanding independen (P2): hanya dipakai bila provider asal pasar jup.ag BUKAN kalshi."
+  ],
+  "requests": [
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/events?limit=5",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.96,
+      "rate_limit_headers": {
+        "x-ratelimit-remaining": "550",
+        "x-ratelimit-reset": "0.25",
+        "x-ratelimit-limit": "600"
+      },
+      "error": null,
+      "body_sample": "{\"cursor\":\"CgYI8JHtswkSDktYTUFSU1ZSQUlMLTUw\",\"events\":[{\"category\":\"Science and Technology\",\"collateral_return_type\":\"\",\"event_ticker\":\"KXELONMARS-99\",\"exchange_index\":0,\"last_updated_ts\":\"2026-10-16T03:24:48.885736Z\",\"mutually_exclusive\":false,\"series_ticker\":\"KXELONMARS\",\"settlement_sources\":[{\"name\":\"The Guardian\",\"url\":\"https://www.theguardian.com\"},{\"name\":\"local news outlets with verifiable mastheads in \",\"url\":\"https://kalshi.com/\"},{\"name\":\"official social media accounts of  or their off"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/markets?limit=5&status=open",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 0.67,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"cursor\":\"CgwIlM6B2AYQqI_llgISMktYTVZFQ1JPU1NDQVRFR09SWS1TMjAyNlRYNEJUSDVDTFpaUk9PMlMtRUwyVTQ3NlJC\",\"markets\":[{\"can_close_early\":true,\"close_time\":\"2026-11-23T22:50:00Z\",\"created_time\":\"2026-11-20T15:28:20.618967Z\",\"custom_strike\":{\"Associated Events\":\"KXLIGAMX1H-26NOV21PACTOL,KXLIGAMXBTTS-26NOV20PUEASL,KXLIGAMXGAME-26NOV20JUAATL,KXLIGAMXGAME-26NOV20TIJALA\",\"Associated Market Sides\":\"yes,yes,yes,yes\",\"Associated Markets\":\"KXLIGAMX1H-26NOV21PACTOL-PAC,KXLIGAMXBTTS-26NOV20PUEASL-BTTS,KXLIGAMXGAM"
+    },
+    {
+      "url": "https://api.elections.kalshi.com/trade-api/v2/series?limit=5",
+      "status": 200,
+      "from_cache": true,
+      "elapsed_seconds": 9.81,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"series\":[{\"additional_prohibitions\":[\"Current players, coaches, and staff of the league, association, or organization(s) governing the event. For college leagues/associations specifically, or where otherwise appropriate (as identified by the Exchange), this applies to current players/coaches/staff of the specific sport in <event> rather than the league/association as a whole (e.g., if the Division I Gonzaga Men’s Basketball Team is playing in <event>, this prohibition will restrict trades by c"
+    }
+  ],
+  "verdict": "PAKAI",
+  "unknown": []
+}
