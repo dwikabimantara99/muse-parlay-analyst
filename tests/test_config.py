@@ -79,6 +79,11 @@ class TestPlaystyle(unittest.TestCase):
             comp["allowed_comparison_sources"],
             ["other_prediction_provider", "sportsbook_devig"],
         )
+        # Urutan pembanding p_market (keputusan user 2026-11-20, pasca 2a).
+        self.assertEqual(
+            comp["order"],
+            ["odds_api_devig", "espn_odds_devig", "kalshi"],
+        )
 
     # D2 — MODEL_ONLY
     def test_model_only(self):
@@ -220,10 +225,11 @@ class TestSources(unittest.TestCase):
                 self.assertIn("name", cand)
 
     def test_jenjang_tertinggi_didahulukan(self):
-        # NBA: nba.com jenjang 1. Bola: situs resmi liga jenjang 1.
+        # NBA: stats.nba.com jenjang 1 (UTAMA, probe 2a: bekerja dari VM).
+        # Bola: situs resmi liga jenjang 1.
         src = config.load_sources()
         nba = src["sources"]["nba_schedule_stats"]["candidates"]
-        self.assertEqual(nba[0]["name"], "nba.com")
+        self.assertEqual(nba[0]["name"], "stats.nba.com")
         self.assertEqual(nba[0]["tier"], 1)
         bola = src["sources"]["football_stats_xg"]["candidates"]
         self.assertEqual(bola[0]["tier"], 1)
@@ -248,7 +254,35 @@ class TestSources(unittest.TestCase):
         self.assertEqual(rules["cross_check_min_sources_injury_lineup"], 2)
         self.assertTrue(rules["show_conflicting_sources"])
         self.assertEqual(rules["all_sources_dead"], "DATA_INCOMPLETE")
-        self.assertEqual(rules["xg_chain"], ["resmi", "Understat", "Sofascore/FotMob"])
+        # B4 pasca probe 2a: FotMob + Sofascore ditolak, rantai tinggal
+        # resmi -> Understat; tanpa xG berlaku TANPA_XG.
+        self.assertEqual(rules["xg_chain"], ["resmi", "Understat"])
+
+    def test_urutan_pembanding(self):
+        # Urutan p_market: Odds API -> ESPN odds -> Kalshi -> Polymarket
+        # (Polymarket terakhir + hanya untuk pasar bukan asal Polymarket).
+        src = config.load_sources()
+        names = [c["name"] for c in src["sources"]["comparison_prices"]["candidates"]]
+        self.assertEqual(
+            names,
+            ["The Odds API", "ESPN odds", "Kalshi API", "Polymarket API"],
+        )
+
+    def test_sumber_ditolak(self):
+        # FotMob (ToS) + Sofascore (403) ada di daftar rejected dengan
+        # alasan, dan TIDAK muncul di kandidat sumber mana pun.
+        src = config.load_sources()
+        rejected = {r["name"]: r for r in src["rejected"]}
+        self.assertIn("FotMob", rejected)
+        self.assertIn("Sofascore", rejected)
+        for entry in rejected.values():
+            self.assertIn("reason", entry)
+            self.assertTrue(entry["reason"])
+            self.assertIn("rejected_on", entry)
+        for kind in src["sources"].values():
+            names = [c["name"] for c in kind["candidates"]]
+            self.assertNotIn("FotMob", names)
+            self.assertNotIn("Sofascore", names)
 
     def test_tidak_ada_api_key_di_sources(self):
         # API key hanya di .env — pastikan tidak ada nilai key di sources.yaml.

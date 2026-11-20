@@ -5,11 +5,12 @@
 # Jenjang: 1 = RESMI (penyelenggara kompetisi), 2 = agregator besar terpercaya,
 # 3 = sumber valid lain (hanya kalau jenjang 1-2 tidak punya).
 # Selalu pakai jenjang tertinggi yang tersedia; catat jenjang + sumber + jam.
+# Urutan kandidat dalam tiap daftar = urutan prioritas (pertama = utama).
 
 meta:
-  version: 2
+  version: 3
   project: muse-parlay-analyst
-  source: "DECISIONS.md B (2026-11-20), menggantikan Blueprint §4"
+  source: "DECISIONS.md B (2026-11-20) + koreksi pasca probe 2a (2026-11-20)"
 
 tiers:
   1:
@@ -17,7 +18,7 @@ tiers:
     description: "Penyelenggara kompetisinya langsung."
   2:
     name: "Agregator besar terpercaya"
-    description: "ESPN, Sofascore, FotMob, Understat (xG), Basketball-Reference."
+    description: "ESPN, Understat (xG), Basketball-Reference, Rotowire; Kalshi & Polymarket untuk pembanding."
   3:
     name: "Sumber valid lain"
     description: "Hanya kalau jenjang 1-2 tidak punya data yang dibutuhkan."
@@ -31,7 +32,7 @@ sources:
       - name: "Jupiter Prediction API"
         tier: 1
         url: "https://developers.jup.ag/docs/guides/how-to-build-a-prediction-market-app-on-solana"
-        notes: "API key gratis dari Portal. HANYA BACA — DILARANG memanggil endpoint order, execute, atau apa pun yang memindahkan dana (DECISIONS.md C3). API masih beta, bisa dibatasi di beberapa region."
+        notes: "API key gratis dari Portal. HANYA BACA — DILARANG memanggil endpoint order, execute, atau apa pun yang memindahkan dana (DECISIONS.md C3). API masih beta, bisa berubah."
       - name: "Screenshot yang dikirim user"
         tier: 3
         notes: "Cadangan bila API gagal."
@@ -39,16 +40,22 @@ sources:
 
   comparison_prices:
     label: "Harga pasar pembanding"
+    # Urutan pembanding p_market (keputusan user 2026-11-20, pasca probe 2a):
+    # sportsbook (Odds API, devig) -> ESPN odds (devig) -> Kalshi.
+    # Polymarket TIDAK dipakai untuk pasar jup.ag asal Polymarket (P2).
     candidates:
-      - name: "Polymarket API"
-        tier: 2
-        notes: "Publik."
-      - name: "Kalshi API"
-        tier: 2
-        notes: "Publik."
       - name: "The Odds API"
         tier: 2
-        notes: "Paket gratis; dipakai untuk devig sportsbook bila Polymarket/Kalshi tidak punya pasarnya (DECISIONS.md D2)."
+        notes: "UTAMA untuk p_market: devig sportsbook (region eu, Pinnacle). Paket gratis, batas D3."
+      - name: "ESPN odds"
+        tier: 2
+        notes: "Pembanding gratis kedua (devig). Menunggu konfirmasi probe tambahan 1: apakah scoreboard/summary ESPN memuat garis sportsbook."
+      - name: "Kalshi API"
+        tier: 2
+        notes: "Publik. Pembanding independen sah untuk pasar jup.ag asal Polymarket (P2/P3)."
+      - name: "Polymarket API"
+        tier: 2
+        notes: "Publik. HANYA untuk pasar jup.ag yang BUKAN asal Polymarket (P2) — untuk pasar asal Polymarket ini harga yang sama, bukan pembanding."
     env_key: "ODDS_API_KEY"
     # D3: batas operasional The Odds API (bukan ambang strategi — dicatat di
     # sini, lihat DECISIONS.md D-T2).
@@ -63,12 +70,12 @@ sources:
   nba_schedule_stats:
     label: "Jadwal, skor, statistik tim NBA"
     candidates:
-      - name: "nba.com"
+      - name: "stats.nba.com"
         tier: 1
-        notes: "Jadwal, statistik, live data."
+        notes: "UTAMA untuk statistik NBA (probe 2a: bekerja dari VM; CDN scoreboard 403, jangan dipakai)."
       - name: "ESPN"
         tier: 2
-        notes: "JSON publik."
+        notes: "JSON publik. Cadangan bila stats.nba.com gagal."
       - name: "Basketball-Reference"
         tier: 2
     env_key: null
@@ -78,7 +85,7 @@ sources:
     candidates:
       - name: "Official NBA Injury Report"
         tier: 1
-        notes: "PDF. URL resmi & jadwal update dicari + diverifikasi di Tahap 2, jangan diasumsikan (DECISIONS.md D4). Wajib dicek ulang dekat tip-off."
+        notes: "PDF resmi, terverifikasi probe 2a (D4 TERJAWAB): halaman official.nba.com/nba-injury-report-2026-27-season/, PDF per 15 menit di ak-static.cms.nba.com/referee/injury/. Tim wajib lapor hari pertandingan 11 am-1 pm waktu lokal. Wajib dicek ulang dekat tip-off."
       - name: "ESPN injuries"
         tier: 2
       - name: "Rotowire"
@@ -88,9 +95,9 @@ sources:
   nba_player_impact:
     label: "Dampak pemain NBA"
     candidates:
-      - name: "nba.com"
+      - name: "stats.nba.com"
         tier: 1
-        notes: "Statistik pemain resmi."
+        notes: "UTAMA untuk statistik pemain resmi (probe 2a: bekerja dari VM)."
       - name: "Basketball-Reference"
         tier: 2
         notes: "BPM, menit, on/off. Untuk skenario absen 1/2/4 pemain."
@@ -103,14 +110,10 @@ sources:
     candidates:
       - name: "Situs/data resmi liga"
         tier: 1
-        notes: "Premier League, UEFA, LaLiga, Serie A, Bundesliga, Ligue 1, dst.; FIFA untuk laga timnas. xG resmi kalau ada."
+        notes: "Premier League: endpoint JSON publik terverifikasi (probe 2a) — UTAMA untuk EPL. UEFA, LaLiga, Serie A, Bundesliga, Ligue 1: hanya HTML, bukan JSON langsung. FIFA untuk laga timnas. xG resmi kalau ada."
       - name: "Understat"
         tier: 2
-        notes: "xG, 5 liga top Eropa."
-      - name: "Sofascore"
-        tier: 2
-      - name: "FotMob"
-        tier: 2
+        notes: "xG, 5 liga top Eropa. Maintenance saat probe 2a (2026-11-20); dicek ulang harian otomatis — aktif lagi bila kembali. Sampai ada xG, berlaku B4 (TANPA_XG)."
       - name: "ESPN soccer"
         tier: 2
         notes: "FBref kehilangan data xG sejak Januari 2026, jangan dipakai untuk xG."
@@ -121,15 +124,23 @@ sources:
     candidates:
       - name: "Situs/data resmi liga"
         tier: 1
-        notes: "Premier League, UEFA, LaLiga, Serie A, Bundesliga, Ligue 1, dst."
-      - name: "Sofascore"
-        tier: 2
-      - name: "FotMob"
-        tier: 2
+        notes: "Premier League JSON UTAMA untuk EPL (jadwal, lineup, cedera kalau tersedia). Liga lain: hanya HTML."
       - name: "ESPN soccer"
         tier: 2
         notes: "Lineup resmi biasanya keluar sekitar 60 menit sebelum kick-off."
     env_key: null
+
+# Sumber yang DITOLAK — jangan dipakai fetcher mana pun. Dicatat di sini agar
+# keputusan tidak hilang dan sumber tidak diuji ulang tanpa alasan.
+rejected:
+  - name: "FotMob"
+    tier: 2
+    rejected_on: "2026-11-20"
+    reason: "Keputusan user: ketentuan layanan FotMob melarang pengambilan otomatis tanpa izin. Probe 2a membuktikan API-nya bekerja (2/2 HTTP 200), tapi pemakaian melanggar ToS."
+  - name: "Sofascore"
+    tier: 2
+    rejected_on: "2026-11-20"
+    reason: "Probe 2a (diterima user): 3/3 HTTP 403, tantangan bot aktif dari VM; tidak ada cara akses sah. Ditolak sampai ada cara akses sah."
 
 rules:
   # B1: selalu pakai jenjang tertinggi yang tersedia.
@@ -152,9 +163,10 @@ rules:
     respect_site_limits: true
   # B3: semua sumber mati -> DATA_INCOMPLETE.
   all_sources_dead: "DATA_INCOMPLETE"
-  # B4: rantai xG bola: resmi -> Understat -> Sofascore/FotMob. Tidak ada xG
-  # -> Dixon-Coles berbasis gol, label TANPA_XG (lihat playstyle.yaml no_xg).
-  xg_chain: ["resmi", "Understat", "Sofascore/FotMob"]
+  # B4: rantai xG bola: resmi -> Understat. FotMob DITOLAK (ToS, keputusan
+  # user 2026-11-20), Sofascore DITOLAK (probe 2a: 403). Tidak ada xG ->
+  # Dixon-Coles berbasis gol, label TANPA_XG (lihat playstyle.yaml no_xg).
+  xg_chain: ["resmi", "Understat"]
   # Scraper wajib punya tes kecil yang memberi tahu kalau format sumber
   # berubah / scraper rusak.
   scrapers_require_health_test: true

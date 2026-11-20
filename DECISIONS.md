@@ -196,3 +196,46 @@ Tafsiran agen (berlaku sampai ditolak user):
 - **F2 (2b):** penarik data + validasi sesuai aturan B.
 - **F3.** Selesai kalau 1 slate NBA + 1 slate bola nyata bisa ditarik
   lengkap dengan sumber, jenjang, dan jamnya.
+
+## 2026-11-20 — Probe 2a diterima + koreksi urutan sumber
+
+Sumber: pesan user, 20 Nov 2026 22:42 WIB. Tabel probe 2a diterima
+(PAKAI 8, CADANGAN 3, JANGAN 2; 44 request ke 13 sumber).
+
+- **FotMob DITOLAK.** Ketentuan layanannya melarang pengambilan otomatis
+  tanpa izin. Dihapus dari `sources.yaml`, pindah ke daftar `rejected`
+  dengan alasan. Bola jalan dengan aturan B4 (TANPA_XG) sampai ada sumber
+  xG yang sah.
+- **Sofascore DITOLAK.** Probe 2a (diterima user): 3/3 HTTP 403, tantangan
+  bot aktif dari VM; tidak ada cara akses sah. Masuk daftar `rejected`
+  sampai ada cara akses sah.
+- **Understat: maintenance sementara.** Dicek ulang di probe tambahan;
+  pengecekan otomatis harian ditambahkan — kalau kembali, otomatis aktif
+  lagi di rantai xG.
+- **Koreksi urutan sumber (aturan B — jenjang tertinggi yang tersedia
+  wajib dipakai):** stats.nba.com UTAMA untuk statistik NBA (probe 2a:
+  bekerja dari VM), ESPN cadangan. JSON resmi Premier League UTAMA untuk
+  EPL (jadwal, lineup, cedera kalau tersedia), ESPN cadangan.
+- **Urutan pembanding p_market:** sportsbook (Odds API, devig) → ESPN
+  odds (devig) → Kalshi. Polymarket TIDAK dipakai sebagai pembanding
+  untuk pasar jup.ag yang berasal dari Polymarket (P2). ESPN odds menunggu
+  konfirmasi probe tambahan 1. Urutan dicatat di `playstyle.yaml`
+  (bagian `comparison`, kunci `order`).
+- **D4 TERJAWAB:** Official NBA Injury Report di
+  `official.nba.com/nba-injury-report-2026-27-season/`, PDF per 15 menit
+  di `ak-static.cms.nba.com/referee/injury/` (terverifikasi probe 2a).
+- **jup_markup:** selisih harga jup.ag vs midpoint orderbook Polymarket
+  untuk pasar yang sama. Ini BUKAN edge — ini mengukur biaya tambahan
+  jup.ag. Diukur di probe tambahan 3, dicatat per pasar.
+- **Probe tambahan 1–5 (kecil, sebelum 2b):** (1) ESPN odds — apakah
+  scoreboard/summary ESPN memuat garis sportsbook + provider-nya;
+  (2) Kalshi sports — petakan pasar NBA & bola, seberapa sering cocok
+  dengan pasar jup.ag di slate hari ini; (3) jup_markup vs Polymarket
+  CLOB; (4) football-data.co.uk — CSV historis (hasil + odds Pinnacle)
+  untuk kalibrasi Tahap 3, bukan data live; (5) Understat cek ulang +
+  cek harian otomatis.
+- **ODDS_API_KEY:** user memerintahkan pengambilan key dari email,
+  simpan hanya di `.env` (aturan sama seperti K1–K4), verifikasi 1
+  panggilan + catat kredit yang terpakai per panggilan. Status 22:42
+  WIB: Gmail belum terhubung — menunggu user menghubungkan Gmail atau
+  menyerahkan key langsung.

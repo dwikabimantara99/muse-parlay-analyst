@@ -65,6 +65,10 @@ comparison:
   forbid_same_provider: true
   # P3: pembanding sah — provider prediction market yang lain + sportsbook.
   allowed_comparison_sources: ["other_prediction_provider", "sportsbook_devig"]
+  # Urutan pembanding p_market (keputusan user 2026-11-20, pasca probe 2a):
+  # sportsbook (Odds API, devig) -> ESPN odds (devig) -> Kalshi.
+  # ESPN odds menunggu konfirmasi probe tambahan 1.
+  order: ["odds_api_devig", "espn_odds_devig", "kalshi"]
 
 # ── D2. MODEL_ONLY (p_market tidak ada di mana pun) ─────────────────────────
 model_only:
