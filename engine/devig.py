@@ -1,16 +1,23 @@
 """Devig (hilangkan vig sportsbook) + blend model-pasar (Tahap 2b/3).
 
 `american_to_decimal` dan `devig` dibangun di Tahap 2b (dipakai untuk
-menghitung p_market dari odds sportsbook). `blend` tetap stub Tahap 3
-— sengaja melempar NotImplementedError sampai tahapnya dibangun.
+menghitung p_market dari odds sportsbook). `blend` dibangun di Tahap 3
+(Langkah 1, Otak NBA): menggabungkan p_model dan p_market dengan bobot
+w dari playstyle.yaml -> blend.w_model.
 
 Rumus devig (Blueprint §5c, digeneralisasi ke n outcome):
   p_no-vig(A) = (1/odds_A) / Σ(1/odds_i)
+
+Rumus blend (Blueprint §5c + keputusan user 2026-11-21):
+  p_final = w * p_model + (1 - w) * p_market
+  Bila p_market tidak ada (MODEL_ONLY, D2): p_final = p_model.
 """
 
 from __future__ import annotations
 
 import math
+
+import config
 
 
 def american_to_decimal(american: int | float) -> float:
@@ -65,9 +72,51 @@ def devig(odds: list[float], odds_format: str = "decimal") -> list[float]:
     return [p / total for p in implied]
 
 
-def blend(*args, **kwargs):
-    """Devig, blend model-pasar, edge, dan deteksi anomali."""
-    raise NotImplementedError(
-        "engine.devig belum tersedia (Tahap 3). "
-        "Jangan dipakai sampai tahapnya selesai dan dites."
-    )
+def _validasi_peluang(nilai, nama: str) -> float:
+    """Pastikan nilai adalah peluang desimal 0–1 yang hingga.
+
+    Melempar ValueError bila bukan angka, bool, tidak hingga, atau di
+    luar 0–1. Mengembalikan nilai sebagai float.
+    """
+    if (
+        isinstance(nilai, bool)
+        or not isinstance(nilai, (int, float))
+        or not math.isfinite(nilai)
+        or not 0.0 <= nilai <= 1.0
+    ):
+        raise ValueError(f"{nama} tidak valid: {nilai!r} (harus peluang 0–1)")
+    return float(nilai)
+
+
+def blend(p_model, p_market, cfg: dict | None = None) -> dict:
+    """Gabung peluang model dan pasar -> p_final (Blueprint §5c, D2).
+
+    p_final = w * p_model + (1 - w) * p_market, dengan w dari
+    playstyle.yaml -> blend.w_model (cfg opsional, untuk tes).
+    Bila p_market None (MODEL_ONLY, D2): p_final = p_model.
+    Mengembalikan dict {"p_final", "p_model", "p_market", "w_model",
+    "model_only"}. Melempar ValueError bila p_model None/tidak valid,
+    p_market tidak valid, atau w di luar 0–1.
+    """
+    if p_model is None:
+        raise ValueError("p_model wajib ada (model tidak boleh kosong)")
+    p_model = _validasi_peluang(p_model, "p_model")
+    if p_market is not None:
+        p_market = _validasi_peluang(p_market, "p_market")
+    cfg = cfg if cfg is not None else config.load_playstyle()
+    w = _validasi_peluang(config.get_value(cfg, "blend", "w_model"), "blend.w_model")
+    if p_market is None:
+        return {
+            "p_final": p_model,
+            "p_model": p_model,
+            "p_market": None,
+            "w_model": w,
+            "model_only": True,
+        }
+    return {
+        "p_final": w * p_model + (1.0 - w) * p_market,
+        "p_model": p_model,
+        "p_market": p_market,
+        "w_model": w,
+        "model_only": False,
+    }

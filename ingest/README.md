@@ -51,12 +51,13 @@ per host, jadi satu limiter aman untuk beberapa host modul itu.
 | `jupiter.py` | `fetch_sports_markets()` / `fetch_sports_events()` (SEMUA event, paginasi; safety cap 10000) | Jupiter Prediction API | 1 | 1,1 dtk keyed / 2,2 dtk keyless | 300 dtk |
 | `odds_api.py` | `fetch_odds(sport_key, markets, regions)` | The Odds API | 2 | 2,0 dtk | 1800 dtk (D3: 30 mnt) |
 | `kalshi.py` | `fetch_moneyline_markets / fetch_spread_markets / fetch_total_markets(league)` + `kalshi_probability(market)` | Kalshi API | 2 | 1,0 dtk | 300 dtk |
-| `polymarket.py` | `find_token_for_jup_market(jup_market)`, `fetch_orderbook(token_id)`, `compute_jup_markup(jup, mid)` | Polymarket CLOB | 2 | 0,5 dtk | 300 dtk |
+| `polymarket.py` | `find_token_for_jup_market(jup_market)`, `fetch_orderbook(token_id)`, `compute_jup_markup(jup, mid)`, `nba_slug(away, home, date)`, `fetch_event_by_slug(slug)`, `resolve_slug_from_jup_event(jup_event)`, `parse_event_ladders(event, cfg)`, `venue_price_cents(mid, cfg)`, `count_event_markets(event)` | Polymarket CLOB + Gamma | 2 | 0,5 dtk | 300 dtk |
 | `espn.py` | `fetch_scoreboard(sport, date)`, `fetch_injuries_nba()`, `fetch_odds_football(league)` | ESPN | 2 | 1,0 dtk | 600 dtk |
-| `stats_nba.py` | `fetch_scoreboard(date)`, `fetch_standings()` | stats.nba.com | 1 | 1,0 dtk | 600 dtk |
+| `stats_nba.py` | `fetch_scoreboard(date)`, `fetch_standings()`, `fetch_league_games(season)`, `fetch_team_advanced_stats(season, last_n_games)` | stats.nba.com | 1 | 1,0 dtk | 600 dtk |
 | `nba_injury_pdf.py` | `fetch_report(date=None)` | Official NBA Injury Report | 1 | 1,0 dtk | 900 dtk |
 | `rotowire.py` | `fetch_injuries()` | Rotowire | 2 | 2,0 dtk | 900 dtk |
-| `bbref.py` | `fetch_team_advanced(season=2026)` | Basketball-Reference | 2 | 4,0 dtk | 21600 dtk (6 jam) |
+| `bbref.py` | `fetch_team_advanced(season=2026)`, `fetch_player_advanced(season=2027)` | Basketball-Reference | 2 | 4,0 dtk | 21600 dtk (6 jam) |
+| `nba_brain.py` | `fetch_match_inputs(home, away, game_date, season)` — perakit input Otak NBA satu laga | gabungan (lihat bawah) | 1* | seperti fetcher | seperti fetcher |
 | `premier_league.py` | `fetch_fixtures()`, `fetch_injuries_fpl()` | Premier League (JSON resmi) + Fantasy Premier League API | 1 | 1,0 dtk | 1800 dtk |
 | `understat.py` | `fetch_xg(league, season)` + `read_status()` / `is_available()` | Understat | 2 | 3,0 dtk | 3600 dtk |
 | `matching.py` | `teams_match(a, b, sport)`, `normalize_team(name, sport)` | — (murni, tanpa network) | — | — | — |
@@ -114,6 +115,20 @@ Catatan per fetcher:
   mengonversi ke angka sebelum devig. DraftKings diutamakan.
 - **BBRef**: `season` = tahun musim berakhir (2027 = musim berjalan
   2026-27; default 2026 = musim 2025-26). Slate memanggil dengan 2027.
+  `fetch_player_advanced` membaca tabel id="advanced" di halaman
+  `leagues/NBA_YYYY_advanced.html` (kolom `name_display` /
+  `team_name_abbr` / `games` / `mp` / `bpm`); tricode BBRef BRK/CHO/PHO
+  dipetakan ke BKN/CHA/PHX (stats.nba.com); baris "League Average" dan
+  "TOT" dilewati. Tabel ada di HTML mentah pada 2026-11-22 (bukan di
+  komentar) — parser tetap mencoba membuka komentar sebagai fallback.
+- **stats.nba.com (baru, Tahap 3 Langkah 1)**: `fetch_league_games`
+  memakai `leaguegamefinder` (PlayerOrTeam=T) — satu baris per tim per
+  laga, HANYA laga yang sudah dimainkan (status selalu "Final");
+  kandang/tandang dari string MATCHUP ("vs." / "@"). `fetch_team_advanced_stats`
+  memakai `leaguedashteamstats` MeasureType=Advanced (kolom OFF/DEF/NET
+  RATING + PACE, bukan kolom E_* estimasi); `last_n_games=10` = 10 laga
+  terakhir (LastNGames=10). Hasil probe live 2026-11-22 dari VM: lihat
+  "Perakit input Otak NBA" di bawah.
 - **Premier League**: endpoint persis dari probe
   (`footballapi.pulselive.com/football/fixtures?comps=1&...`). Arsip
   dimulai dari 1992 (13.546 entri, terurut menaik), jadi
@@ -136,13 +151,106 @@ Catatan per fetcher:
   kota: julukan ("Lakers"), tricode ("LAL", dari Rotowire), dan nama
   lengkap ("Los Angeles Lakers", dari stats.nba.com/ESPN/PDF/BBRef).
 - **check_nba_lines**: pindai pasar spread/total NBA di SELURUH event
-  sports jup.ag (bukan sampel 100). Laporan JSON berisi per laga
-  (garis, jumlah pasar, tip-off) + `recheck_schedule` (cek ulang 3 jam
-  & 1 jam sebelum tip-off — pasar mungkin baru dibuka dekat tip-off).
-  Jalankan ulang terjadwal bila hasil pertama 0 pasar.
+  sports jup.ag (bukan sampel 100). Sejak koreksi 2026-11-22, tiap laga
+  juga dicek tangganya di Polymarket Gamma (slug dari metadata event
+  jup.ag; lihat "Tangga Polymarket" di bawah) — putusan has_spread /
+  has_total adalah gabungan jup.ag ATAU Polymarket, angka jup.ag-only
+  tersimpan terpisah. Laporan JSON berisi per laga (garis, jumlah pasar,
+  tip-off) + `recheck_schedule` (cek ulang 3 jam & 1 jam sebelum tip-off
+  — pasar mungkin baru dibuka dekat tip-off). Jalankan ulang terjadwal
+  bila hasil pertama 0 pasar.
+
+## Tangga Polymarket = harga venue (Tahap 3 Langkah 1, koreksi 2026-11-22)
+
+KOREKSI: putusan "jup.ag tidak punya spread/total NBA" (21 Nov, 6
+pemindaian) SALAH. API jup.ag hanya menampilkan 2 pasar moneyline per
+event; UI jup.ag menampilkan spread + total lengkap dari Polymarket
+(provider asal). Tangga diambil dari Gamma per event lewat slug
+(`nba_slug` + `fetch_event_by_slug`, mis. `nba-det-atl-2026-11-22` =
+283 pasar: 31 garis total, 33 spread) atau dari `metadata.slug` event
+jup.ag (`resolve_slug_from_jup_event` — metadata jup.ag membawa slug
+Polymarket + `series: "polymarket"`, terverifikasi).
+
+P2 TETAP: tangga ini HARGA VENUE (yang dilihat user di UI jup.ag),
+BUKAN pembanding. Tidak ada fungsi tangga yang mengembalikan field
+`p_market` (dijaga tes). Pembanding p_market tetap sportsbook devig →
+Kalshi. `jup_estimated_cents` di tiap entri = mid Polymarket + markup
+tipikal jup.ag (config `fees.jup_typical_markup_cents`, usulan 0,5¢ =
+median probe tambahan 3) — ESTIMASI tipikal, bukan harga pasti per
+pasar.
+
+Aturan harga (terverifikasi dari data DET-ATL, lihat docstring modul):
+- Harga UTAMA = midpoint bid/ask ("book") bila bid+ask ada; fallback
+  outcomePrices. Harga Under = 1 − mid Over (komplemen pasar biner);
+  bestBid/bestAsk/lastTradePrice Gamma adalah kuotasi token Yes
+  outcome pertama (Over). outcomePrices O/U berjumlah ≈ 1 (parser
+  mencatat bila tidak).
+- `lastTradePrice` HANYA info (`last_cents`), TIDAK PERNAH jadi harga
+  utama — di garis tipis nilainya None.
+- "thin" = volume < `polymarket_ladder.min_volume_usd` (config,
+  usulan $100 — garis Alt Under jauh bervolume $5–11, garis utama
+  $403–$41.964) ATAU bid/ask tidak ada; volume None → thin.
+- Runner: `scripts/fetch_poly_ladder.py --slug <slug>` (atau
+  `--away/--home/--date`); tulis `out/poly_ladder_<slug>.json`.
 - **Understat**: lihat "Gate Understat" di bawah.
 - **FotMob / Sofascore**: DITOLAK user — tidak ada fetchernya di paket
   ini (file stub dihapus di 2b; daftar `rejected` di `sources.yaml`).
+
+## Perakit input Otak NBA (`nba_brain.py` — Tahap 3 Langkah 1)
+
+`fetch_match_inputs(home_tricode, away_tricode, game_date, season="2026-27",
+client=None)` merakit SATU paket input siap model untuk satu laga NBA dari
+fetcher yang sudah ada — bukan fetcher baru ke sumber baru. `FetchResult`-nya
+memakai `source="nba_brain"`, tier 1*; tiap datum membawa sumber + tier +
+jam aslinya di `data["sources"]` (B1).
+
+Kontrak output (`data`): `match` (home/away tricode, game_date, season),
+blok tim `home`/`away` (nama tim, `stats_season` + `stats_last10`
+{off/def/net_rtg, pace}, `form5` terbaru dulu, `home_record`/`road_record`
+{w, l, ppg, opp_ppg}, `rest_days` + `back_to_back`, `altitude_home`,
+`players` top-8 urut mp_per_game desc + semua pemain cedera (di luar
+8 besar) agar dampak absen bisa dihitung, `injuries`), `h2h_last5`,
+`tournament` (None sampai ada sumber yang bisa menentukannya — tanggal
+NBA Cup/Playoff tidak ditebak), `league` {avg_pace, avg_off_rtg},
+`missing`, `sources`, `fetched_at`. Bentuk persisnya ada di docstring
+modul — modul model bergantung padanya.
+
+Aturan gagal: tiap fetch gagal -> field None/list kosong + nama field di
+`missing` (jalur bertitik, mis. `home.stats_season`, `h2h_last5`,
+`league.avg_pace`) + error di `extra["fetch_errors"]`. `ok=False` HANYA
+bila SEMUA sumber gagal total; sebagian berhasil -> `ok=True` dengan
+`missing` terisi. `rest_days` = hari istirahat penuh antar laga (main
+kemarin -> 0; `back_to_back` = rest_days == 0). Statistik musim: tier 1
+stats.nba.com dulu, fallback BBRef (tier 2, musim saja) bila gagal.
+Cedera (B2): PDF resmi + Rotowire; status dinormalisasi ke
+OUT/DOUBTFUL/QUESTIONABLE/PROBABLE/AVAILABLE ("Day-To-Day"/"GTD" ->
+QUESTIONABLE, asli disimpan di `status_asli`); konflik antar sumber
+dicatat di `missing` (`injuries_konflik:<pemain>`) + kunci `conflict`
+di entrinya, status yang dipakai adalah tier tertinggi (B1).
+`altitude_home` True untuk DEN/UTA (fakta arena).
+
+Hasil probe live 2026-11-22 dari VM (sebelum membangun):
+- `leaguegamefinder` HTTP 200: 482 baris = 241 laga (musim 2026-27
+  sampai 2026-11-21), semua punya WL + PTS (hanya laga yang sudah
+  main). ANOMALI: laga 0022600189 menulis "DEN @ IND" di kedua baris —
+  parser membaca string MATCHUP-nya, bukan "vs." per baris. Tidak
+  perlu fallback teamgamelog.
+- `leaguedashteamstats` Advanced HTTP 200: 30 baris; LastNGames=10
+  mengembalikan GP=10.
+- BBRef `NBA_2027_advanced.html` HTTP 200 (1,15 MB): tabel "advanced"
+  di HTML mentah (bukan komentar), 478 baris pemain, 0 baris TOT;
+  tricode BRK/CHO/PHO (beda dari BKN/CHA/PHX stats.nba.com).
+
+Verifikasi live 2026-11-22 ~19:07 WIB (DAL @ UTA, game 0022600285):
+`ok=True`, 7 request, ~10 dtk, `missing` hanya
+`tournament_flag_tidak_dapat_ditentukan`. Semua 6 sumber tercatat
+(games + advanced musim + advanced L10 tier 1; pemain BBRef tier 2;
+cedera PDF tier 1 + Rotowire tier 2). UTA: rest_days=1, altitude=True,
+6 cedera OUT dari PDF; DAL: rest_days=0 (B2B, main 2026-11-21), 0
+cedera. Rotowire hari itu hanya 5 baris se-liga (paywall, sesuai
+catatan yang diketahui) — tidak ada pemain UTA/DAL dari Rotowire,
+jadi tidak ada konflik cedera yang teramati live. PDF hari itu
+`Injury-Report_2026-11-22_07_00AM.pdf`, 65 cedera se-liga.
 
 ## Perakit slate (`slate.py`)
 
@@ -306,10 +414,16 @@ pasar BUKAN incompleteness (ditangani label MODEL_ONLY).
    kosong — TIDAK dihitung sebagai sumber kedua, itu akan mempermainkan
    validasi). LaLiga tanpa sumber cedera sama sekali (FPL hanya EPL).
 2. **Lineup**: selalu `null` (tidak ada fetcher lineup di kontrak).
-3. **`nba_player_impact`**: tidak ada fetcher pemain di kontrak 2b
-   (dibutuhkan Tahap 3 untuk skenario skuad).
-4. **LaLiga**: tanpa fixtures PL & odds ESPN (EPL saja); Kalshi LaLiga
+3. **LaLiga**: tanpa fixtures PL & odds ESPN (EPL saja); Kalshi LaLiga
    hanya moneyline; discovery (`matches=None`) hanya EPL.
+
+Kesenjangan yang SUDAH DITUTUP di Tahap 3 Langkah 1 (pekerja data):
+
+- **`nba_player_impact`**: kini ada fetcher pemain
+  (`bbref.fetch_player_advanced` — BPM + menit, tier 2) dan perakit
+  `ingest/nba_brain.py` yang memakainya (top-8 pemain inti per tim
+  urut mp_per_game + semua pemain cedera di luar 8 besar, untuk
+  skenario skuad dan dampak absen).
 
 Kesenjangan yang SUDAH DITUTUP saat integrasi 2b (koordinator):
 

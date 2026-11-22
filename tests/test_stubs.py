@@ -9,16 +9,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# (modul, fungsi) yang wajib masih berupa stub setelah Tahap 2b.
-# Semua ingest.* + validate.checks sudah diimplementasikan di 2b
-# (ingest.espn/nba_injury_pdf/bbref oleh worker NBA+ESPN; sisanya oleh
-# worker pasar/bola) — tidak lagi stub. ingest.fotmob dan ingest.sofascore
-# DIHAPUS (sumber ditolak user, DECISIONS.md).
+# (modul, fungsi) yang wajib masih berupa stub setelah Tahap 3 Langkah 1.
+# engine.nba_sim.simulate + engine.markets.evaluate_markets dibangun di
+# Langkah 1 (Otak NBA); engine.devig.blend dibangun worker paralel Tahap 3
+# (dihapus dari daftar ini — tesnya ada di tests/test_devig.py milik
+# worker itu). Sisanya tetap stub.
 STUBS = [
-    ("engine.nba_sim", "simulate"),
     ("engine.football_sim", "simulate"),
-    ("engine.markets", "evaluate_markets"),
-    ("engine.devig", "blend"),
     ("optimizer.tickets", "optimize"),
     ("critic.critic", "critique"),
     ("critic.validate_numbers", "validate_numbers"),

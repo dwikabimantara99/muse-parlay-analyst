@@ -18,6 +18,19 @@ Catatan bentuk respons (terverifikasi dari cache probe 2a + panggilan live
   start_time None (jam tip-off tidak ada di respons).
 - leaguestandingsv3 TIDAK memuat tricode; tricode diambil dari peta statis
   TEAM_TRICODES (30 tim, ketiganya terverifikasi dari LineScore live).
+- leaguegamefinder (Tahap 3 Langkah 1, terverifikasi live 2026-11-22):
+  satu baris per TIM per laga (482 baris = 241 laga sampai 2026-11-21),
+  HANYA laga yang sudah dimainkan (semua baris punya WL + PTS) sehingga
+  status selalu "Final"; laga yang belum main TIDAK ada di sumber ini.
+  Kandang/tandang dibaca dari MATCHUP ("SAS vs. NOP" = SAS kandang,
+  "BOS @ DET" = BOS tandang). ANOMALI DATA: laga 0022600189
+  (2026-11-07) menulis "DEN @ IND" di KEDUA baris — parser membaca
+  string MATCHUP-nya ("@ IND" = IND kandang), bukan mengandalkan
+  "vs." di baris tim itu sendiri.
+- leaguedashteamstats MeasureType=Advanced (Tahap 3 Langkah 1,
+  terverifikasi live 2026-11-22): 30 baris, kolom OFF_RATING /
+  DEF_RATING / NET_RATING / PACE dipakai (BUKAN kolom E_* = estimasi);
+  LastNGames=10 mengembalikan 10 laga terakhir (GP=10).
 """
 
 from __future__ import annotations
@@ -52,6 +65,11 @@ STATS_HEADERS = {
 
 SCOREBOARD_URL = "https://stats.nba.com/stats/scoreboardv2"
 STANDINGS_URL = "https://stats.nba.com/stats/leaguestandingsv3"
+LEAGUE_GAMES_URL = "https://stats.nba.com/stats/leaguegamefinder"
+TEAM_ADVANCED_URL = "https://stats.nba.com/stats/leaguedashteamstats"
+
+# Format musim stats.nba.com: "YYYY-YY" (misal "2026-27").
+_SEASON_RE = re.compile(r"^\d{4}-\d{2}$")
 
 # Zona waktu tanggal scoreboard NBA (GAME_DATE_EST).
 EASTERN = ZoneInfo("America/New_York")
@@ -327,3 +345,251 @@ def fetch_standings(
     if unknown:
         extra["teams_tanpa_tricode"] = unknown
     return FetchResult(SOURCE, TIER, fetched_at, True, data=standings, extra=extra)
+
+
+def _split_matchup(matchup: str) -> tuple[str, str] | None:
+    """Pecah MATCHUP leaguegamefinder jadi (tricode_kandang, tricode_tandang).
+
+    "SAS vs. NOP" -> ("SAS", "NOP"); "BOS @ DET" -> ("DET", "BOS").
+    Mengembalikan None bila format tidak dikenali.
+    """
+    if " vs. " in matchup:
+        home, away = matchup.split(" vs. ", 1)
+        return home.strip(), away.strip()
+    if " @ " in matchup:
+        away, home = matchup.split(" @ ", 1)
+        return home.strip(), away.strip()
+    return None
+
+
+def _pair_game_rows(rows: list[dict]) -> dict | None:
+    """Pasangkan 2 baris satu laga jadi satu dict laga (atau None).
+
+    Laga valid: tepat 2 baris, dan salah satu string MATCHUP-nya bisa
+    dipecah menjadi dua tricode yang sama dengan tricode kedua baris.
+    Aturan ini tahan terhadap anomali data stats.nba.com (laga
+    0022600189: kedua baris menulis "DEN @ IND" — string "@ IND"
+    tetap menunjuk IND sebagai kandang).
+    """
+    if len(rows) != 2:
+        return None
+    by_tricode = {row.get("TEAM_ABBREVIATION"): row for row in rows}
+    if len(by_tricode) != 2 or None in by_tricode:
+        return None
+    for row in rows:
+        split = _split_matchup(str(row.get("MATCHUP") or ""))
+        if split is None:
+            continue
+        home_tri, away_tri = split
+        if {home_tri, away_tri} != set(by_tricode):
+            continue
+        home_row = by_tricode[home_tri]
+        away_row = by_tricode[away_tri]
+        return {
+            "game_id": str(row.get("GAME_ID")),
+            "game_date": str(row.get("GAME_DATE") or "")[:10],
+            "home_tricode": home_tri,
+            "away_tricode": away_tri,
+            "home_team": home_row.get("TEAM_NAME"),
+            "away_team": away_row.get("TEAM_NAME"),
+            "home_pts": home_row.get("PTS"),
+            "away_pts": away_row.get("PTS"),
+            "status": "Final",
+        }
+    return None
+
+
+def parse_league_games(data: dict) -> list[dict]:
+    """Ubah respons JSON leaguegamefinder jadi list laga.
+
+    Setiap laga: game_id, game_date ("YYYY-MM-DD"), home_tricode,
+    away_tricode, home_team, away_team (nama lengkap), home_pts,
+    away_pts, status ("Final" — endpoint ini hanya mengembalikan laga
+    yang sudah dimainkan, terverifikasi live 2026-11-22: 482 baris =
+    241 laga, semua punya WL + PTS; laga yang belum main tidak ada di
+    sumber ini). Laga yang tidak bisa dipasangkan (baris bukan 2 atau
+    MATCHUP tidak bisa dipecah) dilewati — pemanggil (fetch) mencatat
+    ID-nya di extra["games_tidak_lengkap"]. Diurutkan menaik per
+    (game_date, game_id). ValueError("stats_nba_format_changed") bila
+    resultSet LeagueGameFinderResults tidak ada.
+    """
+    sets = _result_sets(data)
+    if "LeagueGameFinderResults" not in sets:
+        raise ValueError("stats_nba_format_changed")
+    by_game: dict[str, list[dict]] = {}
+    for row in _rows(sets["LeagueGameFinderResults"]):
+        game_id = row.get("GAME_ID")
+        if game_id is None:
+            continue
+        by_game.setdefault(str(game_id), []).append(row)
+    games = []
+    for game_rows in by_game.values():
+        paired = _pair_game_rows(game_rows)
+        if paired is not None:
+            games.append(paired)
+    games.sort(key=lambda game: (game["game_date"], game["game_id"]))
+    return games
+
+
+def _to_float(value: object) -> float | None:
+    """Ubah nilai jadi float; None bila bukan angka."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def parse_team_advanced(data: dict) -> list[dict]:
+    """Ubah respons JSON leaguedashteamstats (Advanced) jadi list tim.
+
+    Setiap tim: team (nama lengkap), tricode (dari TEAM_TRICODES),
+    off_rtg (OFF_RATING), def_rtg (DEF_RATING), net_rtg (NET_RATING),
+    pace (PACE). Kolom E_* (estimasi) TIDAK dipakai. Nilai yang hilang
+    atau bukan angka menjadi None. ValueError("stats_nba_format_changed")
+    bila resultSet LeagueDashTeamStats tidak ada.
+    """
+    sets = _result_sets(data)
+    if "LeagueDashTeamStats" not in sets:
+        raise ValueError("stats_nba_format_changed")
+    teams = []
+    for row in _rows(sets["LeagueDashTeamStats"]):
+        teams.append(
+            {
+                "team": row.get("TEAM_NAME"),
+                "tricode": TEAM_TRICODES.get(row.get("TEAM_ID")),
+                "off_rtg": _to_float(row.get("OFF_RATING")),
+                "def_rtg": _to_float(row.get("DEF_RATING")),
+                "net_rtg": _to_float(row.get("NET_RATING")),
+                "pace": _to_float(row.get("PACE")),
+            }
+        )
+    return teams
+
+
+def _valid_season(season: str) -> bool:
+    """Apakah musim berformat "YYYY-YY" (misal "2026-27")?"""
+    return isinstance(season, str) and bool(_SEASON_RE.match(season))
+
+
+def fetch_league_games(season: str, client: HttpClient | None = None) -> FetchResult:
+    """Ambil semua laga satu musim NBA (leaguegamefinder).
+
+    season: "YYYY-YY" (musim berjalan 2026-27). data: list laga (lihat
+    parse_league_games) — HANYA laga yang sudah dimainkan. Endpoint
+    ini terverifikasi live 2026-11-22 dari VM (HTTP 200, 482 baris),
+    jadi tidak ada fallback teamgamelog. Fetch gagal -> ok=False
+    dengan error (tidak melempar).
+    """
+    fetched_at = now_iso()
+    if not _valid_season(season):
+        return FetchResult(
+            SOURCE, TIER, fetched_at, False, error=f"musim_tidak_valid: {season!r}"
+        )
+    url = (
+        f"{LEAGUE_GAMES_URL}?LeagueID=00&Season={season}"
+        "&SeasonType=Regular%20Season&PlayerOrTeam=T"
+    )
+    resp = (client or _default_client()).get(url)
+    if resp.get("status") != 200:
+        return FetchResult(
+            SOURCE,
+            TIER,
+            fetched_at,
+            False,
+            error=(
+                f"http_{resp.get('status')}: "
+                f"{resp.get('error') or 'leaguegamefinder gagal'}"
+            ),
+        )
+    data = parse_json_body(resp)
+    if not isinstance(data, dict):
+        return FetchResult(
+            SOURCE, TIER, fetched_at, False, error="stats_nba_format_changed"
+        )
+    try:
+        games = parse_league_games(data)
+    except ValueError as exc:
+        return FetchResult(SOURCE, TIER, fetched_at, False, error=str(exc))
+    extra: dict = {"season": season, "n_games": len(games)}
+    parsed_ids = {game["game_id"] for game in games}
+    raw_ids = {
+        str(row.get("GAME_ID"))
+        for row in _rows(_result_sets(data).get("LeagueGameFinderResults"))
+        if row.get("GAME_ID") is not None
+    }
+    incomplete = sorted(raw_ids - parsed_ids)
+    if incomplete:
+        extra["games_tidak_lengkap"] = incomplete
+    return FetchResult(SOURCE, TIER, fetched_at, True, data=games, extra=extra)
+
+
+def fetch_team_advanced_stats(
+    season: str, last_n_games: int | None = None, client: HttpClient | None = None
+) -> FetchResult:
+    """Ambil statistik advanced tim NBA (leaguedashteamstats).
+
+    season: "YYYY-YY" (musim berjalan 2026-27). last_n_games=None =
+    seluruh musim (LastNGames=0); last_n_games=N = N laga terakhir.
+    data: list statistik tim (lihat parse_team_advanced). Parameter
+    URL lengkap dipakai persis dari probe live 2026-11-22 (endpoint
+    menolak panggilan tanpa parameter-parameter itu). Fetch gagal ->
+    ok=False dengan error (tidak melempar).
+    """
+    fetched_at = now_iso()
+    if not _valid_season(season):
+        return FetchResult(
+            SOURCE, TIER, fetched_at, False, error=f"musim_tidak_valid: {season!r}"
+        )
+    if last_n_games is not None and (
+        isinstance(last_n_games, bool)
+        or not isinstance(last_n_games, int)
+        or last_n_games <= 0
+    ):
+        return FetchResult(
+            SOURCE,
+            TIER,
+            fetched_at,
+            False,
+            error=f"last_n_games_tidak_valid: {last_n_games!r}",
+        )
+    last_n = last_n_games if last_n_games is not None else 0
+    url = (
+        f"{TEAM_ADVANCED_URL}?LeagueID=00&Season={season}"
+        "&SeasonType=Regular%20Season&MeasureType=Advanced"
+        "&PerMode=PerGame&PlusMinus=N&PaceAdjust=N&Rank=N&Outcome="
+        "&Location=&Month=0&SeasonSegment=&DateFrom=&DateTo="
+        "&OpponentTeamID=0&VsConference=&VsDivision=&TeamID=0"
+        "&Conference=&Division=&GameSegment=&Period=0&ShotClockRange="
+        f"&LastNGames={last_n}"
+    )
+    resp = (client or _default_client()).get(url)
+    if resp.get("status") != 200:
+        return FetchResult(
+            SOURCE,
+            TIER,
+            fetched_at,
+            False,
+            error=(
+                f"http_{resp.get('status')}: "
+                f"{resp.get('error') or 'leaguedashteamstats gagal'}"
+            ),
+        )
+    data = parse_json_body(resp)
+    if not isinstance(data, dict):
+        return FetchResult(
+            SOURCE, TIER, fetched_at, False, error="stats_nba_format_changed"
+        )
+    try:
+        teams = parse_team_advanced(data)
+    except ValueError as exc:
+        return FetchResult(SOURCE, TIER, fetched_at, False, error=str(exc))
+    extra: dict = {
+        "season": season,
+        "last_n_games": last_n_games,
+        "n_teams": len(teams),
+    }
+    unknown = [row["team"] for row in teams if row["tricode"] is None]
+    if unknown:
+        extra["teams_tanpa_tricode"] = unknown
+    return FetchResult(SOURCE, TIER, fetched_at, True, data=teams, extra=extra)

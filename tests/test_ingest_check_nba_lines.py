@@ -227,5 +227,154 @@ class TestMain(unittest.TestCase):
         self.assertIn("PINDAI GAGAL", stdout.getvalue())
 
 
+class TestEnrichPolyLadders(unittest.TestCase):
+    """Koreksi 2026-11-22: putusan spread/total juga dari tangga Polymarket."""
+
+    def _gamma_fixture(self):
+        fixture_path = (
+            Path(__file__).resolve().parent
+            / "fixtures"
+            / "polymarket_ladder"
+            / "det_atl_sample.json"
+        )
+        return json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    def _jup_event_with_slug(self):
+        return {
+            "eventId": "POLY-1338695",
+            "category": "sports",
+            "subcategory": "nba",
+            "beginAt": "1795379400",
+            "metadata": {
+                "title": "Pistons vs. Hawks",
+                "league": "NBA 2026",
+                "slug": "nba-det-atl-2026-11-22",
+                "series": "polymarket",
+            },
+            # API jup.ag hanya menampilkan 2 moneyline.
+            "markets": [
+                _market("M1", "Pistons", "moneyline", None),
+                _market("M2", "Hawks", "moneyline", None),
+            ],
+        }
+
+    def _ok_fetch(self, slug):
+        self.assertEqual(slug, "nba-det-atl-2026-11-22")
+        return FetchResult(
+            source="Polymarket CLOB",
+            tier=2,
+            fetched_at="2026-11-22T12:00:00+00:00",
+            ok=True,
+            data=self._gamma_fixture(),
+            extra={"n_markets": 6},
+        )
+
+    def test_moneyline_only_jup_tapi_poly_punya_tangga(self):
+        event = self._jup_event_with_slug()
+        scan = check_nba_lines.scan_nba_lines([event])
+        self.assertFalse(scan["games"][0]["has_spread"])
+        self.assertFalse(scan["games"][0]["has_total"])
+        enriched = check_nba_lines.enrich_scan_with_poly_ladders(
+            scan, [event], fetch_event=self._ok_fetch
+        )
+        game = enriched["games"][0]
+        self.assertTrue(game["poly_checked"])
+        self.assertIsNone(game["poly_error"])
+        self.assertEqual(game["poly_slug"], "nba-det-atl-2026-11-22")
+        # Fixture: 2 spread, 3 total.
+        self.assertEqual(game["poly_spread_markets"], 2)
+        self.assertEqual(game["poly_total_markets"], 3)
+        self.assertEqual(game["poly_total_lines"], [225.5, 235.5, 241.5])
+        # Putusan gabungan kini True; angka jup-only tetap tersimpan.
+        self.assertTrue(game["has_spread"])
+        self.assertTrue(game["has_total"])
+        self.assertEqual(game["spread_markets"], 0)
+        self.assertEqual(enriched["games_with_spread"], 1)
+        self.assertEqual(enriched["games_with_total"], 1)
+        self.assertEqual(enriched["games_with_spread_jup"], 0)
+        self.assertEqual(enriched["games_with_total_jup"], 0)
+        self.assertEqual(enriched["poly_games_checked"], 1)
+        self.assertEqual(enriched["poly_total_total_markets"], 3)
+
+    def test_tanpa_slug_tidak_fetch(self):
+        scan = check_nba_lines.scan_nba_lines([NBA_GAME_MONEYLINE_ONLY])
+        calls = []
+
+        def _fetch(slug):
+            calls.append(slug)
+            raise AssertionError("fetch tidak boleh dipanggil tanpa slug")
+
+        enriched = check_nba_lines.enrich_scan_with_poly_ladders(
+            scan, [NBA_GAME_MONEYLINE_ONLY], fetch_event=_fetch
+        )
+        game = enriched["games"][0]
+        self.assertFalse(game["poly_checked"])
+        self.assertIsNone(game["poly_slug"])
+        self.assertIn("slug", game["poly_error"])
+        self.assertFalse(game["has_spread"])
+        self.assertFalse(game["has_total"])
+        self.assertEqual(calls, [])
+        self.assertEqual(enriched["poly_games_checked"], 0)
+
+    def test_fetch_gagal_dicatat_bukan_nol_paksa(self):
+        event = self._jup_event_with_slug()
+
+        def _fail(slug):
+            return FetchResult(
+                source="Polymarket CLOB",
+                tier=2,
+                fetched_at="2026-11-22T12:00:00+00:00",
+                ok=False,
+                error="Gamma /events/slug HTTP 404",
+            )
+
+        scan = check_nba_lines.scan_nba_lines([event])
+        enriched = check_nba_lines.enrich_scan_with_poly_ladders(
+            scan, [event], fetch_event=_fail
+        )
+        game = enriched["games"][0]
+        self.assertFalse(game["poly_checked"])
+        self.assertIn("404", game["poly_error"])
+        self.assertEqual(enriched["poly_games_checked"], 0)
+
+    def test_main_memakai_poly(self):
+        event = self._jup_event_with_slug()
+        ok_result = FetchResult(
+            source="Jupiter Prediction API",
+            tier=1,
+            fetched_at="2026-11-22T12:00:00+00:00",
+            ok=True,
+            data=[event],
+            extra={
+                "pages_fetched": 1,
+                "events_scanned": 1,
+                "scan_complete": True,
+                "stopped_reason": "semua_halaman",
+            },
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "laporan.json"
+            with (
+                mock.patch(
+                    "ingest.check_nba_lines.fetch_sports_events",
+                    return_value=ok_result,
+                ),
+                mock.patch(
+                    "ingest.check_nba_lines.polymarket.fetch_event_by_slug",
+                    side_effect=self._ok_fetch,
+                ),
+            ):
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    code = check_nba_lines.main(["--out", str(out_path)])
+            self.assertEqual(code, 0)
+            report = json.loads(out_path.read_text(encoding="utf-8"))
+            scan = report["scan"]
+            self.assertEqual(scan["games_with_total"], 1)
+            self.assertEqual(scan["games_with_total_jup"], 0)
+            self.assertEqual(scan["poly_games_checked"], 1)
+            self.assertIn("Polymarket:", stdout.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

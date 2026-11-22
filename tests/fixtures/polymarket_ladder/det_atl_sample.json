@@ -1,0 +1,103 @@
+{
+  "slug": "nba-det-atl-2026-11-22",
+  "title": "Pistons vs. Hawks",
+  "startTime": "2026-11-22T20:30:00Z",
+  "teams": [
+    {
+      "name": "Pistons",
+      "abbreviation": "det",
+      "ordering": "away"
+    },
+    {
+      "name": "Hawks",
+      "abbreviation": "atl",
+      "ordering": "home"
+    }
+  ],
+  "markets": [
+    {
+      "id": "6840919",
+      "question": "Pistons vs. Hawks",
+      "outcomes": "[\"Pistons\", \"Hawks\"]",
+      "outcomePrices": "[\"0.545\", \"0.455\"]",
+      "bestBid": 0.54,
+      "bestAsk": 0.55,
+      "lastTradePrice": 0.55,
+      "volume": "21714.694660999998",
+      "liquidity": "93891.6009",
+      "active": true,
+      "closed": false,
+      "sportsMarketType": "moneyline"
+    },
+    {
+      "id": "7240965",
+      "question": "Spread: Pistons (-1.5)",
+      "outcomes": "[\"Pistons\", \"Hawks\"]",
+      "outcomePrices": "[\"0.51\", \"0.49\"]",
+      "bestBid": 0.5,
+      "bestAsk": 0.52,
+      "lastTradePrice": 0.52,
+      "volume": "403.60076799999996",
+      "liquidity": "62939.4319",
+      "active": true,
+      "closed": false,
+      "sportsMarketType": "spreads"
+    },
+    {
+      "id": "7240973",
+      "question": "Pistons vs. Hawks: O/U 225.5",
+      "outcomes": "[\"Over\", \"Under\"]",
+      "outcomePrices": "[\"0.475\", \"0.525\"]",
+      "bestBid": 0.47,
+      "bestAsk": 0.48,
+      "lastTradePrice": 0.49,
+      "volume": "41963.73074199997",
+      "liquidity": "37794.8503",
+      "active": true,
+      "closed": false,
+      "sportsMarketType": "totals"
+    },
+    {
+      "id": "7240983",
+      "question": "Spread: Hawks (-1.5)",
+      "outcomes": "[\"Hawks\", \"Pistons\"]",
+      "outcomePrices": "[\"0.435\", \"0.565\"]",
+      "bestBid": 0.43,
+      "bestAsk": 0.44,
+      "lastTradePrice": 0.42,
+      "volume": "65.482759",
+      "liquidity": "33272.4694",
+      "active": true,
+      "closed": false,
+      "sportsMarketType": "spreads"
+    },
+    {
+      "id": "7240996",
+      "question": "Pistons vs. Hawks: O/U 235.5",
+      "outcomes": "[\"Over\", \"Under\"]",
+      "outcomePrices": "[\"0.29\", \"0.71\"]",
+      "bestBid": 0.28,
+      "bestAsk": 0.3,
+      "lastTradePrice": null,
+      "volume": "9.477612",
+      "liquidity": "35120.7713",
+      "active": true,
+      "closed": false,
+      "sportsMarketType": "totals"
+    },
+    {
+      "id": "7241008",
+      "question": "Pistons vs. Hawks: O/U 241.5",
+      "outcomes": "[\"Over\", \"Under\"]",
+      "outcomePrices": "[\"0.185\", \"0.815\"]",
+      "bestBid": 0.17,
+      "bestAsk": 0.2,
+      "lastTradePrice": null,
+      "volume": null,
+      "liquidity": "28399.6909",
+      "active": true,
+      "closed": false,
+      "sportsMarketType": "totals"
+    }
+  ]
+}

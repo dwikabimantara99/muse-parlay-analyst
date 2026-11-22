@@ -192,17 +192,64 @@ class TestPlaystyle(unittest.TestCase):
         # model vs pasar; kenaikan w hanya atas persetujuan user.
         self.assertTrue(self.cfg["calibration"]["compare_brier_model_vs_market"])
 
-    def test_simulasi_tetap_tbd_sampai_fit(self):
-        # D12: parameter simulasi tetap null sampai di-fit dari data historis
-        # dan disetujui user — tidak boleh ditebak.
+    def test_simulasi_nba_sudah_difit_bola_masih_tbd(self):
+        # D12: parameter NBA diisi dari HASIL FIT 2026-11-22 (2701 laga,
+        # lihat LAPORAN-FIT-NBA.md) — bukan tebakan. Parameter bola
+        # tetap null sampai difit (Tahap 3 langkah 5).
         sim = self.cfg["simulation"]
-        self.assertIsNone(sim["nba"]["sigma_points"])
-        self.assertIsNone(sim["nba"]["home_advantage_points"])
+        nba = sim["nba"]
+        for kunci in (
+            "sigma_points",
+            "sigma_margin_points",
+            "sigma_total_points",
+            "t_nu",
+            "home_advantage_points",
+            "back_to_back_penalty_points",
+            "altitude_adjustment_points",
+        ):
+            self.assertIsInstance(nba[kunci], (int, float), kunci)
+        self.assertGreater(nba["sigma_margin_points"], 0)
+        self.assertGreater(nba["sigma_total_points"], 0)
+        self.assertGreater(nba["t_nu"], 2)
+        # B2B bertanda negatif (tim B2B mencetak lebih sedikit).
+        self.assertLess(nba["back_to_back_penalty_points"], 0)
+        # Asumsi awal yang didokumentasikan (BELUM difit — lihat yaml).
+        self.assertEqual(nba["bpm_scale"], 1.0)
+        self.assertEqual(nba["tournament_adjustment_points"], 0.0)
+        self.assertEqual(nba["recency"], {"season": 0.6, "last10": 0.4})
+        self.assertEqual(nba["ot_max_periods"], 5)
         self.assertIsNone(sim["football"]["dixon_coles_rho"])
         fitting = sim["fitting"]
         self.assertEqual(fitting["history_seasons"], "2-3")
         self.assertEqual(fitting["football_rho_method"], "MLE per liga")
         self.assertTrue(fitting["requires_user_approval"])
+        self.assertEqual(fitting["min_games_total"], 100)
+        self.assertEqual(fitting["min_group_n"], 30)
+
+    def test_meta_versi_5(self):
+        # Versi 5: integrasi Langkah 1 (2026-11-22) — bagian
+        # market_line_check + polymarket_ladder + jup markup di fees.
+        meta = self.cfg["meta"]
+        self.assertEqual(meta["version"], 5)
+        self.assertEqual(meta["last_reviewed"], "2026-11-22")
+
+    def test_fees_kalshi(self):
+        # Koefisien fee taker Kalshi (Fee Schedule resmi, 7 Jul 2026).
+        self.assertEqual(self.cfg["fees"]["kalshi_taker_fee_coeff"], 0.07)
+
+    def test_fees_jup_markup(self):
+        # Markup tipikal jup.ag: median terukur 0,5¢ (probe tambahan 3).
+        self.assertEqual(self.cfg["fees"]["jup_typical_markup_cents"], 0.5)
+
+    def test_market_line_check_nilai_awal(self):
+        # NILAI AWAL, BELUM DIKALIBRASI — lihat komentar di yaml.
+        mlc = self.cfg["market_line_check"]
+        self.assertEqual(mlc["total_gap_points"], 5.0)
+        self.assertEqual(mlc["min_model_under_prob"], 0.70)
+
+    def test_polymarket_ladder_min_volume(self):
+        # HEURISTIK AWAL — lihat komentar di yaml.
+        self.assertEqual(self.cfg["polymarket_ladder"]["min_volume_usd"], 100.0)
 
 
 class TestGetValue(unittest.TestCase):

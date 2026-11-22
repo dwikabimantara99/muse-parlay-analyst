@@ -9,10 +9,10 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 3
+  version: 5
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21"
-  last_reviewed: "2026-11-21"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup)"
+  last_reviewed: "2026-11-22"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
 tickets:
@@ -111,6 +111,26 @@ anomaly:
   # (keputusan user 2026-11-21; lihat DECISIONS.md).
   sharp_move_cents: 3           # D9: harga berubah >= 3¢ sejak pengambilan pertama
 
+# ── Cek garis market vs model (prinsip psikologi market, 2026-11-22) ───────
+market_line_check:
+  # NILAI AWAL — BELUM DIKALIBRASI. Menunggu validasi atas data PAPER +
+  # persetujuan user. Jangan dipakai untuk keputusan tiket nyata sebelum
+  # divalidasi (lihat LAPORAN-TAHAP-3-LANGKAH-1.md).
+  # Selisih |median proyeksi - garis market| di atas ini -> ANOMALI
+  # "total_line_vs_model" (kira-kira sepertiga sigma total 18,22 poin).
+  total_gap_points: 5.0
+  # Peluang Under model minimum agar Under dianggap "aman" oleh model
+  # dalam cek keselarasan dengan market.
+  min_model_under_prob: 0.70
+
+# ── Tangga Polymarket (harga venue jup.ag, Tahap 3 Langkah 1) ──────────────
+polymarket_ladder:
+  # HEURISTIK AWAL — garis dengan volume kumulatif di bawah ini ditandai
+  # "thin" (tipis). Memisahkan garis Alt Under jauh ($5–11) dari garis
+  # utama ($403–$41.964) pada contoh DET@ATL 2026-11-22. Volume Gamma
+  # adalah kumulatif, jadi ini ukuran kasar, bukan likuiditas saat ini.
+  min_volume_usd: 100.0
+
 # ── §7a. Filter keras (kaki langsung dicoret, alasan dicatat) ───────────────
 filters:
   all_markets:
@@ -166,15 +186,56 @@ simulation:
     nba_fit_targets: ["margin", "total"]
     football_rho_method: "MLE per liga"
     requires_user_approval: true
+    # Ambang minimum data untuk fit NBA (scripts/fit_nba_params.py):
+    # di bawah ini parameter ditulis null + alasan, bukan ditebak.
+    min_games_total: 100
+    min_group_n: 30
   nba:
     distribution: student-t     # §5a: ekor tebal
-    sigma_points: null          # TBD — fit Tahap 3 (D12)
-    home_advantage_points: null # TBD — fit Tahap 3 (D12)
-    back_to_back_penalty_points: null  # TBD — fit Tahap 3 (D12)
-    altitude_adjustment_points: null   # TBD — Denver/Utah, fit Tahap 3 (D12)
+    # --- HASIL FIT 2026-11-22 (D12) — menunggu persetujuan user ---
+    # Sumber: 2701 laga (2024-25 penuh 1230 + 2025-26 penuh 1230 +
+    # 2026-27 parsial 241 s.d. 21 Nov 2026); game log stats.nba.com
+    # leaguegamefinder + rating musim penuh Basketball-Reference.
+    # Script: scripts/fit_nba_params.py; bukti lengkap + keterbatasan:
+    # LAPORAN-FIT-NBA.md. Nilai di bawah ini HASIL FIT, bukan tebakan.
+    sigma_points: 18.2198       # = sigma total (ringkasan satu angka)
+    # Sigma margin & total HASIL FIT. Mesin memakai kedua kunci ini.
+    sigma_margin_points: 13.8168  # std residual margin, n=2701
+    sigma_total_points: 18.2198   # std residual total, n=2701
+    # Derajat bebas Student-t, HASIL FIT (grid MLE 3-50).
+    # Profil log-likelihood DATAR di 20-100 (puncak ~34,5): residual
+    # nyaris normal (kurtosis lebih 0,17) — ekor tebal tidak terukur
+    # kuat di level laga. Nilai 34,5 praktis setara normal.
+    t_nu: 34.5
+    # Intersep regresi OLS margin ~ selisih net rating (n=2701,
+    # slope 0,94, R^2 0,27, SE intersep 0,27; cek silang rata-rata
+    # residual margin 1,65 — cocok).
+    home_advantage_points: 1.6552
+    # BERTANDA: selisih rata-rata residual poin tim B2B vs tidak
+    # (n_b2b=974, SE 0,41) — sim MENAMBAHKAN nilai ini ke poin tim B2B.
+    back_to_back_penalty_points: -1.596
+    # Selisih rata-rata residual margin kandang DEN/UTA vs lainnya
+    # (n_alt=180, SE 1,10): praktis NOL — tidak ada efek ketinggian
+    # tambahan yang terukur di luar home advantage umum.
+    altitude_adjustment_points: -0.0105
+    # Penyesuaian turnamen (NBA Cup/Playoff): BELUM ADA DATA — 0 sampai
+    # difit. Nilai 0 berarti flag turnamen saat ini tidak mengubah proyeksi.
+    tournament_adjustment_points: 0.0
+    # Skala dampak pemain absen (dampak = BPM x menit/48 x bpm_scale).
+    # ASUMSI AWAL 1.0 — BELUM DIFIT (tidak ada literatur internal);
+    # berlaku sebagai asumsi yang didokumentasikan, bukan hasil fit.
+    bpm_scale: 1.0
+    # Bobot resensi statistik tim (musim vs 10 laga terakhir).
+    # ASUMSI AWAL mengikuti pola §5b bola (60/40) — BELUM DIFIT.
+    recency:
+      season: 0.6
+      last10: 0.4
     tournament_flags: ["NBA Cup", "Playoff"]  # §5a: bendera konteks
     squad_scenarios: ["full", "missing_1", "missing_2", "missing_4"]  # §5a
     overtime_minutes: 5         # §5a: OT 5 menit kalau seri setelah 48 menit
+    # Batas periode OT per iterasi (pencegah loop tak hingga; peluang
+    # mencapai batas ini praktis nol). Asumsi implementasi, bukan fit.
+    ot_max_periods: 5
   football:
     model: dixon-coles          # §5b
     xg_weight_season: 0.60      # §5b: 60% musim
@@ -183,6 +244,20 @@ simulation:
     dixon_coles_rho: null       # TBD — MLE per liga, Tahap 3 (D12)
     home_advantage_by_league: null  # TBD — fit Tahap 3 (D12)
     absence_penalty: null       # TBD — bek tengah/kiper/striker absen (D12)
+
+# ── Biaya venue ─────────────────────────────────────────────────────────
+fees:
+  # Koefisien fee taker Kalshi (Fee Schedule resmi Kalshi, berlaku
+  # 7 Juli 2026): taker fee = roundup(0,07 x C x P x (1-P)),
+  # C = jumlah kontrak, P = harga. Dipakai Tahap 3 untuk mengoreksi
+  # harga efektif sebelum label DISKON/WAJAR/MAHAL (MEMORY 2026-11-21).
+  kalshi_taker_fee_coeff: 0.07
+  # Markup tipikal jup.ag di atas harga Polymarket (median 0,5¢ dari
+  # 11/11 pasar yang cocok, probe tambahan 3, 2026-11-20; mean 0,68¢,
+  # maks 1,5¢). Perkiraan tipikal untuk harga venue, BUKAN angka pasti
+  # per pasar — harga jup.ag asli tetap harus dibaca dari UI/API bila
+  # tersedia.
+  jup_typical_markup_cents: 0.5
 
 # ── Aturan data (DECISIONS.md B, menggantikan §4) ───────────────────────────
 data:

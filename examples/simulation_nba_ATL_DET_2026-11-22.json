@@ -1,0 +1,201 @@
+{
+  "match_id": "DET@ATL_2026-11-22",
+  "sport": "nba",
+  "iterations": 100000,
+  "generated_at": "2026-11-22T12:27:05.628692+00:00",
+  "engine": {
+    "name": "nba_sim",
+    "version": "1.0.0",
+    "seed": null
+  },
+  "markets": {
+    "moneyline_home": 0.64091,
+    "moneyline_away": 0.35909,
+    "total_under_222": 0.47898,
+    "total_over_222": 0.50011
+  },
+  "inputs_summary": {
+    "home_tricode": "ATL",
+    "away_tricode": "DET",
+    "game_date": "2026-11-22",
+    "season": "2026-27",
+    "pace_game": 100.64,
+    "league_avg_off_rtg": 113.32,
+    "league_avg_pace": 99.46499999999999,
+    "projected_home_points": 113.41,
+    "projected_away_points": 108.54,
+    "projected_margin": 4.87,
+    "projected_total": 221.95,
+    "recency_weights": {
+      "season": 0.6,
+      "last10": 0.4
+    },
+    "home_advantage_points": 1.6552,
+    "back_to_back": {
+      "home": false,
+      "away": false,
+      "penalty_points": -1.596
+    },
+    "altitude_home": false,
+    "altitude_adjustment_points": 0.0,
+    "tournament": null,
+    "tournament_adjustment_points": 0.0,
+    "sigma_margin_points": 13.8168,
+    "sigma_total_points": 18.2198,
+    "t_nu": 34.5,
+    "bpm_scale": 1.0,
+    "base_absent_players": [
+      "Asa Newell",
+      "CJ McCollum",
+      "Duncan Robinson",
+      "Ebuka Okorie",
+      "Henri Veesaar",
+      "Jalen Duren",
+      "Jock Landale",
+      "Mouhamed Gueye",
+      "Taurean Prince",
+      "Ugonna Onyenso"
+    ],
+    "elapsed_seconds": 1.7,
+    "notes": [
+      "pemain OUT tanpa data BPM/menit: Henri Veesaar (dampak absen tidak bisa dihitung, dihitung 0)",
+      "pemain OUT tanpa data BPM/menit: Mouhamed Gueye (dampak absen tidak bisa dihitung, dihitung 0)",
+      "pemain OUT tanpa data BPM/menit: Ugonna Onyenso (dampak absen tidak bisa dihitung, dihitung 0)"
+    ]
+  },
+  "score_distribution": {
+    "margin": {
+      "mean": 4.9,
+      "std": 13.86,
+      "median": 5.0,
+      "p5": -18.0,
+      "p25": -5.0,
+      "p75": 14.0,
+      "p95": 28.0
+    },
+    "total": {
+      "mean": 222.68,
+      "std": 18.73,
+      "median": 223.0,
+      "p5": 192.0,
+      "p25": 210.0,
+      "p75": 235.0,
+      "p95": 254.0
+    },
+    "home_points": {
+      "mean": 113.79,
+      "median": 114.0
+    },
+    "away_points": {
+      "mean": 108.89,
+      "median": 109.0
+    },
+    "ot_probability": 0.0262
+  },
+  "squad_scenarios": [
+    {
+      "scenario": "full",
+      "absent_players": [],
+      "markets": {
+        "moneyline_home": 0.46075,
+        "moneyline_away": 0.53925,
+        "total_under_222": 0.45298,
+        "total_over_222": 0.52612
+      }
+    },
+    {
+      "scenario": "missing_1",
+      "absent_players": [
+        "Asa Newell",
+        "CJ McCollum",
+        "Duncan Robinson",
+        "Dyson Daniels",
+        "Ebuka Okorie",
+        "Henri Veesaar",
+        "Jalen Duren",
+        "Jock Landale",
+        "Mouhamed Gueye",
+        "Taurean Prince",
+        "Ugonna Onyenso"
+      ],
+      "markets": {
+        "moneyline_home": 0.58845,
+        "moneyline_away": 0.41155,
+        "total_under_222": 0.51926,
+        "total_over_222": 0.45983
+      }
+    },
+    {
+      "scenario": "missing_2",
+      "absent_players": [
+        "Asa Newell",
+        "CJ McCollum",
+        "Cade Cunningham",
+        "Duncan Robinson",
+        "Dyson Daniels",
+        "Ebuka Okorie",
+        "Henri Veesaar",
+        "Jalen Duren",
+        "Jock Landale",
+        "Mouhamed Gueye",
+        "Taurean Prince",
+        "Ugonna Onyenso"
+      ],
+      "markets": {
+        "moneyline_home": 0.70352,
+        "moneyline_away": 0.29648,
+        "total_under_222": 0.61116,
+        "total_over_222": 0.36894
+      }
+    },
+    {
+      "scenario": "missing_4",
+      "absent_players": [
+        "Asa Newell",
+        "Ausar Thompson",
+        "CJ McCollum",
+        "Cade Cunningham",
+        "Duncan Robinson",
+        "Dyson Daniels",
+        "Ebuka Okorie",
+        "Henri Veesaar",
+        "Jalen Duren",
+        "Jalen Johnson",
+        "Jock Landale",
+        "Mouhamed Gueye",
+        "Taurean Prince",
+        "Ugonna Onyenso"
+      ],
+      "markets": {
+        "moneyline_home": 0.72005,
+        "moneyline_away": 0.27995,
+        "total_under_222": 0.66162,
+        "total_over_222": 0.31894
+      }
+    },
+    {
+      "scenario": "doubtful_out",
+      "absent_players": [
+        "Asa Newell",
+        "CJ McCollum",
+        "Duncan Robinson",
+        "Ebuka Okorie",
+        "Henri Veesaar",
+        "Isaac Jones",
+        "Jalen Duren",
+        "Jock Landale",
+        "Kingston Flemings",
+        "Mouhamed Gueye",
+        "RayJ Dennis",
+        "Taurean Prince",
+        "Ugonna Onyenso"
+      ],
+      "markets": {
+        "moneyline_home": 0.66285,
+        "moneyline_away": 0.33715,
+        "total_under_222": 0.45462,
+        "total_over_222": 0.52369
+      }
+    }
+  ]
+}

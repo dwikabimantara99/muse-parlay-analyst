@@ -1,7 +1,8 @@
-"""Tes engine/devig.py — konversi odds Amerika + devig (murni).
+"""Tes engine/devig.py — konversi odds Amerika + devig + blend (murni).
 
 Rumus Blueprint §5c: p_no-vig(A) = (1/odds_A) / Σ(1/odds_i).
-TANPA network.
+Blend: p_final = w * p_model + (1 - w) * p_market; MODEL_ONLY (D2) bila
+p_market None. TANPA network.
 """
 
 import sys
@@ -83,10 +84,49 @@ class TestDevig(unittest.TestCase):
             devig.devig([-110, 50], odds_format="american")
 
 
-class TestBlendMasihStub(unittest.TestCase):
-    def test_blend_melempar_not_implemented(self):
-        with self.assertRaises(NotImplementedError):
-            devig.blend()
+class TestBlend(unittest.TestCase):
+    CFG = {"blend": {"w_model": 0.3}}
+
+    def test_blend_w_default_dari_config(self):
+        # w_model 0.3 dari playstyle.yaml (angka dikunci test_config).
+        hasil = devig.blend(0.8, 0.6)
+        self.assertAlmostEqual(hasil["p_final"], 0.66)
+        self.assertEqual(hasil["p_model"], 0.8)
+        self.assertEqual(hasil["p_market"], 0.6)
+        self.assertEqual(hasil["w_model"], 0.3)
+        self.assertFalse(hasil["model_only"])
+
+    def test_blend_w_eksplisit(self):
+        hasil = devig.blend(0.8, 0.6, {"blend": {"w_model": 0.5}})
+        self.assertAlmostEqual(hasil["p_final"], 0.7)
+        self.assertEqual(hasil["w_model"], 0.5)
+        self.assertFalse(hasil["model_only"])
+
+    def test_blend_batas_w(self):
+        # w=0 -> p_final = p_market; w=1 -> p_final = p_model.
+        hasil0 = devig.blend(0.8, 0.6, {"blend": {"w_model": 0.0}})
+        self.assertAlmostEqual(hasil0["p_final"], 0.6)
+        hasil1 = devig.blend(0.8, 0.6, {"blend": {"w_model": 1.0}})
+        self.assertAlmostEqual(hasil1["p_final"], 0.8)
+
+    def test_blend_model_only(self):
+        # D2: p_market tidak ada -> p_final = p_model.
+        hasil = devig.blend(0.8, None, self.CFG)
+        self.assertEqual(hasil["p_final"], 0.8)
+        self.assertIsNone(hasil["p_market"])
+        self.assertTrue(hasil["model_only"])
+
+    def test_blend_validasi(self):
+        with self.assertRaises(ValueError):
+            devig.blend(None, 0.6, self.CFG)
+        for bad in (-0.1, 1.1, float("nan"), float("inf"), "0.8", True):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                devig.blend(bad, 0.6, self.CFG)
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                devig.blend(0.6, bad, self.CFG)
+        for bad_w in (-0.1, 1.1, float("nan"), "0.3"):
+            with self.subTest(bad_w=bad_w), self.assertRaises(ValueError):
+                devig.blend(0.6, 0.6, {"blend": {"w_model": bad_w}})
 
 
 if __name__ == "__main__":

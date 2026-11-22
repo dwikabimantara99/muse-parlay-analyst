@@ -16,6 +16,18 @@ sel. Baris "League Average" (di <tfoot>) dilewati — hanya 30 tim yang
 dikembalikan. Tes kesehatan: tabel id="advanced-team" dan kolom wajib
 (off_rtg, def_rtg, pace) harus ada, bila tidak ok=False dengan error
 "bbref_format_changed".
+
+STATISTIK PEMAIN (Tahap 3 Langkah 1, terverifikasi live 2026-11-22):
+halaman leagues/NBA_YYYY_advanced.html memuat tabel id="advanced" dengan
+478 baris pemain (musim 2026-27). Tabel ini ADA di HTML mentah (bukan di
+dalam komentar) pada 2026-11-22 — parser tetap mencoba membuka komentar
+HTML sebagai fallback bila tabel tidak ditemukan, karena BBRef kadang
+membungkus tabel di komentar. Kolom: data-stat "name_display" (nama),
+"team_name_abbr" (tricode), "games", "mp" (total menit), "bpm".
+Baris "League Average" (di <tbody>, tanpa tim) dan baris "TOT" (agregat
+pemain yang pindah tim — baris per timnya ada terpisah) dilewati.
+Tricode BBRef berbeda dari stats.nba.com untuk 3 tim (BRK=BKN,
+CHO=CHA, PHO=PHX) — dipetakan di BBREF_TRICODE_MAP.
 """
 
 from __future__ import annotations
@@ -38,6 +50,19 @@ RATE_GAP_SECONDS = 4.0  # jeda probe 2a; BBRef membatasi request agresif
 
 LEAGUE_URL = "https://www.basketball-reference.com/leagues/NBA_{season}.html"
 TABLE_ID = "advanced-team"
+PLAYER_ADVANCED_URL = (
+    "https://www.basketball-reference.com/leagues/NBA_{season}_advanced.html"
+)
+PLAYER_TABLE_ID = "advanced"
+
+# Kolom wajib tabel pemain (tes kesehatan): bila salah satunya hilang,
+# format berubah.
+PLAYER_REQUIRED_STATS = ("name_display", "team_name_abbr", "mp", "bpm")
+
+# Tricode BBRef -> tricode stats.nba.com. Hanya 3 tim yang berbeda
+# (terverifikasi live 2026-11-22 dari 30 tricode di halaman pemain);
+# tricode lain dipakai apa adanya.
+BBREF_TRICODE_MAP = {"BRK": "BKN", "CHO": "CHA", "PHO": "PHX"}
 
 # Kolom wajib (tes kesehatan): bila salah satunya hilang, format berubah.
 REQUIRED_STATS = ("off_rtg", "def_rtg", "pace")
@@ -235,4 +260,167 @@ def fetch_team_advanced(
         True,
         data=teams,
         extra={"season": season, "n_teams": len(teams)},
+    )
+
+
+class _PlayerAdvancedTableParser(HTMLParser):
+    """Parser tabel advanced pemain BBRef (hanya <tbody>, per data-stat).
+
+    Cerminan _AdvancedTableParser untuk tabel id="advanced" di halaman
+    leagues/NBA_YYYY_advanced.html.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.in_table = False
+        self.in_tbody = False
+        self.in_row = False
+        self.in_cell = False
+        self.table_found = False
+        self.current_stat: str | None = None
+        self.current_text: list[str] = []
+        self.current_row: dict[str, str] = {}
+        self.rows: list[dict[str, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = dict(attrs)
+        if tag == "table" and attrs_dict.get("id") == PLAYER_TABLE_ID:
+            self.in_table = True
+            self.table_found = True
+        if not self.in_table:
+            return
+        if tag == "tbody":
+            self.in_tbody = True
+        elif tag == "tr" and self.in_tbody:
+            self.in_row = True
+            self.current_row = {}
+        elif tag in ("td", "th") and self.in_row:
+            self.in_cell = True
+            self.current_stat = attrs_dict.get("data-stat")
+            self.current_text = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "table" and self.in_table:
+            self.in_table = False
+            self.in_tbody = False
+        if not self.in_table and tag != "table":
+            return
+        if tag == "tbody":
+            self.in_tbody = False
+        elif tag == "tr" and self.in_row:
+            self.in_row = False
+            if self.current_row:
+                self.rows.append(self.current_row)
+            self.current_row = {}
+        elif tag in ("td", "th") and self.in_cell:
+            self.in_cell = False
+            if self.current_stat:
+                self.current_row[self.current_stat] = "".join(self.current_text)
+            self.current_stat = None
+            self.current_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self.in_cell:
+            self.current_text.append(data)
+
+
+def _parse_player_table_once(html: str) -> list[dict]:
+    """Satu kali parse tabel pemain; ValueError bila tabel/kolom hilang."""
+    parser = _PlayerAdvancedTableParser()
+    parser.feed(html)
+    parser.close()
+    if not parser.table_found:
+        raise ValueError("bbref_format_changed")
+    seen_stats = {stat for row in parser.rows for stat in row}
+    if any(stat not in seen_stats for stat in PLAYER_REQUIRED_STATS):
+        raise ValueError("bbref_format_changed")
+    players = []
+    for row in parser.rows:
+        player = row.get("name_display", "").strip()
+        team_raw = row.get("team_name_abbr", "").strip()
+        # Baris "League Average" (tanpa tim) dan "TOT" (agregat pemain
+        # pindah tim) bukan pemain satu tim — dilewati.
+        if not player or player == "League Average" or not team_raw:
+            continue
+        if team_raw == "TOT":
+            continue
+        games = _to_number(row.get("games", ""))
+        mp = _to_number(row.get("mp", ""))
+        mp_per_game = None
+        if (
+            isinstance(mp, (int, float))
+            and isinstance(games, (int, float))
+            and games > 0
+        ):
+            mp_per_game = mp / games
+        players.append(
+            {
+                "player": player,
+                "team": BBREF_TRICODE_MAP.get(team_raw, team_raw),
+                "mp": mp,
+                "mp_per_game": mp_per_game,
+                "bpm": _to_number(row.get("bpm", "")),
+            }
+        )
+    return players
+
+
+def parse_player_advanced(html: str) -> list[dict]:
+    """Ubah HTML halaman advanced BBRef jadi list statistik pemain.
+
+    Setiap pemain: player, team (tricode stats.nba.com — BRK/CHO/PHO
+    dipetakan ke BKN/CHA/PHX; tricode lain apa adanya), mp (total
+    menit), mp_per_game (mp / games; None bila games tidak ada atau 0),
+    bpm. Baris "League Average" dan "TOT" dilewati. ValueError
+    ("bbref_format_changed") bila tabel id="advanced" tidak ada atau
+    kolom wajib (name_display/team_name_abbr/mp/bpm) hilang — termasuk
+    setelah mencoba membuka komentar HTML (BBRef kadang membungkus
+    tabel di komentar; pada 2026-11-22 tabel ini ada di HTML mentah).
+    """
+    try:
+        return _parse_player_table_once(html)
+    except ValueError:
+        if "<!--" not in html:
+            raise
+        # Coba lagi dengan komentar dibuka (tabel di dalam komentar).
+        return _parse_player_table_once(html.replace("<!--", "").replace("-->", ""))
+
+
+def fetch_player_advanced(
+    season: int = 2027, client: HttpClient | None = None
+) -> FetchResult:
+    """Ambil statistik advanced pemain NBA (BPM/menit) satu musim BBRef.
+
+    season: tahun musim berakhir di konvensi BBRef (2027 = musim
+    2026-27, default = musim berjalan). data: list statistik pemain
+    (lihat parse_player_advanced). Fetch/format gagal -> ok=False
+    dengan error (tidak melempar).
+    """
+    fetched_at = now_iso()
+    url = PLAYER_ADVANCED_URL.format(season=season)
+    resp = (client or _default_client()).get(url)
+    if resp.get("status") != 200:
+        return FetchResult(
+            SOURCE,
+            TIER,
+            fetched_at,
+            False,
+            error=f"http_{resp.get('status')}: {resp.get('error') or 'bbref gagal'}",
+        )
+    body = resp.get("body")
+    if not isinstance(body, str):
+        return FetchResult(
+            SOURCE, TIER, fetched_at, False, error="bbref_format_changed"
+        )
+    try:
+        players = parse_player_advanced(body)
+    except ValueError as exc:
+        return FetchResult(SOURCE, TIER, fetched_at, False, error=str(exc))
+    return FetchResult(
+        SOURCE,
+        TIER,
+        fetched_at,
+        True,
+        data=players,
+        extra={"season": season, "n_players": len(players)},
     )

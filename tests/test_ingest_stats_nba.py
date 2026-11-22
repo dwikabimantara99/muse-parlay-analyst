@@ -13,6 +13,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ingest import stats_nba
 
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "nba_brain"
+
+
+def _load_fixture_json(name: str) -> dict:
+    """Muat fixture JSON (cuplikan respons nyata, lihat tests/fixtures)."""
+    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
 
 class FakeClient:
     """Client palsu: get() mengembalikan respons yang sudah disiapkan."""
@@ -367,6 +374,197 @@ class TestFetchStandings(unittest.TestCase):
 
     def test_fetch_standings_http_gagal(self):
         result = stats_nba.fetch_standings(client=FakeClient({}))
+        self.assertFalse(result.ok)
+        self.assertIn("http_404", result.error or "")
+
+
+LEAGUE_GAMES_URL = (
+    "https://stats.nba.com/stats/leaguegamefinder"
+    "?LeagueID=00&Season=2026-27&SeasonType=Regular%20Season&PlayerOrTeam=T"
+)
+
+TEAM_ADVANCED_BASE_URL = (
+    "https://stats.nba.com/stats/leaguedashteamstats"
+    "?LeagueID=00&Season=2026-27&SeasonType=Regular%20Season"
+    "&MeasureType=Advanced&PerMode=PerGame&PlusMinus=N&PaceAdjust=N"
+    "&Rank=N&Outcome=&Location=&Month=0&SeasonSegment=&DateFrom="
+    "&DateTo=&OpponentTeamID=0&VsConference=&VsDivision=&TeamID=0"
+    "&Conference=&Division=&GameSegment=&Period=0&ShotClockRange="
+)
+
+
+class TestParseLeagueGames(unittest.TestCase):
+    def test_parse_tiga_laga_fixture(self):
+        fixture = _load_fixture_json("leaguegamefinder_2026-27_sample.json")
+        games = stats_nba.parse_league_games(fixture)
+        self.assertEqual(len(games), 3)
+        # Diurutkan menaik per tanggal: pertama 2026-10-20 DET vs BOS.
+        first = games[0]
+        self.assertEqual(first["game_id"], "0022600001")
+        self.assertEqual(first["game_date"], "2026-10-20")
+        self.assertEqual(first["home_tricode"], "DET")
+        self.assertEqual(first["away_tricode"], "BOS")
+        self.assertEqual(first["home_team"], "Detroit Pistons")
+        self.assertEqual(first["away_team"], "Boston Celtics")
+        self.assertEqual(first["home_pts"], 121)
+        self.assertEqual(first["away_pts"], 113)
+        self.assertEqual(first["status"], "Final")
+        # Terakhir 2026-11-21 SAS vs NOP.
+        last = games[2]
+        self.assertEqual(last["game_id"], "0022600278")
+        self.assertEqual(last["home_tricode"], "SAS")
+        self.assertEqual(last["away_tricode"], "NOP")
+        self.assertEqual(last["home_pts"], 114)
+        self.assertEqual(last["away_pts"], 91)
+
+    def test_parse_anomali_matchup_den_ind(self):
+        # Laga 0022600189: kedua baris menulis "DEN @ IND" (anomali
+        # data stats.nba.com) — string "@ IND" tetap menunjuk IND kandang.
+        fixture = _load_fixture_json("leaguegamefinder_2026-27_sample.json")
+        games = stats_nba.parse_league_games(fixture)
+        game = [g for g in games if g["game_id"] == "0022600189"][0]
+        self.assertEqual(game["home_tricode"], "IND")
+        self.assertEqual(game["away_tricode"], "DEN")
+        self.assertEqual(game["home_pts"], 102)
+        self.assertEqual(game["away_pts"], 114)
+        self.assertEqual(game["game_date"], "2026-11-07")
+
+    def test_parse_tanpa_resultset_wajib(self):
+        with self.assertRaises(ValueError) as ctx:
+            stats_nba.parse_league_games({"resultSets": []})
+        self.assertEqual(str(ctx.exception), "stats_nba_format_changed")
+
+    def test_parse_laga_tak_berpasangan_dilewati(self):
+        fixture = _load_fixture_json("leaguegamefinder_2026-27_sample.json")
+        # Hapus satu baris laga SAS-NOP (tinggal 1 baris -> tidak bisa dipasangkan).
+        rows = fixture["resultSets"][0]["rowSet"]
+        headers = fixture["resultSets"][0]["headers"]
+        gid_idx = headers.index("GAME_ID")
+        tri_idx = headers.index("TEAM_ABBREVIATION")
+        fixture["resultSets"][0]["rowSet"] = [
+            row
+            for row in rows
+            if not (row[gid_idx] == "0022600278" and row[tri_idx] == "NOP")
+        ]
+        games = stats_nba.parse_league_games(fixture)
+        self.assertEqual(len(games), 2)
+        self.assertNotIn("0022600278", [g["game_id"] for g in games])
+
+
+class TestFetchLeagueGames(unittest.TestCase):
+    def test_fetch_ok(self):
+        fixture = _load_fixture_json("leaguegamefinder_2026-27_sample.json")
+        client = FakeClient({LEAGUE_GAMES_URL: _resp(200, fixture)})
+        result = stats_nba.fetch_league_games("2026-27", client=client)
+        self.assertTrue(result.ok)
+        self.assertEqual(result.source, "stats.nba.com")
+        self.assertEqual(result.tier, 1)
+        self.assertEqual(client.urls_requested, [LEAGUE_GAMES_URL])
+        self.assertEqual(len(result.data), 3)
+        self.assertEqual(result.extra["n_games"], 3)
+        self.assertNotIn("games_tidak_lengkap", result.extra)
+
+    def test_fetch_games_tidak_lengkap_dicatat(self):
+        fixture = _load_fixture_json("leaguegamefinder_2026-27_sample.json")
+        headers = fixture["resultSets"][0]["headers"]
+        gid_idx = headers.index("GAME_ID")
+        fixture["resultSets"][0]["rowSet"] = [
+            row
+            for row in fixture["resultSets"][0]["rowSet"]
+            if not (
+                row[gid_idx] == "0022600278"
+                and row[headers.index("TEAM_ABBREVIATION")] == "NOP"
+            )
+        ]
+        client = FakeClient({LEAGUE_GAMES_URL: _resp(200, fixture)})
+        result = stats_nba.fetch_league_games("2026-27", client=client)
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.data), 2)
+        self.assertEqual(result.extra["games_tidak_lengkap"], ["0022600278"])
+
+    def test_fetch_musim_tidak_valid(self):
+        result = stats_nba.fetch_league_games("2026/27", client=FakeClient({}))
+        self.assertFalse(result.ok)
+        self.assertIn("musim_tidak_valid", result.error or "")
+
+    def test_fetch_http_gagal(self):
+        result = stats_nba.fetch_league_games("2026-27", client=FakeClient({}))
+        self.assertFalse(result.ok)
+        self.assertIn("http_404", result.error or "")
+
+
+class TestParseTeamAdvanced(unittest.TestCase):
+    def test_parse_tiga_tim_fixture(self):
+        fixture = _load_fixture_json("leaguedashteamstats_advanced_sample.json")
+        teams = stats_nba.parse_team_advanced(fixture)
+        self.assertEqual(len(teams), 3)
+        atl = [t for t in teams if t["tricode"] == "ATL"][0]
+        self.assertEqual(atl["team"], "Atlanta Hawks")
+        self.assertEqual(atl["off_rtg"], 113.1)
+        self.assertEqual(atl["def_rtg"], 110.4)
+        self.assertEqual(atl["net_rtg"], 2.7)
+        self.assertEqual(atl["pace"], 103.11)
+        den = [t for t in teams if t["tricode"] == "DEN"][0]
+        self.assertEqual(den["off_rtg"], 115.5)
+        self.assertEqual(den["pace"], 98.3)
+        okc = [t for t in teams if t["tricode"] == "OKC"][0]
+        self.assertEqual(okc["net_rtg"], 4.3)
+
+    def test_parse_tanpa_resultset_wajib(self):
+        with self.assertRaises(ValueError) as ctx:
+            stats_nba.parse_team_advanced({"resultSets": []})
+        self.assertEqual(str(ctx.exception), "stats_nba_format_changed")
+
+    def test_parse_nilai_hilang_jadi_none(self):
+        fixture = _load_fixture_json("leaguedashteamstats_advanced_sample.json")
+        headers = fixture["resultSets"][0]["headers"]
+        row = fixture["resultSets"][0]["rowSet"][0]
+        row[headers.index("OFF_RATING")] = None
+        row[headers.index("PACE")] = "bukan angka"
+        teams = stats_nba.parse_team_advanced(fixture)
+        self.assertIsNone(teams[0]["off_rtg"])
+        self.assertIsNone(teams[0]["pace"])
+        self.assertEqual(teams[0]["def_rtg"], 110.4)
+
+
+class TestFetchTeamAdvancedStats(unittest.TestCase):
+    def test_fetch_musim_penuh(self):
+        fixture = _load_fixture_json("leaguedashteamstats_advanced_sample.json")
+        url = TEAM_ADVANCED_BASE_URL + "&LastNGames=0"
+        client = FakeClient({url: _resp(200, fixture)})
+        result = stats_nba.fetch_team_advanced_stats("2026-27", client=client)
+        self.assertTrue(result.ok)
+        self.assertEqual(client.urls_requested, [url])
+        self.assertEqual(len(result.data), 3)
+        self.assertIsNone(result.extra["last_n_games"])
+        self.assertEqual(result.extra["n_teams"], 3)
+
+    def test_fetch_last10(self):
+        fixture = _load_fixture_json("leaguedashteamstats_advanced_sample.json")
+        url = TEAM_ADVANCED_BASE_URL + "&LastNGames=10"
+        client = FakeClient({url: _resp(200, fixture)})
+        result = stats_nba.fetch_team_advanced_stats(
+            "2026-27", last_n_games=10, client=client
+        )
+        self.assertTrue(result.ok)
+        self.assertEqual(client.urls_requested, [url])
+        self.assertEqual(result.extra["last_n_games"], 10)
+
+    def test_fetch_last_n_games_tidak_valid(self):
+        for bad in (0, -3, "10", True):
+            result = stats_nba.fetch_team_advanced_stats(
+                "2026-27", last_n_games=bad, client=FakeClient({})
+            )
+            self.assertFalse(result.ok, f"last_n_games={bad!r} harus ditolak")
+            self.assertIn("last_n_games_tidak_valid", result.error or "")
+
+    def test_fetch_musim_tidak_valid(self):
+        result = stats_nba.fetch_team_advanced_stats("2027", client=FakeClient({}))
+        self.assertFalse(result.ok)
+        self.assertIn("musim_tidak_valid", result.error or "")
+
+    def test_fetch_http_gagal(self):
+        result = stats_nba.fetch_team_advanced_stats("2026-27", client=FakeClient({}))
         self.assertFalse(result.ok)
         self.assertIn("http_404", result.error or "")
 

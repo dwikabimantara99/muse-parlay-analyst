@@ -6,6 +6,19 @@ memindai SEMUA event sports Jupiter (fetch berpaginasi), memfilter event
 NBA, dan melaporkan per laga: ada/tidak pasar spread/total, jumlah
 pasar, garis-garisnya, dan jam tip-off.
 
+KOREKSI 2026-11-22 (Tahap 3 Langkah 1): API jup.ag hanya menampilkan 2
+pasar moneyline per event — putusan "ada/tidak spread/total" dari API
+jup.ag saja SALAH (6 pemindaian 0 pasar padahal UI jup.ag menampilkan
+spread/total lengkap dari Polymarket). Sejak koreksi ini, tiap laga
+juga dicek tangganya di Polymarket Gamma (resolve slug dari metadata
+event jup.ag -> fetch event -> hitung pasar spread/total); putusan
+has_spread/has_total adalah gabungan (jup.ag ATAU Polymarket), dan
+angka jup.ag-only tetap tersimpan terpisah (spread_markets /
+total_markets per laga, games_with_spread_jup / games_with_total_jup
+agregat). Laga yang slug-nya tidak ada di metadata atau fetch
+Gamma-nya gagal dicatat apa adanya (poly_checked False + poly_error)
+— bukan dianggap tidak punya pasar.
+
 Jalankan: python -m ingest.check_nba_lines [--date YYYY-MM-DD] [--out PATH]
 
 --date: hanya laga dengan tip-off pada tanggal UTC itu (bila tidak
@@ -27,6 +40,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from ingest import polymarket
 from ingest.common import now_iso, repo_root
 from ingest.jupiter import fetch_sports_events
 from ingest.matching import parse_vs_title
@@ -139,6 +153,81 @@ def scan_nba_lines(events: list[dict]) -> dict:
     }
 
 
+def enrich_scan_with_poly_ladders(
+    scan: dict, events: list[dict], fetch_event=None
+) -> dict:
+    """Perkaya hasil pindai jup.ag dengan tangga Polymarket per laga.
+
+    Network: satu fetch Gamma per laga yang slug-nya diketahui
+    (fetch_event di-inject untuk tes; default
+    polymarket.fetch_event_by_slug). Slug diambil dari metadata event
+    jup.ag (resolve_slug_from_jup_event); bila tidak ada, laga itu
+    dicatat poly_checked False (bukan ditebak lewat nba_slug — tanggal
+    slug memakai tanggal laga ET yang tidak bisa diturunkan pasti
+    dari beginAt UTC).
+
+    Per laga ditambah: poly_slug, poly_checked, poly_error,
+    poly_spread_markets, poly_total_markets, poly_spread_lines,
+    poly_total_lines. has_spread/has_total menjadi gabungan (jup.ag
+    ATAU Polymarket); angka jup.ag-only tersimpan di
+    games_with_spread_jup / games_with_total_jup. Laga yang fetch
+    Gamma-nya gagal tetap memakai angka jup.ag-nya (bukan 0 paksa)
+    dengan poly_error tercatat. Mengembalikan scan yang sama
+    (dimutasi di tempat).
+    """
+    by_id = {event.get("eventId"): event for event in events if isinstance(event, dict)}
+    fetch = fetch_event or polymarket.fetch_event_by_slug
+    scan["games_with_spread_jup"] = scan["games_with_spread"]
+    scan["games_with_total_jup"] = scan["games_with_total"]
+    checked = 0
+    poly_spread_total = 0
+    poly_total_total = 0
+    all_poly_spread: set[float] = set()
+    all_poly_total: set[float] = set()
+    for game in scan["games"]:
+        event = by_id.get(game["event_id"])
+        slug = polymarket.resolve_slug_from_jup_event(event) if event else None
+        game["poly_slug"] = slug
+        game["poly_spread_markets"] = 0
+        game["poly_total_markets"] = 0
+        game["poly_spread_lines"] = []
+        game["poly_total_lines"] = []
+        if slug is None:
+            game["poly_checked"] = False
+            game["poly_error"] = "slug_polymarket_tidak_ada_di_metadata_jup"
+            continue
+        result = fetch(slug)
+        if not result.ok:
+            game["poly_checked"] = False
+            game["poly_error"] = result.error
+            continue
+        counts = polymarket.count_event_markets(result.data or {})
+        game["poly_checked"] = True
+        game["poly_error"] = None
+        game["poly_spread_markets"] = counts["spread_markets"]
+        game["poly_total_markets"] = counts["total_markets"]
+        game["poly_spread_lines"] = counts["spread_lines"]
+        game["poly_total_lines"] = counts["total_lines"]
+        game["has_spread"] = game["has_spread"] or counts["spread_markets"] > 0
+        game["has_total"] = game["has_total"] or counts["total_markets"] > 0
+        checked += 1
+        poly_spread_total += counts["spread_markets"]
+        poly_total_total += counts["total_markets"]
+        all_poly_spread |= set(counts["spread_lines"])
+        all_poly_total |= set(counts["total_lines"])
+    scan["poly_games_checked"] = checked
+    scan["poly_total_spread_markets"] = poly_spread_total
+    scan["poly_total_total_markets"] = poly_total_total
+    scan["poly_spread_lines_all"] = sorted(all_poly_spread)
+    scan["poly_total_lines_all"] = sorted(all_poly_total)
+    scan["games_with_spread"] = sum(1 for g in scan["games"] if g["has_spread"])
+    scan["games_with_total"] = sum(1 for g in scan["games"] if g["has_total"])
+    scan["games_without_spread_total"] = sum(
+        1 for g in scan["games"] if not g["has_spread"] and not g["has_total"]
+    )
+    return scan
+
+
 def _parse_iso(value: str | None) -> datetime | None:
     """Parse ISO 8601 (dengan 'Z') jadi datetime; None bila gagal."""
     if not isinstance(value, str) or not value:
@@ -209,11 +298,29 @@ def _print_summary(report: dict) -> None:
         f"pasar total: {scan['total_total_markets']} "
         f"(garis: {scan['total_lines_all']})"
     )
+    if "poly_games_checked" in scan:
+        print(
+            f"Polymarket: {scan['poly_games_checked']}/{scan['nba_games']} laga "
+            f"tercek tangganya; pasar spread {scan['poly_total_spread_markets']}, "
+            f"pasar total {scan['poly_total_total_markets']} "
+            f"(jup.ag-only: spread {scan['games_with_spread_jup']} laga, "
+            f"total {scan['games_with_total_jup']} laga)"
+        )
     for game in scan["games"]:
+        poly_text = ""
+        if "poly_checked" in game:
+            if game["poly_checked"]:
+                poly_text = (
+                    f"; poly spread {game['poly_spread_markets']} "
+                    f"{game['poly_spread_lines']}, total "
+                    f"{game['poly_total_markets']} {game['poly_total_lines']}"
+                )
+            else:
+                poly_text = f"; poly tidak tercek ({game['poly_error']})"
         print(
             f"- {game['event_title']} (tip-off {game['tip_off']}): "
             f"spread {game['spread_markets']} {game['spread_lines']}, "
-            f"total {game['total_markets']} {game['total_lines']}"
+            f"total {game['total_markets']} {game['total_lines']}{poly_text}"
         )
 
 
@@ -254,6 +361,9 @@ def main(argv: list[str] | None = None) -> int:
         # Filter tanggal UTC tip-off; laga tanpa tip-off yang bisa
         # di-parse dikeluarkan (tanggalnya tidak bisa diverifikasi).
         scan = _filter_by_date(scan, args.date)
+    # Cek tangga Polymarket per laga (koreksi 2026-11-22): API jup.ag
+    # saja tidak cukup untuk putusan ada/tidak spread/total.
+    scan = enrich_scan_with_poly_ladders(scan, result.data or [])
     schedule = recheck_schedule(scan["games"])
     report = {
         "ok": True,

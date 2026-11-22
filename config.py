@@ -31,10 +31,13 @@ REQUIRED_PLAYSTYLE_SECTIONS = (
     "model_only",
     "no_xg",
     "anomaly",
+    "market_line_check",
+    "polymarket_ladder",
     "filters",
     "formulas",
     "currency",
     "simulation",
+    "fees",
     "data",
     "calibration",
 )
