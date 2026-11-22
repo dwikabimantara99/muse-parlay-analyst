@@ -50,6 +50,10 @@ untuk memproyeksikan laga historis):
      absen di base case). Pemain skenario hipotetis yang saat ini
      sehat: faktor 1,0 — asumsi yang didokumentasikan (mereka bermain
      di last10, jadi missed_last10-nya ~0).
+     Alasan absen ("reason" di entri cedera: detail cedera atau
+     kategori non-cedera seperti "rest") diteruskan ke
+     inputs_summary.notes untuk pemain OUT di base case — hanya jejak,
+     bukan perubahan rumus (patch 1c, lapisan ketersediaan).
 
 SEBARAN (per iterasi, sebelum OT):
      skor_kandang = mu_kandang + s_umum * Tc + s_tim * Th
@@ -310,6 +314,23 @@ def _status_cedera(blok: dict) -> dict[str, str]:
     return status
 
 
+def _alasan_absen(blok: dict) -> dict[str, str]:
+    """Peta nama pemain -> alasan absen di blok tim (patch 1c).
+
+    "reason" dari entri cedera gabungan ingest.nba_brain: detail
+    cedera (entri cedera) atau kategori non-cedera ("rest"/
+    "personal"/"suspension"/...). Hanya diteruskan ke notes — tidak
+    memengaruhi rumus (sim mengunci pada status OUT).
+    """
+    alasan: dict[str, str] = {}
+    for cedera in blok.get("injuries") or []:
+        nama = cedera.get("player")
+        reason = cedera.get("reason")
+        if isinstance(nama, str) and isinstance(reason, str) and reason.strip():
+            alasan[nama] = reason
+    return alasan
+
+
 def _apakah_b2b(blok: dict) -> bool:
     """Apakah tim ini back-to-back: flag back_to_back, atau rest_days 0."""
     flag = blok.get("back_to_back")
@@ -558,9 +579,16 @@ def simulate(
     dampak_tandang = dict(inti_tandang)
     cedera_kandang = _status_cedera(blok_kandang)
     cedera_tandang = _status_cedera(blok_tandang)
+    alasan_kandang = _alasan_absen(blok_kandang)
+    alasan_tandang = _alasan_absen(blok_tandang)
     absen_kandang = {nama for nama, st in cedera_kandang.items() if st in STATUS_ABSEN}
     absen_tandang = {nama for nama, st in cedera_tandang.items() if st in STATUS_ABSEN}
     for nama in sorted(absen_kandang | absen_tandang):
+        alasan = alasan_kandang.get(nama) or alasan_tandang.get(nama)
+        if alasan is not None:
+            # Alasan absen diteruskan ke notes (patch 1c, lapisan
+            # ketersediaan) — hanya jejak, bukan perubahan rumus.
+            catatan.append(f"pemain OUT: {nama} (alasan: {alasan})")
         if nama not in dampak_kandang and nama not in dampak_tandang:
             catatan.append(
                 f"pemain OUT tanpa data BPM/menit: {nama} "

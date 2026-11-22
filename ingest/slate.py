@@ -270,8 +270,16 @@ class _Builder:
         date: str,
         league: str,
         playstyle: dict | None,
+        skip_odds_api: bool = False,
     ) -> None:
-        """Siapkan builder; ``playstyle`` None = muat dari config."""
+        """Siapkan builder; ``playstyle`` None = muat dari config.
+
+        ``skip_odds_api`` True = jangan panggil The Odds API sama sekali
+        (0 kredit; dipakai flag analyze --tanpa-odds-api) — entri
+        pembanding sportsbook lalu kosong dan Kalshi menjadi satu-satunya
+        pembanding yang dicoba. Default False = perilaku lama.
+        """
+        self.skip_odds_api = skip_odds_api
         cfg = _load_playstyle(playstyle)
         try:
             self.stale_hours = cfg["data"]["stale_hours_injury_lineup"]
@@ -347,15 +355,27 @@ class _Builder:
             1,
         )
         sport_key = "basketball_nba" if self.sport == "nba" else "soccer_epl"
-        self.odds_api = _fetch(
-            "ingest.odds_api",
-            "fetch_odds",
-            "The Odds API",
-            2,
-            sport_key,
-            markets="h2h,spreads,totals",
-            regions="eu",
-        )
+        if self.skip_odds_api:
+            # Dilewati atas permintaan pemanggil (flag --tanpa-odds-api):
+            # attempted=False supaya tidak dihitung sebagai panggilan dan
+            # tidak membuat _comparison_fetch_failed() menganggap semua
+            # pembanding gagal — Kalshi tetap dicoba sebagai pembanding.
+            self.odds_api = _failed_fetch(
+                "The Odds API",
+                2,
+                "dilewati: --tanpa-odds-api",
+                attempted=False,
+            )
+        else:
+            self.odds_api = _fetch(
+                "ingest.odds_api",
+                "fetch_odds",
+                "The Odds API",
+                2,
+                sport_key,
+                markets="h2h,spreads,totals",
+                regions="eu",
+            )
         if self.odds_api.extra.get("attempted", True):
             self.odds_api_calls = 1
             self.odds_api_credits = self.odds_api.credits_used
@@ -1693,6 +1713,7 @@ def build_slate(
     slate_id: str | None = None,
     playstyle: dict | None = None,
     league: str = "EPL",
+    skip_odds_api: bool = False,
 ) -> dict:
     """Rakit slate untuk satu sport + tanggal (dispatch ke NBA/bola).
 
@@ -1700,11 +1721,15 @@ def build_slate(
     ``start_time``, ``league``) untuk memfilter; None = semua laga hari
     itu dari sumber jadwal. ``league`` hanya dipakai untuk bola (EPL
     default; LaLiga didukung sebagian — tanpa fixtures PL & odds ESPN).
+    ``skip_odds_api`` True = jangan panggil The Odds API sama sekali
+    (0 kredit; flag analyze --tanpa-odds-api).
     """
     if sport == "nba":
-        return build_nba_slate(date, matches, slate_id, playstyle)
+        return build_nba_slate(date, matches, slate_id, playstyle, skip_odds_api)
     if sport == "football":
-        return build_football_slate(date, league, matches, slate_id, playstyle)
+        return build_football_slate(
+            date, league, matches, slate_id, playstyle, skip_odds_api
+        )
     raise ValueError(f"sport tidak dikenal: {sport!r} (pakai 'nba'/'football')")
 
 
@@ -1713,6 +1738,7 @@ def build_nba_slate(
     matches: list[dict] | None = None,
     slate_id: str | None = None,
     playstyle: dict | None = None,
+    skip_odds_api: bool = False,
 ) -> dict:
     """Rakit slate NBA untuk satu tanggal US Eastern (YYYY-MM-DD).
 
@@ -1720,7 +1746,7 @@ def build_nba_slate(
     Eastern; cli.py mengonversi start_time slate ke Eastern sebelum
     memanggil fungsi ini.
     """
-    builder = _Builder("nba", date, "NBA", playstyle)
+    builder = _Builder("nba", date, "NBA", playstyle, skip_odds_api)
     return builder.build(matches, slate_id)
 
 
@@ -1730,7 +1756,8 @@ def build_football_slate(
     matches: list[dict] | None = None,
     slate_id: str | None = None,
     playstyle: dict | None = None,
+    skip_odds_api: bool = False,
 ) -> dict:
     """Rakit slate sepak bola untuk satu tanggal (YYYY-MM-DD) + liga."""
-    builder = _Builder("football", date, league, playstyle)
+    builder = _Builder("football", date, league, playstyle, skip_odds_api)
     return builder.build(matches, slate_id)

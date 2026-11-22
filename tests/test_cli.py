@@ -91,10 +91,17 @@ class TestCli(unittest.TestCase):
         self.assertEqual(res.returncode, 1)
         self.assertIn("error", res.stderr.lower())
 
-    def test_recheck_belum_tersedia(self):
-        res = run_cli("recheck", "--ticket", "tkt-contoh-01-ins")
+    def test_recheck_tanpa_analysis_error_argumen(self):
+        # Langkah 2: recheck sudah tersedia (bukan lagi stub Tahap 5);
+        # tanpa --analysis, argparse menolak dengan exit 2.
+        res = run_cli("recheck")
         self.assertEqual(res.returncode, 2)
-        self.assertIn("Tahap 5", res.stderr)
+        self.assertIn("--analysis", res.stderr)
+
+    def test_recheck_help_menampilkan_analysis(self):
+        res = run_cli("recheck", "--help")
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("--analysis", res.stdout)
 
     def test_settle_cashout_lewat_cli(self):
         ticket = json.loads(

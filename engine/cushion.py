@@ -293,20 +293,19 @@ def utama_line(
     percentiles: dict persentil total sim (dipakai "median").
     market_line: garis total market. ladder: tangga Under.
     spread: spread absolut laga (|spread pasar|); None = tidak
-    diketahui -> bantalan 8 (bukan 12 — aturan +12 hanya bila
-    terbukti spread <= 2,5; lihat catatan di bawah).
+    diketahui -> bantalan 12 (fail-closed konservatif — keputusan
+    user 2026-11-22; sebelumnya 8, diubah di Langkah 2).
     cfg: dict playstyle (None = baca playstyle.yaml).
 
     Garis terpilih = garis terkecil dari tangga yang >= max(median,
-    garis market) + bantalan, bantalan 12 bila spread <= 2,5 else 8
+    garis market) + bantalan, bantalan 12 bila spread <= 2,5 ATAU
+    spread tidak diketahui, else 8
     (filters.nba_alt_under.min_cushion_points[_close_spread] +
     close_spread_threshold — kunci yang sudah ada di playstyle.yaml).
 
-    CATATAN spread None: memakai bantalan 8 saat spread tidak
-    diketahui adalah pilihan yang didokumentasikan di sini, bukan
-    fail-closed yang sempurna — bila spread ternyata rapat (<= 2,5),
-    bantalan seharusnya 12. Pemanggil yang tidak tahu spread harus
-    sadar akan hal ini; bila ragu, kirim spread-nya.
+    Spread sebaiknya diambil dari tangga market (ladder.spreads)
+    oleh pemanggil dan diteruskan ke sini; hanya bila tangga tidak
+    menyediakan spread, kirim None (bantalan 12).
     """
     cfg = cfg if cfg is not None else config.load_playstyle()
     bantalan_biasa = _validasi_angka(
@@ -334,10 +333,13 @@ def utama_line(
         spread_abs = abs(_validasi_angka(spread, "spread"))
     parsed = _parse_tangga(ladder)
 
+    # Fail-closed konservatif (keputusan user 2026-11-22, Langkah 2):
+    # spread tidak diketahui -> bantalan rapat (12), bukan 8. Hanya
+    # spread yang TERBUKTI > ambang yang memakai bantalan biasa.
     bantalan = (
-        bantalan_rapat
-        if spread_abs is not None and spread_abs <= ambang_spread
-        else bantalan_biasa
+        bantalan_biasa
+        if spread_abs is not None and spread_abs > ambang_spread
+        else bantalan_rapat
     )
     dasar: dict = {
         "median": median,

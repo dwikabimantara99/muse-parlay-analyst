@@ -23,11 +23,31 @@ Blok tim:
    "road_record": {sama},
    "rest_days": int | None, "back_to_back": bool | None,
    "altitude_home": bool,
-   "players": [{"player", "bpm", "mp_per_game", "team_tricode"}...],
-     # 8 pemain bermenit terbanyak + semua pemain cedera yang ada di
-     # daftar cedera tim ini (walau di luar 8 besar) agar model bisa
-     # menghitung dampak absennya.
-   "injuries": [{"player", "status", "team_tricode", "sources": [...]}...]}
+   "players": [{"player", "bpm", "mp_per_game", "team_tricode",
+              "bpm_raw", "mp_raw", "games_played", "bpm_musim_lalu",
+              "mp_musim_lalu", "shrinkage_w", "shrinkage"}...],
+     # 8 pemain bermenit terbanyak (menit SETELAH shrinkage — lihat
+     # di bawah) + semua pemain cedera yang ada di daftar cedera tim
+     # ini (walau di luar 8 besar) agar model bisa menghitung dampak
+     # absennya. "bpm"/"mp_per_game" = nilai setelah shrinkage ke
+     # musim lalu; nilai mentah musim ini ada di "bpm_raw"/"mp_raw";
+     # "shrinkage" = "diterapkan"/"tanpa_musim_lalu"/
+     # "tanpa_jumlah_laga"/"tanpa_nilai_musim_ini"/
+     # "tanpa_data_musim_lalu" (jejak audit).
+   "injuries": [{"player", "status", "team_tricode", "sources": [...],
+               "is_injury", "reason", "availability_n_sources"}...],
+     # "is_injury" = klaim cedera (True bila ADA sumber yang mengklaim
+     # cedera); "reason" = detail cedera (entri cedera) atau kategori
+     # non-cedera ("rest"/"personal"/"suspension"/"two-way"/"g_league"/
+     # "other"); "availability_n_sources" = jumlah sumber yang
+     # melaporkan pemain ini (ketersediaan, bukan hanya cedera).
+   "shrinkage": {"k_games", "k_games_source", "musim_lalu",
+               "musim_lalu_ok"}}
+     # Parameter shrinkage (lihat di bawah): "k_games_source" =
+     # "config" bila kunci simulation.nba.shrinkage_k_games ada di
+     # playstyle.yaml, "default" bila belum; "musim_lalu" = tahun
+     # berakhir BBRef musim lalu (misal 2026); "musim_lalu_ok" =
+     # apakah fetch pemain musim lalu berhasil.
 
 ATURAN GAGAL (sesuai DECISIONS.md B):
 - Setiap kegagalan fetch -> field None (atau list kosong) + nama field di
@@ -40,7 +60,10 @@ ATURAN GAGAL (sesuai DECISIONS.md B):
   "tournament_flag_tidak_dapat_ditentukan",
   "injuries_konflik:<pemain>", "injuries_status_tidak_dikenal:<pemain>",
   "injuries_tim_tidak_dikenal", "injuries_bukan_cedera:<pemain>",
-  "injuries_komentar_konflik:<pemain>".
+  "injuries_komentar_konflik:<pemain>",
+  "availability_1_sumber:<pemain>", "players_musim_lalu",
+  "<prefix>.shrinkage_tanpa_musim_lalu:<pemain>",
+  "<prefix>.shrinkage_tanpa_jumlah_laga:<pemain>".
 - rest_days = jumlah hari istirahat penuh antar laga: selisih hari dari
   laga terakhir sebelum game_date dikurangi 1 (main kemarin -> 0).
   back_to_back = rest_days == 0. Tanpa laga sebelumnya -> keduanya None.
@@ -61,13 +84,39 @@ ATURAN GAGAL (sesuai DECISIONS.md B):
   "conflict" di entri cedera (B2: jangan pilih diam-diam). Bila status
   tier 1 tidak terbaca tapi tier 2 terbaca, status tier 2 yang dipakai
   (status yang diketahui mengalahkan status yang tidak terbaca).
-  Entri ESPN dengan is_injury False (bukan cedera: kontrak two-way,
-  rest, personal, dst — lihat ingest/espn.py) TIDAK dihitung sebagai
-  konfirmasi cedera: tidak masuk daftar cedera, dicatat di "missing"
-  sebagai "injuries_bukan_cedera:<pemain>". Entri ESPN dengan
-  status_comment_conflict True (status vs komentar bertentangan)
-  diteruskan ke entri gabung sebagai kunci "status_comment_conflict"
-  + dicatat di "missing" sebagai "injuries_komentar_konflik:<pemain>".
+  LAPISAN KETERSEDIAAN (patch 1c, temuan auditor 1): "ketersediaan"
+  (main/tidak) dipisahkan dari "cedera" (sakit/tidak). Pemain OUT
+  apapun alasannya — cedera, Rest, Personal, skors, two-way — MASUK
+  daftar dan dihitung ABSEN di simulasi (sim mengunci pada status
+  OUT), dengan alasan tercatat di field "reason" + "is_injury" False
+  bila tidak ada sumber yang mengklaim cedera. Entri non-cedera dari
+  1 sumber diterapkan sebagai absen dengan catatan kepercayaan
+  "availability_1_sumber:<pemain>" di "missing" (recheck akan
+  memverifikasi ulang). Entri non-cedera yang TIDAK definitif absen
+  (status QUESTIONABLE/DOUBTFUL/PROBABLE/AVAILABLE, misal two-way
+  Day-To-Day) tetap dikecualikan + dicatat di "missing" sebagai
+  "injuries_bukan_cedera:<pemain>". B2 TETAP berlaku untuk klaim
+  cedera: "confirmed_both" (engine/nba_analysis.py) menghitung entri
+  dengan >= 2 sumber; entri rest 1 sumber tidak masuk ke sana.
+  Entri ESPN dengan status_comment_conflict True (status vs komentar
+  bertentangan) diteruskan ke entri gabung sebagai kunci
+  "status_comment_conflict" + dicatat di "missing" sebagai
+  "injuries_komentar_konflik:<pemain>".
+- SHRINKAGE MENIT + BPM KE MUSIM LALU (patch 1c, temuan auditor 2):
+  pemain dengan sedikit laga musim ini punya mp_per_game + BPM yang
+  noisy (contoh: Duren mp 19,0 + BPM 8,8 dari hanya 2 laga — dampak
+  absen understated bila menit sebenarnya ~30, sementara BPM 8,8
+  kemungkinan inflated). Nilai musim ini dicampur dengan musim lalu:
+  w = n/(n+K), n = jumlah laga musim ini (games_played BBRef),
+  K = simulation.nba.shrinkage_k_games (default 10 laga — PILIHAN
+  DESAIN, bukan hasil fit; mengikuti D-R2 K=10 di fit rolling);
+  nilai akhir = w*nilai_musim_ini + (1-w)*nilai_musim_lalu, berlaku
+  untuk menit DAN BPM. Rookie/tanpa data musim lalu: pakai nilai
+  musim berjalan + catatan di "missing". Nilai mentah + penanda
+  shrinkage disimpan di dict pemain (jejak audit). Fetch pemain
+  musim lalu best-effort (1 request BBRef, cache 6 jam): gagal ->
+  semua pemain memakai nilai musim berjalan + "players_musim_lalu"
+  di "missing".
 - tournament: None sampai ada sumber yang bisa menentukannya — tanggal
   NBA Cup/Playoff TIDAK ditebak.
 - altitude_home: True bila tricode tim ini DEN/UTA (fakta arena).
@@ -75,9 +124,11 @@ ATURAN GAGAL (sesuai DECISIONS.md B):
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import date
 
+import config as config_mod
 from ingest import matching
 from ingest.bbref import fetch_player_advanced, fetch_team_advanced
 from ingest.common import FetchResult, HttpClient, now_iso
@@ -97,6 +148,28 @@ TIER = 1  # Sumber utama perakit ini tier 1; tiap datum membawa
 # Tim yang bermain di ketinggian (fakta arena): Denver ~1.600 m,
 # Salt Lake City ~1.300 m.
 ALTITUDE_TRICODES = frozenset({"DEN", "UTA"})
+
+# Konstanta shrinkage default (PILIHAN DESAIN, bukan hasil fit):
+# bobot musim ini w = n/(n+K); K=10 laga mengikuti D-R2 K=10 di fit
+# rolling — setelah 10 laga, musim ini dan musim lalu berbobot sama.
+# Kunci config resmi (koordinator yang menambahkan ke playstyle.yaml):
+# simulation.nba.shrinkage_k_games. Koordinator + reviewer yang
+# memutuskan nilai akhir.
+DEFAULT_SHRINKAGE_K_GAMES = 10.0
+
+# Klasifikasi alasan non-cedera dari teks detail ESPN (shortComment)
+# — urutan penting: pola yang lebih spesifik dulu ("rest" paling
+# umum, dicek terakhir; "rest" di kalimat cedera seperti "out for the
+# rest of the season" tidak sampai ke sini karena klasifikasi ini
+# hanya dipakai untuk baris is_injury False). Cerminan pola
+# _NON_INJURY_RE di ingest/espn.py + "rest" (details.type ESPN).
+_ALASAN_NON_CEDERA = (
+    (re.compile(r"two-way", re.I), "two-way"),
+    (re.compile(r"personal", re.I), "personal"),
+    (re.compile(r"g league", re.I), "g_league"),
+    (re.compile(r"suspend", re.I), "suspension"),
+    (re.compile(r"\brest\b", re.I), "rest"),
+)
 
 _SEASON_RE = re.compile(r"^\d{4}-\d{2}$")
 
@@ -168,6 +241,16 @@ def _team_tricode(team_raw: str) -> str | None:
         if matching.teams_match(team_raw, tricode, "nba"):
             return tricode
     return None
+
+
+def team_tricode(team_raw: str) -> str | None:
+    """Petakan nama/singkatan tim apa pun ke tricode (atau None).
+
+    Pembungkus publik _team_tricode untuk pemakaian di luar modul
+    (mis. cli.py analyze: nama tim slate -> tricode untuk analisis
+    NBA di engine.nba_analysis).
+    """
+    return _team_tricode(team_raw)
 
 
 def _to_float(value: object) -> float | None:
@@ -321,6 +404,23 @@ def _normalize_status(raw: object) -> tuple[str | None, str | None]:
     return None, raw.strip()
 
 
+def _klasifikasi_alasan(detail: object) -> str:
+    """Klasifikasikan alasan non-cedera dari teks detail (ESPN).
+
+    Mengembalikan kategori: "two-way"/"personal"/"g_league"/
+    "suspension"/"rest", atau "other" bila tidak ada pola yang cocok
+    (misal detail kosong). Hanya dipakai untuk baris is_injury False
+    — di baris itu shortComment ESPN ISINYA adalah alasan
+    administratifnya sendiri (misal Tatum "(rest)", Small "personal
+    reasons"), jadi klasifikasi dari teks ini andal.
+    """
+    teks = detail if isinstance(detail, str) else ""
+    for pola, alasan in _ALASAN_NON_CEDERA:
+        if pola.search(teks):
+            return alasan
+    return "other"
+
+
 def _merge_injuries(
     pdf_result: FetchResult,
     espn_result: FetchResult,
@@ -333,12 +433,23 @@ def _merge_injuries(
     sumber dan status yang tidak bisa dipetakan dicatat ke `missing`
     (daftar diubah di tempat). Sumber diproses berurutan tier 1 dulu
     (PDF resmi), lalu tier 2 (ESPN). Baris dengan is_injury False
-    (entri ESPN non-cedera) dilewati dan dicatat di `missing` sebagai
-    "injuries_bukan_cedera:<pemain>"; baris tanpa field is_injury (PDF)
-    dianggap cedera. Baris ESPN yang membawa "status_normalized"
-    dipakai apa adanya; baris tanpa field itu dinormalisasi dengan
-    _normalize_status. Flag "status_comment_conflict" dari ESPN
-    diteruskan ke entri gabung + dicatat di `missing`.
+    (entri ESPN non-cedera) DITANGANI BERDASARKAN STATUS (lapisan
+    ketersediaan, patch 1c): bila statusnya OUT, pemain itu definitif
+    tidak main — MASUK daftar dengan "is_injury" False + "reason"
+    kategori non-cedera + catatan kepercayaan
+    "availability_1_sumber:<pemain>" bila hanya 1 sumber; bila
+    statusnya bukan OUT (misal two-way Day-To-Day), tetap dilewati
+    dan dicatat di `missing` sebagai "injuries_bukan_cedera:<pemain>".
+    Baris tanpa field is_injury (PDF) dianggap cedera. Baris ESPN
+    yang membawa "status_normalized" dipakai apa adanya; baris tanpa
+    field itu dinormalisasi dengan _normalize_status. Flag
+    "status_comment_conflict" dari ESPN diteruskan ke entri gabung +
+    dicatat di `missing`. Setiap entri gabung membawa "is_injury"
+    (True bila ADA sumber yang mengklaim cedera), "reason" (detail
+    cedera dari sumber tier tertinggi yang mengklaim cedera, atau
+    kategori non-cedera bila tidak ada klaim cedera), dan
+    "availability_n_sources" (jumlah sumber yang melaporkan pemain
+    ini — ketersediaan, bukan hanya cedera).
     """
     work: dict[str, dict[str, dict]] = {tri: {} for tri in tricodes}
     unknown_team_seen = False
@@ -360,8 +471,16 @@ def _merge_injuries(
             norm_name = _normalize_player_name(row.get("player"))
             if not norm_name:
                 continue
-            if row.get("is_injury") is False:
-                # Entri non-cedera (two-way, rest, personal, dst) —
+            if "status_normalized" in row:
+                # Baris ESPN: pemetaan sudah dilakukan fetcher.
+                status = row.get("status_normalized")
+                raw = row.get("status_asli")
+            else:
+                status, raw = _normalize_status(row.get("status"))
+            is_injury_row = row.get("is_injury") is not False
+            if not is_injury_row and status != "OUT":
+                # Entri non-cedera yang tidak definitif absen (two-way,
+                # G League, dst dengan status QUESTIONABLE/dll) —
                 # bukan konfirmasi cedera, jangan masuk daftar.
                 bukan_cedera.add(str(row.get("player")))
                 continue
@@ -373,21 +492,28 @@ def _merge_injuries(
                     "raw": {},
                     "sources": [],
                     "comment_conflict": False,
+                    "is_injury": False,
+                    "reasons": {},
+                    "reason_is_injury": {},
                 },
             )
             if entry["player"] is None:
                 entry["player"] = row.get("player")
             if result.source not in entry["sources"]:
                 entry["sources"].append(result.source)
-            if "status_normalized" in row:
-                # Baris ESPN: pemetaan sudah dilakukan fetcher.
-                status = row.get("status_normalized")
-                raw = row.get("status_asli")
-            else:
-                status, raw = _normalize_status(row.get("status"))
             entry["statuses"][result.source] = status
             if raw is not None:
                 entry["raw"][result.source] = raw
+            if is_injury_row:
+                entry["is_injury"] = True
+                detail = row.get("detail")
+                entry["reasons"][result.source] = (
+                    detail if isinstance(detail, str) and detail.strip() else None
+                )
+                entry["reason_is_injury"][result.source] = True
+            else:
+                entry["reasons"][result.source] = _klasifikasi_alasan(row.get("detail"))
+                entry["reason_is_injury"][result.source] = False
             if row.get("status_comment_conflict") is True:
                 entry["comment_conflict"] = True
     if unknown_team_seen:
@@ -408,11 +534,30 @@ def _merge_injuries(
                     status = item["statuses"][source]
                     winner = source
                     break
+            # Alasan pemenang: detail cedera dari sumber tier tertinggi
+            # yang mengklaim cedera; bila tidak ada klaim cedera,
+            # kategori non-cedera dari sumber pertama.
+            reason = None
+            for source in item["sources"]:
+                if (
+                    item["reason_is_injury"].get(source)
+                    and item["reasons"].get(source) is not None
+                ):
+                    reason = item["reasons"][source]
+                    break
+            if reason is None:
+                for source in item["sources"]:
+                    if item["reasons"].get(source) is not None:
+                        reason = item["reasons"][source]
+                        break
             injury: dict = {
                 "player": item["player"],
                 "status": status,
                 "team_tricode": tri,
                 "sources": item["sources"],
+                "is_injury": item["is_injury"],
+                "reason": reason,
+                "availability_n_sources": len(item["sources"]),
             }
             if winner is not None and winner in item["raw"]:
                 injury["status_asli"] = item["raw"][winner]
@@ -431,10 +576,167 @@ def _merge_injuries(
             if item["comment_conflict"]:
                 injury["status_comment_conflict"] = True
                 missing.append(f"injuries_komentar_konflik:{item['player']}")
+            if not item["is_injury"] and len(item["sources"]) == 1:
+                # Absen non-cedera dari 1 sumber: diterapkan sebagai
+                # absen, tapi kepercayaan rendah — recheck akan
+                # memverifikasi ulang.
+                missing.append(f"availability_1_sumber:{item['player']}")
             entries.append(injury)
         entries.sort(key=lambda entry: str(entry["player"] or ""))
         merged[tri] = entries
     return merged
+
+
+def _baca_k_shrinkage(cfg: dict | None) -> tuple[float, str]:
+    """Baca K shrinkage dari simulation.nba.shrinkage_k_games.
+
+    Mengembalikan (K, sumber): sumber "config" bila kunci ada di
+    config, "default" bila belum ada di config yang diberikan.
+    cfg None -> baca playstyle.yaml; bila baca config gagal ->
+    default (shrinkage tidak boleh menggagalkan perakitan input). Nilai yang ada harus angka hingga
+    > 0, bila tidak -> ValueError (pola cushion._baca_param_baru).
+    """
+    if cfg is None:
+        try:
+            cfg = config_mod.load_playstyle()
+        except Exception:  # noqa: BLE001 - config gagal = default
+            return DEFAULT_SHRINKAGE_K_GAMES, "default"
+    try:
+        nilai = config_mod.get_value(cfg, "simulation", "nba", "shrinkage_k_games")
+    except config_mod.ConfigError:
+        return DEFAULT_SHRINKAGE_K_GAMES, "default"
+    if (
+        isinstance(nilai, bool)
+        or not isinstance(nilai, (int, float))
+        or not math.isfinite(nilai)
+        or nilai <= 0
+    ):
+        raise ValueError(
+            "simulation.nba.shrinkage_k_games tidak valid: "
+            f"{nilai!r} (harus angka hingga > 0)"
+        )
+    return float(nilai), "config"
+
+
+def _jumlah_laga(nilai: object) -> int | None:
+    """Jumlah laga sebagai int, atau None bila tidak valid."""
+    if isinstance(nilai, bool):
+        return None
+    if isinstance(nilai, int):
+        return nilai if nilai >= 0 else None
+    if isinstance(nilai, float) and nilai.is_integer() and nilai >= 0:
+        return int(nilai)
+    return None
+
+
+def _peta_musim_lalu(rows: list | None) -> dict[str, dict]:
+    """Peta nama ternormalisasi -> baris BBRef musim lalu.
+
+    Pencocokan berdasarkan NAMA (bukan tim): pemain yang pindah tim
+    tetap punya data musim lalu. Bila satu nama muncul di 2 tim
+    (pindah tim tengah musim — baris TOT dilewati parser BBRef),
+    dipakai baris dengan games_played terbanyak (sampel terbesar).
+    Baris tanpa nama dilewati.
+    """
+    peta: dict[str, dict] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        nama = _normalize_player_name(row.get("player"))
+        if not nama:
+            continue
+        lama = peta.get(nama)
+        if lama is None:
+            peta[nama] = row
+            continue
+        n_baru = _jumlah_laga(row.get("games_played"))
+        n_lama = _jumlah_laga(lama.get("games_played"))
+        if n_baru is not None and (n_lama is None or n_baru > n_lama):
+            peta[nama] = row
+    return peta
+
+
+def _susutkan_nilai(
+    nilai_kini: float | None,
+    nilai_lalu: float | None,
+    n_laga: int,
+    k: float,
+) -> tuple[float | None, float | None]:
+    """Campur satu nilai musim ini dengan musim lalu.
+
+    w = n/(n+K); hasil = w*nilai_kini + (1-w)*nilai_lalu.
+    Mengembalikan (nilai_akhir, w). Bila salah satu nilai None ->
+    (nilai_kini, None): tidak bisa menyusut, pakai nilai musim ini.
+    """
+    if nilai_kini is None or nilai_lalu is None:
+        return nilai_kini, None
+    w = n_laga / (n_laga + k)
+    return w * float(nilai_kini) + (1.0 - w) * float(nilai_lalu), w
+
+
+def _susutkan_pemain(
+    pemain: dict,
+    musim_lalu: dict | None,
+    k: float,
+    data_musim_lalu_tersedia: bool = True,
+) -> tuple[dict, list[str]]:
+    """Terapkan shrinkage ke satu baris pemain BBRef musim ini.
+
+    musim_lalu: baris BBRef musim lalu pemain yang sama, atau None
+    (rookie/tanpa data musim lalu). data_musim_lalu_tersedia False
+    berarti fetch musim lalu gagal/tidak disediakan: semua pemain
+    memakai nilai musim berjalan tanpa catatan per pemain (satu
+    catatan blok "players_musim_lalu" sudah ada di "missing").
+    Mengembalikan (dict_pemain, catatan): dict_pemain membawa
+    bpm/mp_per_game yang sudah menyusut + field audit (bpm_raw,
+    mp_raw, games_played, bpm_musim_lalu, mp_musim_lalu,
+    shrinkage_w, shrinkage); catatan = list string TANPA prefix
+    blok (pemanggil menambahkan prefix "home."/"away."), hanya
+    untuk pemain yang akhirnya dipilih ke blok tim.
+    """
+    nama = pemain.get("player")
+    bpm_raw = _to_float(pemain.get("bpm"))
+    mp_raw = _to_float(pemain.get("mp_per_game"))
+    n_laga = _jumlah_laga(pemain.get("games_played"))
+    hasil: dict = {
+        "player": nama,
+        "bpm": bpm_raw,
+        "mp_per_game": mp_raw,
+        "bpm_raw": bpm_raw,
+        "mp_raw": mp_raw,
+        "games_played": n_laga,
+        "bpm_musim_lalu": None,
+        "mp_musim_lalu": None,
+        "shrinkage_w": None,
+        "shrinkage": (
+            "tanpa_data_musim_lalu"
+            if not data_musim_lalu_tersedia
+            else "tanpa_jumlah_laga"
+        ),
+    }
+    if not data_musim_lalu_tersedia:
+        return hasil, []
+    if n_laga is None:
+        return hasil, [f"shrinkage_tanpa_jumlah_laga:{nama}"]
+    bpm_lalu = _to_float(musim_lalu.get("bpm")) if musim_lalu else None
+    mp_lalu = _to_float(musim_lalu.get("mp_per_game")) if musim_lalu else None
+    hasil["bpm_musim_lalu"] = bpm_lalu
+    hasil["mp_musim_lalu"] = mp_lalu
+    if bpm_lalu is None and mp_lalu is None:
+        hasil["shrinkage"] = "tanpa_musim_lalu"
+        return hasil, [f"shrinkage_tanpa_musim_lalu:{nama}"]
+    bpm_baru, w_bpm = _susutkan_nilai(bpm_raw, bpm_lalu, n_laga, k)
+    mp_baru, w_mp = _susutkan_nilai(mp_raw, mp_lalu, n_laga, k)
+    hasil["bpm"] = bpm_baru
+    hasil["mp_per_game"] = mp_baru
+    if w_bpm is None and w_mp is None:
+        # Tidak ada field yang bisa disusut (nilai musim ini None —
+        # pemain tanpa statistik): bukan "diterapkan".
+        hasil["shrinkage"] = "tanpa_nilai_musim_ini"
+        return hasil, []
+    hasil["shrinkage_w"] = w_bpm if w_bpm is not None else w_mp
+    hasil["shrinkage"] = "diterapkan"
+    return hasil, []
 
 
 def _build_team_block(
@@ -448,12 +750,19 @@ def _build_team_block(
     players: list | None,
     injuries: list | None,
     missing: list,
+    musim_lalu_per_nama: dict | None = None,
+    k_shrinkage: float = DEFAULT_SHRINKAGE_K_GAMES,
 ) -> dict:
     """Rakit satu blok tim (lihat docstring modul untuk kontraknya).
 
     prefix: "home"/"away" (untuk penamaan entri missing).
     games_before/stats/players/injuries = None berarti fetch sumbernya
     gagal -> field diisi None/kosong + dicatat di `missing`.
+    musim_lalu_per_nama: peta nama ternormalisasi -> baris BBRef
+    musim lalu (dari _peta_musim_lalu); None berarti data musim lalu
+    tidak tersedia (fetch gagal) -> pemain memakai nilai musim
+    berjalan dengan penanda shrinkage "tanpa_data_musim_lalu".
+    k_shrinkage: konstanta K shrinkage (w = n/(n+K)).
     """
     block: dict = {
         "tricode": tricode,
@@ -492,8 +801,33 @@ def _build_team_block(
     if players is None:
         missing.append(f"{prefix}.players")
     else:
+        # Shrinkage menit + BPM ke musim lalu (patch 1c): nilai yang
+        # dipakai sim adalah nilai yang sudah menyusut; urutan top-8
+        # memakai menit yang sudah menyusut (pemain 2 laga 40 mpg
+        # tidak boleh menggeser pemain mapan 30 mpg). Catatan
+        # shrinkage hanya dicatat untuk pemain yang akhirnya dipilih
+        # (pemain terpotong tidak memengaruhi sim).
+        disusutkan: list[dict] = []
+        catatan_per_nama: dict[str, list[str]] = {}
+        for baris in players:
+            if not isinstance(baris, dict):
+                continue
+            if musim_lalu_per_nama is None:
+                pemain_baru, catatan = _susutkan_pemain(
+                    baris, None, k_shrinkage, data_musim_lalu_tersedia=False
+                )
+            else:
+                pemain_baru, catatan = _susutkan_pemain(
+                    baris,
+                    musim_lalu_per_nama.get(
+                        _normalize_player_name(baris.get("player"))
+                    ),
+                    k_shrinkage,
+                )
+            disusutkan.append(pemain_baru)
+            catatan_per_nama[_normalize_player_name(baris.get("player"))] = catatan
         top = sorted(
-            players,
+            disusutkan,
             key=lambda p: (
                 p.get("mp_per_game") is None,
                 -(p.get("mp_per_game") or 0),
@@ -507,7 +841,7 @@ def _build_team_block(
         # dihitung 0 karena di luar 8 besar).
         if injuries:
             punya = {_normalize_player_name(p.get("player")) for p in chosen}
-            per_nama = {_normalize_player_name(p.get("player")): p for p in players}
+            per_nama = {_normalize_player_name(p.get("player")): p for p in disusutkan}
             for cedera in injuries:
                 kunci = _normalize_player_name(cedera.get("player"))
                 if kunci and kunci not in punya and kunci in per_nama:
@@ -519,9 +853,21 @@ def _build_team_block(
                 "bpm": player.get("bpm"),
                 "mp_per_game": player.get("mp_per_game"),
                 "team_tricode": tricode,
+                "bpm_raw": player.get("bpm_raw"),
+                "mp_raw": player.get("mp_raw"),
+                "games_played": player.get("games_played"),
+                "bpm_musim_lalu": player.get("bpm_musim_lalu"),
+                "mp_musim_lalu": player.get("mp_musim_lalu"),
+                "shrinkage_w": player.get("shrinkage_w"),
+                "shrinkage": player.get("shrinkage"),
             }
             for player in chosen
         ]
+        for player in chosen:
+            for catatan in catatan_per_nama.get(
+                _normalize_player_name(player.get("player")), []
+            ):
+                missing.append(f"{prefix}.{catatan}")
     if injuries is None:
         missing.append(f"{prefix}.injuries")
     else:
@@ -604,6 +950,7 @@ def fetch_match_inputs(
     game_date: str,
     season: str = "2026-27",
     client: HttpClient | None = None,
+    cfg: dict | None = None,
 ) -> FetchResult:
     """Rakit input Otak NBA untuk satu laga.
 
@@ -612,11 +959,14 @@ def fetch_match_inputs(
     season: "YYYY-YY" (musim berjalan 2026-27). client: HttpClient
     bersama (opsional; None = tiap fetcher memakai client defaultnya
     sendiri dengan limiter + cache + header masing-masing).
+    cfg: dict playstyle untuk K shrinkage (opsional; None = baca
+    playstyle.yaml, gagal baca = default — lihat _baca_k_shrinkage).
 
     data: paket kontrak (lihat docstring modul). ok=False hanya bila
     SEMUA sumber gagal total atau input tidak valid. Kegagalan
     sebagian -> ok=True dengan field None/kosong + "missing" terisi +
-    error tiap fetch di extra["fetch_errors"].
+    error tiap fetch di extra["fetch_errors"]. ValueError bila K
+    shrinkage di config ada tapi tidak valid (angka hingga > 0).
     """
     fetched_at = now_iso()
     home = (home_tricode or "").strip().upper()
@@ -648,6 +998,10 @@ def fetch_match_inputs(
             SOURCE, TIER, fetched_at, False, error=f"musim_tidak_valid: {season!r}"
         )
     bbref_season = _bbref_season(season)
+
+    # Konstanta shrinkage (patch 1c): dibaca sekali di awal; nilai
+    # tidak valid di config -> ValueError (bukan default diam-diam).
+    k_shrinkage, k_source = _baca_k_shrinkage(cfg)
 
     missing: list[str] = []
     sources: list[dict] = []
@@ -755,6 +1109,26 @@ def fetch_match_inputs(
     else:
         fetch_errors["player_advanced"] = players_result.error or "gagal"
 
+    # 4b. Pemain musim lalu (BBRef, tier 2) — bahan shrinkage menit +
+    # BPM (patch 1c, temuan auditor 2). Best-effort: gagal -> pemain
+    # memakai nilai musim berjalan + dicatat di "missing". Tidak
+    # memengaruhi ok (hanya jalan bila fetch pemain musim ini
+    # berhasil, dan tidak menambah n_ok — ini enrichment, seperti
+    # partisipasi game log).
+    musim_lalu_per_nama: dict | None = None
+    musim_lalu_ok = False
+    if players_by_team is not None:
+        prior_result = _safe_fetch(
+            fetch_player_advanced, season=bbref_season - 1, client=client
+        )
+        if prior_result.ok:
+            sources.append(_source_entry("nba_player_impact_musim_lalu", prior_result))
+            musim_lalu_per_nama = _peta_musim_lalu(prior_result.data)
+            musim_lalu_ok = True
+        else:
+            fetch_errors["player_advanced_musim_lalu"] = prior_result.error or "gagal"
+            missing.append("players_musim_lalu")
+
     # 5+6. Cedera: PDF resmi (tier 1) + ESPN (tier 2).
     pdf_result = _safe_fetch(fetch_report, date=game_date, client=client)
     if pdf_result.ok:
@@ -788,6 +1162,8 @@ def fetch_match_inputs(
         players_by_team.get(home) if players_by_team is not None else None,
         injuries_by_team.get(home) if injuries_by_team is not None else None,
         missing,
+        musim_lalu_per_nama,
+        k_shrinkage,
     )
     away_block = _build_team_block(
         away,
@@ -800,6 +1176,8 @@ def fetch_match_inputs(
         players_by_team.get(away) if players_by_team is not None else None,
         injuries_by_team.get(away) if injuries_by_team is not None else None,
         missing,
+        musim_lalu_per_nama,
+        k_shrinkage,
     )
 
     # 7. Partisipasi 10 laga terakhir untuk pemain OUT (patch 1b,
@@ -868,6 +1246,12 @@ def fetch_match_inputs(
         "league": league,
         "missing": missing,
         "sources": sources,
+        "shrinkage": {
+            "k_games": k_shrinkage,
+            "k_games_source": k_source,
+            "musim_lalu": bbref_season - 1,
+            "musim_lalu_ok": musim_lalu_ok,
+        },
         "fetched_at": fetched_at,
     }
     ok = n_ok > 0

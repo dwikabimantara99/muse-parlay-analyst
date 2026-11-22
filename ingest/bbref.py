@@ -32,6 +32,9 @@ Slug pemain (patch langkah 1b, perbaikan 2): sel name_display memuat
 tautan /players/<huruf>/<slug>.html (misal /players/d/durenja01.html);
 parser menangkapnya sebagai field "bbref_slug" ("d/durenja01") untuk
 dipakai ingest.player_gamelog. Pemain tanpa tautan -> bbref_slug None.
+Jumlah laga (patch 1c, temuan auditor 2): kolom "games" dikembalikan
+sebagai field "games_played" — dipakai shrinkage menit + BPM di
+ingest.nba_brain (bobot musim ini w = n/(n+K)).
 """
 
 from __future__ import annotations
@@ -400,6 +403,7 @@ def _parse_player_table_once(html: str) -> list[dict]:
             {
                 "player": player,
                 "team": BBREF_TRICODE_MAP.get(team_raw, team_raw),
+                "games_played": games,
                 "mp": mp,
                 "mp_per_game": mp_per_game,
                 "bpm": _to_number(row.get("bpm", "")),
@@ -413,9 +417,11 @@ def parse_player_advanced(html: str) -> list[dict]:
     """Ubah HTML halaman advanced BBRef jadi list statistik pemain.
 
     Setiap pemain: player, team (tricode stats.nba.com — BRK/CHO/PHO
-    dipetakan ke BKN/CHA/PHX; tricode lain apa adanya), mp (total
-    menit), mp_per_game (mp / games; None bila games tidak ada atau 0),
-    bpm, bbref_slug (jalur gamelog "huruf/slug", misal "d/durenja01";
+    dipetakan ke BKN/CHA/PHX; tricode lain apa adanya), games_played
+    (jumlah laga musim ini, kolom "games"; None bila tidak ada),
+    mp (total menit), mp_per_game (mp / games; None bila games tidak
+    ada atau 0), bpm, bbref_slug (jalur gamelog "huruf/slug", misal
+    "d/durenja01";
     None bila sel nama tidak memuat tautan). Baris "League Average"
     dan "TOT" dilewati. ValueError
     ("bbref_format_changed") bila tabel id="advanced" tidak ada atau

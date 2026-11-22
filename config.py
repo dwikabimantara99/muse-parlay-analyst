@@ -39,6 +39,7 @@ REQUIRED_PLAYSTYLE_SECTIONS = (
     "simulation",
     "fees",
     "data",
+    "recheck",
     "calibration",
 )
 

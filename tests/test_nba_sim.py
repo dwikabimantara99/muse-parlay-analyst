@@ -659,5 +659,67 @@ class TestReplacementLevelDanOverlap(unittest.TestCase):
         self.assertIn("parameter_belum_difit", str(ctx.exception))
 
 
+class TestAlasanAbsenDiNotes(unittest.TestCase):
+    """Alasan absen diteruskan ke inputs_summary.notes (patch 1c,
+    lapisan ketersediaan) — hanya jejak, bukan perubahan rumus."""
+
+    def test_rest_out_mengurangi_proyeksi_dan_alasan_dicatat(self):
+        inputs = buat_inputs()
+        inputs["home"]["injuries"] = [
+            {
+                "player": "Bintang Home",
+                "status": "OUT",
+                "team_tricode": "ATL",
+                "sources": ["ESPN"],
+                "is_injury": False,
+                "reason": "rest",
+                "availability_n_sources": 1,
+            }
+        ]
+        dasar = nba_sim.simulate(buat_inputs(), cfg=buat_cfg(), seed=9, iterations=5000)
+        hasil = nba_sim.simulate(inputs, cfg=buat_cfg(), seed=9, iterations=5000)
+        # Dampak absen Bintang Home: (8,0 - (-2,0)) x (36/48) x 1,0 x 1,0
+        # = 7,5 poin (missed_last10 tidak ada -> faktor overlap 1,0).
+        selisih = (
+            dasar["inputs_summary"]["projected_home_points"]
+            - hasil["inputs_summary"]["projected_home_points"]
+        )
+        self.assertAlmostEqual(selisih, 7.5, places=2)
+        self.assertIn("Bintang Home", hasil["inputs_summary"]["base_absent_players"])
+        notes = hasil["inputs_summary"]["notes"]
+        self.assertIn("pemain OUT: Bintang Home (alasan: rest)", notes)
+
+    def test_tanpa_alasan_tanpa_catatan_alasan(self):
+        inputs = buat_inputs()
+        inputs["home"]["injuries"] = [
+            {
+                "player": "Bintang Home",
+                "status": "OUT",
+                "team_tricode": "ATL",
+                "sources": ["nba.com"],
+            }
+        ]
+        hasil = nba_sim.simulate(inputs, cfg=buat_cfg(), seed=9, iterations=1000)
+        notes = hasil["inputs_summary"]["notes"]
+        self.assertFalse([n for n in notes if "alasan:" in n])
+
+    def test_alasan_cedera_juga_dicatat(self):
+        inputs = buat_inputs()
+        inputs["away"]["injuries"] = [
+            {
+                "player": "Bintang Away",
+                "status": "OUT",
+                "team_tricode": "DET",
+                "sources": ["Official NBA Injury Report", "ESPN"],
+                "is_injury": True,
+                "reason": "Left knee",
+                "availability_n_sources": 2,
+            }
+        ]
+        hasil = nba_sim.simulate(inputs, cfg=buat_cfg(), seed=9, iterations=1000)
+        notes = hasil["inputs_summary"]["notes"]
+        self.assertIn("pemain OUT: Bintang Away (alasan: Left knee)", notes)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,8 +6,10 @@ fetcher (bentuk persis yang dikembalikan fetcher aslinya); parsing
 respons mentah dites di test_ingest_stats_nba.py / test_ingest_bbref.py.
 """
 
+import copy
 import sys
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -144,6 +146,7 @@ PLAYERS = [
     {
         "player": "Lauri Markkanen",
         "team": "UTA",
+        "games_played": 16,
         "mp": 520,
         "mp_per_game": 32.5,
         "bpm": 2.1,
@@ -151,6 +154,7 @@ PLAYERS = [
     {
         "player": "Keyonte George",
         "team": "UTA",
+        "games_played": 16,
         "mp": 480,
         "mp_per_game": 30.1,
         "bpm": 0.5,
@@ -158,6 +162,7 @@ PLAYERS = [
     {
         "player": "Walker Kessler",
         "team": "UTA",
+        "games_played": 16,
         "mp": 450,
         "mp_per_game": 28.0,
         "bpm": 1.8,
@@ -166,6 +171,7 @@ PLAYERS = [
     {
         "player": "Brice Sensabaugh",
         "team": "UTA",
+        "games_played": 15,
         "mp": 400,
         "mp_per_game": 25.0,
         "bpm": -0.5,
@@ -173,6 +179,7 @@ PLAYERS = [
     {
         "player": "Kyle Filipowski",
         "team": "UTA",
+        "games_played": 14,
         "mp": 380,
         "mp_per_game": 24.0,
         "bpm": 0.2,
@@ -180,6 +187,7 @@ PLAYERS = [
     {
         "player": "Isaiah Collier",
         "team": "UTA",
+        "games_played": 16,
         "mp": 350,
         "mp_per_game": 22.0,
         "bpm": -1.0,
@@ -187,6 +195,7 @@ PLAYERS = [
     {
         "player": "Svi Mykhailiuk",
         "team": "UTA",
+        "games_played": 15,
         "mp": 300,
         "mp_per_game": 18.5,
         "bpm": -0.8,
@@ -194,6 +203,7 @@ PLAYERS = [
     {
         "player": "Taylor Hendricks",
         "team": "UTA",
+        "games_played": 13,
         "mp": 280,
         "mp_per_game": 17.5,
         "bpm": 0.9,
@@ -201,6 +211,7 @@ PLAYERS = [
     {
         "player": "Pemain Cadangan",
         "team": "UTA",
+        "games_played": 8,
         "mp": 50,
         "mp_per_game": 5.0,
         "bpm": -2.0,
@@ -208,6 +219,7 @@ PLAYERS = [
     {
         "player": "Pemain Tanpa Menit",
         "team": "UTA",
+        "games_played": 2,
         "mp": 0,
         "mp_per_game": None,
         "bpm": None,
@@ -215,6 +227,7 @@ PLAYERS = [
     {
         "player": "Luka Doncic",
         "team": "DAL",
+        "games_played": 16,
         "mp": 560,
         "mp_per_game": 35.0,
         "bpm": 8.5,
@@ -222,6 +235,7 @@ PLAYERS = [
     {
         "player": "Kyrie Irving",
         "team": "DAL",
+        "games_played": 15,
         "mp": 500,
         "mp_per_game": 31.0,
         "bpm": 3.2,
@@ -229,6 +243,7 @@ PLAYERS = [
     {
         "player": "Anthony Davis",
         "team": "DAL",
+        "games_played": 14,
         "mp": 480,
         "mp_per_game": 30.0,
         "bpm": 4.1,
@@ -236,6 +251,7 @@ PLAYERS = [
     {
         "player": "Shai Gilgeous-Alexander",
         "team": "OKC",
+        "games_played": 16,
         "mp": 600,
         "mp_per_game": 34.0,
         "bpm": 9.0,
@@ -419,7 +435,7 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
         )
         self.assertIsNone(data["tournament"])
         self.assertEqual(data["fetched_at"], result.fetched_at)
-        # 6 sumber tercatat (urutan fetch).
+        # 7 sumber tercatat (urutan fetch; musim lalu untuk shrinkage).
         self.assertEqual(
             [(s["data_kind"], s["source"], s["tier"]) for s in data["sources"]],
             [
@@ -427,9 +443,22 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
                 ("nba_team_advanced_season", "stats.nba.com", 1),
                 ("nba_team_advanced_last10", "stats.nba.com", 1),
                 ("nba_player_impact", "Basketball-Reference", 2),
+                ("nba_player_impact_musim_lalu", "Basketball-Reference", 2),
                 ("nba_injuries", "Official NBA Injury Report", 1),
                 ("nba_injuries", "ESPN", 2),
             ],
+        )
+        # Shrinkage: mock mengembalikan PLAYERS yang sama untuk musim
+        # lalu, jadi nilai tidak berubah; K=10 dari playstyle.yaml
+        # (simulation.nba.shrinkage_k_games, config v8).
+        self.assertEqual(
+            data["shrinkage"],
+            {
+                "k_games": 10.0,
+                "k_games_source": "config",
+                "musim_lalu": 2026,
+                "musim_lalu_ok": True,
+            },
         )
         # Rata-rata liga dari 3 tim fixture.
         self.assertAlmostEqual(data["league"]["avg_pace"], (100.0 + 99.0 + 99.28) / 3)
@@ -899,6 +928,11 @@ class TestMergeESPN(unittest.TestCase):
         return baris
 
     def test_entri_bukan_cedera_dikecualikan(self):
+        # Lapisan ketersediaan (patch 1c): entri non-cedera yang TIDAK
+        # definitif absen (two-way Day-To-Day -> QUESTIONABLE) tetap
+        # dikecualikan; entri non-cedera OUT (rest) MASUK daftar
+        # sebagai absen dengan alasan tercatat (lihat
+        # TestLapisanKetersediaan).
         espn_rows = ESPN_INJURIES + [
             self._baris_espn(
                 "Alex Two-Way",
@@ -923,10 +957,10 @@ class TestMergeESPN(unittest.TestCase):
         home_names = [i["player"] for i in result.data["home"]["injuries"]]
         away_names = [i["player"] for i in result.data["away"]["injuries"]]
         self.assertNotIn("Alex Two-Way", home_names)
-        self.assertNotIn("Ben Rest", away_names)
+        self.assertIn("Ben Rest", away_names)
         # Pengecualian dicatat di missing (jejak audit, bukan diam-diam).
         self.assertIn("injuries_bukan_cedera:Alex Two-Way", result.data["missing"])
-        self.assertIn("injuries_bukan_cedera:Ben Rest", result.data["missing"])
+        self.assertNotIn("injuries_bukan_cedera:Ben Rest", result.data["missing"])
         # Cedera sungguhan tetap ada.
         self.assertIn("Walker Kessler", home_names)
         self.assertIn("Anthony Davis", away_names)
@@ -1124,6 +1158,562 @@ class TestTambahPartisipasi(unittest.TestCase):
             nba_brain._tambah_partisipasi(blok, [], 2027, None, missing, errors)
         self.assertEqual(missing, [])
         self.assertEqual(errors, {})
+
+
+class TestLapisanKetersediaan(unittest.TestCase):
+    """Lapisan ketersediaan (patch 1c, temuan auditor 1): OUT apapun
+    alasannya dihitung absen, dengan alasan tercatat."""
+
+    def _baris_espn(self, player, team, status, detail, **extra):
+        """Satu baris bentuk TERPARSE fetcher ESPN."""
+        baris = {
+            "player": player,
+            "team": team,
+            "status": status,
+            "detail": detail,
+            "status_normalized": extra.pop("status_normalized", None),
+            "status_comment_conflict": extra.pop("status_comment_conflict", False),
+            "is_injury": extra.pop("is_injury", True),
+            "source": "ESPN",
+            "tier": 2,
+            "time": FETCHED_AT,
+        }
+        baris.update(extra)
+        return baris
+
+    def test_rest_out_hanya_espn_masuk_daftar_dengan_alasan(self):
+        espn_rows = ESPN_INJURIES + [
+            self._baris_espn(
+                "Ben Rest",
+                "Dallas Mavericks",
+                "Out",
+                "Rest (rest) is out.",
+                status_normalized="OUT",
+                is_injury=False,
+            ),
+        ]
+        with _PatchSemua(fetch_injuries_nba=_ok("ESPN", 2, espn_rows)):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        rest = [
+            i for i in result.data["away"]["injuries"] if i["player"] == "Ben Rest"
+        ][0]
+        self.assertEqual(rest["status"], "OUT")
+        self.assertFalse(rest["is_injury"])
+        self.assertEqual(rest["reason"], "rest")
+        self.assertEqual(rest["availability_n_sources"], 1)
+        self.assertEqual(rest["sources"], ["ESPN"])
+        # Rest 1 sumber: diterapkan sebagai absen + catatan kepercayaan.
+        self.assertIn("availability_1_sumber:Ben Rest", result.data["missing"])
+
+    def test_personal_dan_skorsing_juga_absen(self):
+        espn_rows = ESPN_INJURIES + [
+            self._baris_espn(
+                "Carl Personal",
+                "Dallas Mavericks",
+                "Out",
+                "Personal won't play due to personal reasons.",
+                status_normalized="OUT",
+                is_injury=False,
+            ),
+            self._baris_espn(
+                "Dan Skors",
+                "Utah Jazz",
+                "Out",
+                "Skors suspended for one game.",
+                status_normalized="OUT",
+                is_injury=False,
+            ),
+        ]
+        with _PatchSemua(fetch_injuries_nba=_ok("ESPN", 2, espn_rows)):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        personal = [
+            i for i in result.data["away"]["injuries"] if i["player"] == "Carl Personal"
+        ][0]
+        self.assertEqual(personal["status"], "OUT")
+        self.assertFalse(personal["is_injury"])
+        self.assertEqual(personal["reason"], "personal")
+        skors = [
+            i for i in result.data["home"]["injuries"] if i["player"] == "Dan Skors"
+        ][0]
+        self.assertEqual(skors["status"], "OUT")
+        self.assertFalse(skors["is_injury"])
+        self.assertEqual(skors["reason"], "suspension")
+        self.assertIn("availability_1_sumber:Carl Personal", result.data["missing"])
+        self.assertIn("availability_1_sumber:Dan Skors", result.data["missing"])
+
+    def test_klaim_cedera_b2_tidak_berubah(self):
+        # B2 tetap berlaku untuk klaim cedera: confirmed_both di
+        # engine/nba_analysis.py menghitung entri dengan >= 2 sumber.
+        # Kessler (2 sumber) memenuhi; Davis (1 sumber) tidak.
+        with _PatchSemua():
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        kessler = result.data["home"]["injuries"][0]
+        self.assertTrue(kessler["is_injury"])
+        self.assertEqual(kessler["availability_n_sources"], 2)
+        # Alasan = detail cedera sumber tier tertinggi (PDF).
+        self.assertEqual(kessler["reason"], "Left knee")
+        self.assertEqual(len(kessler["sources"]), 2)
+        davis = [
+            i for i in result.data["away"]["injuries"] if i["player"] == "Anthony Davis"
+        ][0]
+        self.assertTrue(davis["is_injury"])
+        self.assertEqual(davis["availability_n_sources"], 1)
+        self.assertEqual(davis["reason"], "Davis (back) is day-to-day.")
+        self.assertEqual(len(davis["sources"]), 1)
+
+    def test_merge_langsung_rest_out(self):
+        pdf = _ok("Official NBA Injury Report", 1, [])
+        espn = _ok(
+            "ESPN",
+            2,
+            [
+                self._baris_espn(
+                    "Jayson Tatum",
+                    "Boston Celtics",
+                    "Out",
+                    "Tatum (rest) has been ruled out.",
+                    status_normalized="OUT",
+                    is_injury=False,
+                )
+            ],
+        )
+        missing: list = []
+        merged = nba_brain._merge_injuries(pdf, espn, ("BOS", "NYK"), missing)
+        self.assertEqual(merged["NYK"], [])
+        self.assertEqual(len(merged["BOS"]), 1)
+        tatum = merged["BOS"][0]
+        self.assertEqual(tatum["player"], "Jayson Tatum")
+        self.assertEqual(tatum["status"], "OUT")
+        self.assertFalse(tatum["is_injury"])
+        self.assertEqual(tatum["reason"], "rest")
+        self.assertEqual(tatum["availability_n_sources"], 1)
+        self.assertEqual(missing, ["availability_1_sumber:Jayson Tatum"])
+
+    def test_campuran_pdf_cedera_espn_rest(self):
+        # Kasus campuran: PDF mengklaim cedera, ESPN menyebut rest.
+        # Klaim cedera menang (is_injury True, alasan = detail PDF
+        # tier 1); ketersediaan dikonfirmasi 2 sumber.
+        pdf = [
+            {
+                "player": "John Campur",
+                "team": "Utah Jazz",
+                "status": "Out",
+                "detail": "Achilles",
+            }
+        ]
+        espn_rows = [
+            self._baris_espn(
+                "John Campur",
+                "Utah Jazz",
+                "Out",
+                "Campur (rest) is out.",
+                status_normalized="OUT",
+                is_injury=False,
+            )
+        ]
+        with _PatchSemua(
+            fetch_report=_ok("Official NBA Injury Report", 1, pdf),
+            fetch_injuries_nba=_ok("ESPN", 2, espn_rows),
+        ):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        campur = result.data["home"]["injuries"][0]
+        self.assertEqual(campur["status"], "OUT")
+        self.assertTrue(campur["is_injury"])
+        self.assertEqual(campur["reason"], "Achilles")
+        self.assertEqual(campur["availability_n_sources"], 2)
+        self.assertNotIn("availability_1_sumber:John Campur", result.data["missing"])
+
+    def test_rest_out_di_luar_top8_masuk_daftar_pemain(self):
+        # Pemain rest OUT di luar 8 besar tetap masuk daftar pemain
+        # agar sim bisa menghitung dampak absennya (sama seperti
+        # pemain cedera di luar top-8).
+        espn_rows = ESPN_INJURIES + [
+            self._baris_espn(
+                "Pemain Cadangan",
+                "Utah Jazz",
+                "Out",
+                "Cadangan (rest) is out.",
+                status_normalized="OUT",
+                is_injury=False,
+            ),
+        ]
+        with _PatchSemua(fetch_injuries_nba=_ok("ESPN", 2, espn_rows)):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        names = [p["player"] for p in result.data["home"]["players"]]
+        self.assertIn("Pemain Cadangan", names)
+        self.assertEqual(len(names), 9)
+        cadangan = [
+            i
+            for i in result.data["home"]["injuries"]
+            if i["player"] == "Pemain Cadangan"
+        ][0]
+        self.assertEqual(cadangan["status"], "OUT")
+        self.assertEqual(cadangan["reason"], "rest")
+
+    def test_klasifikasi_alasan(self):
+        klasifikasi = nba_brain._klasifikasi_alasan
+        self.assertEqual(klasifikasi("Tatum (rest) has been ruled out."), "rest")
+        self.assertEqual(klasifikasi("won't play due to personal reasons."), "personal")
+        self.assertEqual(klasifikasi("suspended for one game."), "suspension")
+        self.assertEqual(klasifikasi("agreed to a two-way contract."), "two-way")
+        self.assertEqual(klasifikasi("assigned to the G League."), "g_league")
+        self.assertEqual(klasifikasi(""), "other")
+        self.assertEqual(klasifikasi(None), "other")
+
+
+class TestShrinkage(unittest.TestCase):
+    """Shrinkage menit + BPM ke musim lalu (patch 1c, temuan auditor 2).
+
+    Rumus: w = n/(n+K), K default 10; nilai akhir =
+    w*nilai_musim_ini + (1-w)*nilai_musim_lalu.
+    """
+
+    DUREN_KINI = {
+        "player": "Jalen Duren",
+        "team": "DET",
+        "games_played": 2,
+        "mp": 38,
+        "mp_per_game": 19.0,
+        "bpm": 8.8,
+    }
+    DUREN_LALU = {
+        "player": "Jalen Duren",
+        "team": "DET",
+        "games_played": 78,
+        "mp": 2340,
+        "mp_per_game": 30.0,
+        "bpm": 2.0,
+    }
+
+    def _pemain_per_musim(self, kini, lalu):
+        """Side effect fetch_player_advanced: dispatch berdasarkan musim."""
+
+        def efek(season=None, client=None):
+            if season == 2026:
+                return _ok("Basketball-Reference", 2, lalu)
+            return _ok("Basketball-Reference", 2, kini)
+
+        return efek
+
+    def test_rumus_susutkan_nilai(self):
+        # Duren: n=2, K=10 -> w=1/6; mp (2*19+10*30)/12 = 338/12.
+        nilai, w = nba_brain._susutkan_nilai(19.0, 30.0, 2, 10.0)
+        self.assertAlmostEqual(w, 1 / 6)
+        self.assertAlmostEqual(nilai, 338 / 12)
+        # Salah satu nilai None -> pakai nilai musim ini, tanpa w.
+        nilai, w = nba_brain._susutkan_nilai(19.0, None, 2, 10.0)
+        self.assertEqual(nilai, 19.0)
+        self.assertIsNone(w)
+        nilai, w = nba_brain._susutkan_nilai(None, 30.0, 2, 10.0)
+        self.assertIsNone(nilai)
+        self.assertIsNone(w)
+
+    def test_duren_2_laga_menyusut_ke_musim_lalu(self):
+        hasil, catatan = nba_brain._susutkan_pemain(
+            self.DUREN_KINI, self.DUREN_LALU, 10.0
+        )
+        # mp (2*19+10*30)/12 = 28,1667; bpm (2*8,8+10*2)/12 = 3,1333.
+        self.assertAlmostEqual(hasil["mp_per_game"], 338 / 12)
+        self.assertAlmostEqual(hasil["bpm"], 37.6 / 12)
+        self.assertEqual(hasil["shrinkage"], "diterapkan")
+        self.assertAlmostEqual(hasil["shrinkage_w"], 1 / 6)
+        # Nilai mentah + jejak audit tersimpan.
+        self.assertEqual(hasil["mp_raw"], 19.0)
+        self.assertEqual(hasil["bpm_raw"], 8.8)
+        self.assertEqual(hasil["games_played"], 2)
+        self.assertEqual(hasil["mp_musim_lalu"], 30.0)
+        self.assertEqual(hasil["bpm_musim_lalu"], 2.0)
+        self.assertEqual(catatan, [])
+
+    def test_banyak_laga_hampir_tidak_berubah(self):
+        kini = dict(self.DUREN_KINI, games_played=50, mp_per_game=30.0, bpm=2.5)
+        lalu = dict(self.DUREN_LALU, mp_per_game=20.0, bpm=1.0)
+        hasil, catatan = nba_brain._susutkan_pemain(kini, lalu, 10.0)
+        # w = 50/60 = 5/6; mp (50*30+10*20)/60 = 28,3333.
+        self.assertAlmostEqual(hasil["shrinkage_w"], 5 / 6)
+        self.assertAlmostEqual(hasil["mp_per_game"], 1700 / 60)
+        self.assertAlmostEqual(hasil["bpm"], 135 / 60)
+        self.assertEqual(hasil["shrinkage"], "diterapkan")
+        self.assertEqual(catatan, [])
+
+    def test_rookie_tanpa_musim_lalu(self):
+        hasil, catatan = nba_brain._susutkan_pemain(self.DUREN_KINI, None, 10.0)
+        self.assertEqual(hasil["mp_per_game"], 19.0)
+        self.assertEqual(hasil["bpm"], 8.8)
+        self.assertEqual(hasil["shrinkage"], "tanpa_musim_lalu")
+        self.assertIsNone(hasil["shrinkage_w"])
+        self.assertIsNone(hasil["mp_musim_lalu"])
+        self.assertEqual(catatan, ["shrinkage_tanpa_musim_lalu:Jalen Duren"])
+
+    def test_tanpa_jumlah_laga(self):
+        kini = {k: v for k, v in self.DUREN_KINI.items() if k != "games_played"}
+        hasil, catatan = nba_brain._susutkan_pemain(kini, self.DUREN_LALU, 10.0)
+        self.assertEqual(hasil["mp_per_game"], 19.0)
+        self.assertEqual(hasil["bpm"], 8.8)
+        self.assertEqual(hasil["shrinkage"], "tanpa_jumlah_laga")
+        self.assertIsNone(hasil["games_played"])
+        self.assertEqual(catatan, ["shrinkage_tanpa_jumlah_laga:Jalen Duren"])
+
+    def test_tanpa_nilai_musim_ini(self):
+        kini = dict(self.DUREN_KINI, mp_per_game=None, bpm=None)
+        hasil, catatan = nba_brain._susutkan_pemain(kini, self.DUREN_LALU, 10.0)
+        self.assertIsNone(hasil["mp_per_game"])
+        self.assertIsNone(hasil["bpm"])
+        self.assertEqual(hasil["shrinkage"], "tanpa_nilai_musim_ini")
+        self.assertEqual(catatan, [])
+
+    def test_tanpa_data_musim_lalu(self):
+        hasil, catatan = nba_brain._susutkan_pemain(
+            self.DUREN_KINI, None, 10.0, data_musim_lalu_tersedia=False
+        )
+        self.assertEqual(hasil["mp_per_game"], 19.0)
+        self.assertEqual(hasil["bpm"], 8.8)
+        self.assertEqual(hasil["shrinkage"], "tanpa_data_musim_lalu")
+        # Tanpa catatan per pemain (satu catatan blok sudah cukup).
+        self.assertEqual(catatan, [])
+
+    def test_peta_musim_lalu_pindah_tim(self):
+        rows = [
+            {
+                "player": "Pemain Pindah",
+                "team": "CHA",
+                "games_played": 10,
+                "mp_per_game": 20.0,
+                "bpm": 1.5,
+            },
+            {
+                "player": "Pemain Pindah",
+                "team": "MIA",
+                "games_played": 5,
+                "mp_per_game": 22.0,
+                "bpm": 2.0,
+            },
+        ]
+        peta = nba_brain._peta_musim_lalu(rows)
+        # Baris dengan laga terbanyak yang dipakai (sampel terbesar).
+        self.assertEqual(peta["pemain pindah"]["team"], "CHA")
+        self.assertEqual(peta["pemain pindah"]["mp_per_game"], 20.0)
+
+    def test_baca_k_shrinkage(self):
+        # Kunci belum ada -> default 10 + penanda "default".
+        self.assertEqual(nba_brain._baca_k_shrinkage({}), (10.0, "default"))
+        self.assertEqual(
+            nba_brain._baca_k_shrinkage({"simulation": {"nba": {}}}),
+            (10.0, "default"),
+        )
+        # Kunci ada -> dipakai + penanda "config".
+        self.assertEqual(
+            nba_brain._baca_k_shrinkage(
+                {"simulation": {"nba": {"shrinkage_k_games": 5}}}
+            ),
+            (5.0, "config"),
+        )
+        # Nilai tidak valid -> ValueError (bukan default diam-diam).
+        for buruk in (0, -3, "sepuluh", True, None):
+            with self.assertRaises(ValueError, msg=f"K={buruk!r}"):
+                nba_brain._baca_k_shrinkage(
+                    {"simulation": {"nba": {"shrinkage_k_games": buruk}}}
+                )
+        # cfg tanpa kunci -> default 10 (bukan error).
+        self.assertEqual(
+            nba_brain._baca_k_shrinkage({"simulation": {"nba": {}}}),
+            (10.0, "default"),
+        )
+        # cfg None -> baca playstyle.yaml repo (kunci ada sejak v8).
+        self.assertEqual(nba_brain._baca_k_shrinkage(None), (10.0, "config"))
+
+    def test_build_team_block_musim_lalu_gagal(self):
+        missing: list = []
+        blok = nba_brain._build_team_block(
+            "UTA",
+            "home",
+            date(2026, 11, 22),
+            [],
+            {},
+            {},
+            "Utah Jazz",
+            [dict(self.DUREN_KINI, team="UTA")],
+            [],
+            missing,
+            None,
+            10.0,
+        )
+        self.assertEqual(len(blok["players"]), 1)
+        pemain = blok["players"][0]
+        self.assertEqual(pemain["mp_per_game"], 19.0)
+        self.assertEqual(pemain["bpm"], 8.8)
+        self.assertEqual(pemain["shrinkage"], "tanpa_data_musim_lalu")
+        self.assertEqual(pemain["team_tricode"], "UTA")
+        self.assertEqual(missing, [])
+
+    def test_build_team_block_urut_pakai_menit_menyusut(self):
+        # A: 2 laga 40 mpg (mentah teratas) tapi musim lalu 10 mpg ->
+        # menyusut ke 15 mpg; B: 50 laga 30 mpg (mapan) -> tetap 30.
+        players = [
+            {
+                "player": "Pemain A",
+                "team": "UTA",
+                "games_played": 2,
+                "mp_per_game": 40.0,
+                "bpm": 1.0,
+            },
+            {
+                "player": "Pemain B",
+                "team": "UTA",
+                "games_played": 50,
+                "mp_per_game": 30.0,
+                "bpm": 1.0,
+            },
+        ]
+        musim_lalu = {
+            "pemain a": {"player": "Pemain A", "mp_per_game": 10.0, "bpm": 0.5},
+            "pemain b": {"player": "Pemain B", "mp_per_game": 30.0, "bpm": 1.0},
+        }
+        missing: list = []
+        blok = nba_brain._build_team_block(
+            "UTA",
+            "home",
+            date(2026, 11, 22),
+            [],
+            {},
+            {},
+            "Utah Jazz",
+            players,
+            [],
+            missing,
+            musim_lalu,
+            10.0,
+        )
+        self.assertEqual(
+            [p["player"] for p in blok["players"]], ["Pemain B", "Pemain A"]
+        )
+        self.assertAlmostEqual(blok["players"][1]["mp_per_game"], 180 / 12)
+        self.assertEqual(missing, [])
+
+    def test_fetch_match_inputs_shrinkage_duren(self):
+        # Doncic musim ini: 2 laga, mp 35,0, bpm 8,5; musim lalu:
+        # mp 30,0, bpm 5,0. w = 2/12.
+        kini = copy.deepcopy(PLAYERS)
+        for row in kini:
+            if row["player"] == "Luka Doncic":
+                row["games_played"] = 2
+        lalu = copy.deepcopy(PLAYERS)
+        for row in lalu:
+            if row["player"] == "Luka Doncic":
+                row["games_played"] = 70
+                row["mp_per_game"] = 30.0
+                row["bpm"] = 5.0
+        with _PatchSemua(fetch_player_advanced=self._pemain_per_musim(kini, lalu)):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        self.assertTrue(result.ok)
+        doncic = next(
+            p for p in result.data["away"]["players"] if p["player"] == "Luka Doncic"
+        )
+        # mp (2*35+10*30)/12 = 30,8333; bpm (2*8,5+10*5)/12 = 5,5833.
+        self.assertAlmostEqual(doncic["mp_per_game"], 370 / 12)
+        self.assertAlmostEqual(doncic["bpm"], 67 / 12)
+        self.assertEqual(doncic["shrinkage"], "diterapkan")
+        self.assertAlmostEqual(doncic["shrinkage_w"], 1 / 6)
+        self.assertEqual(doncic["mp_raw"], 35.0)
+        self.assertEqual(doncic["bpm_raw"], 8.5)
+        self.assertEqual(doncic["games_played"], 2)
+        # Pemain lain (musim lalu = musim ini) tidak berubah.
+        irving = next(
+            p for p in result.data["away"]["players"] if p["player"] == "Kyrie Irving"
+        )
+        self.assertEqual(irving["mp_per_game"], 31.0)
+        self.assertEqual(irving["bpm"], 3.2)
+        self.assertEqual(
+            result.data["shrinkage"],
+            {
+                "k_games": 10.0,
+                "k_games_source": "config",
+                "musim_lalu": 2026,
+                "musim_lalu_ok": True,
+            },
+        )
+
+    def test_fetch_match_inputs_k_dari_config(self):
+        kini = copy.deepcopy(PLAYERS)
+        for row in kini:
+            if row["player"] == "Luka Doncic":
+                row["games_played"] = 2
+        lalu = copy.deepcopy(PLAYERS)
+        for row in lalu:
+            if row["player"] == "Luka Doncic":
+                row["games_played"] = 70
+                row["mp_per_game"] = 30.0
+                row["bpm"] = 5.0
+        cfg = {"simulation": {"nba": {"shrinkage_k_games": 2}}}
+        with _PatchSemua(fetch_player_advanced=self._pemain_per_musim(kini, lalu)):
+            result = nba_brain.fetch_match_inputs(
+                "UTA", "DAL", GAME_DATE, SEASON, cfg=cfg
+            )
+        doncic = next(
+            p for p in result.data["away"]["players"] if p["player"] == "Luka Doncic"
+        )
+        # K=2 -> w = 2/4 = 0,5; mp 32,5; bpm 6,75.
+        self.assertAlmostEqual(doncic["mp_per_game"], 32.5)
+        self.assertAlmostEqual(doncic["bpm"], 6.75)
+        self.assertEqual(
+            result.data["shrinkage"],
+            {
+                "k_games": 2.0,
+                "k_games_source": "config",
+                "musim_lalu": 2026,
+                "musim_lalu_ok": True,
+            },
+        )
+
+    def test_fetch_match_inputs_musim_lalu_gagal(self):
+        def efek(season=None, client=None):
+            if season == 2026:
+                return _fail("Basketball-Reference", 2, "http_403: gagal")
+            return _ok("Basketball-Reference", 2, PLAYERS)
+
+        with _PatchSemua(fetch_player_advanced=efek):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        self.assertTrue(result.ok)
+        self.assertIn("players_musim_lalu", result.data["missing"])
+        self.assertEqual(
+            result.extra["fetch_errors"]["player_advanced_musim_lalu"],
+            "http_403: gagal",
+        )
+        self.assertFalse(result.data["shrinkage"]["musim_lalu_ok"])
+        kinds = [s["data_kind"] for s in result.data["sources"]]
+        self.assertNotIn("nba_player_impact_musim_lalu", kinds)
+        # Semua pemain memakai nilai musim berjalan.
+        for blok in (result.data["home"], result.data["away"]):
+            for pemain in blok["players"]:
+                self.assertEqual(pemain["shrinkage"], "tanpa_data_musim_lalu")
+                self.assertEqual(pemain["bpm"], pemain["bpm_raw"])
+                self.assertEqual(pemain["mp_per_game"], pemain["mp_raw"])
+        markkanen = result.data["home"]["players"][0]
+        self.assertEqual(markkanen["player"], "Lauri Markkanen")
+        self.assertEqual(markkanen["bpm"], 2.1)
+        self.assertEqual(markkanen["mp_per_game"], 32.5)
+
+    def test_fetch_match_inputs_rookie_dapat_catatan(self):
+        # Doncic tidak ada di data musim lalu (rookie): nilai musim
+        # berjalan + catatan di missing; pemain lain tidak kena.
+        lalu = [r for r in copy.deepcopy(PLAYERS) if r["player"] != "Luka Doncic"]
+        with _PatchSemua(fetch_player_advanced=self._pemain_per_musim(PLAYERS, lalu)):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        self.assertTrue(result.ok)
+        self.assertIn(
+            "away.shrinkage_tanpa_musim_lalu:Luka Doncic",
+            result.data["missing"],
+        )
+        doncic = next(
+            p for p in result.data["away"]["players"] if p["player"] == "Luka Doncic"
+        )
+        self.assertEqual(doncic["mp_per_game"], 35.0)
+        self.assertEqual(doncic["bpm"], 8.5)
+        self.assertEqual(doncic["shrinkage"], "tanpa_musim_lalu")
+        catatan_shrinkage = [m for m in result.data["missing"] if "shrinkage" in m]
+        self.assertEqual(
+            catatan_shrinkage, ["away.shrinkage_tanpa_musim_lalu:Luka Doncic"]
+        )
 
 
 if __name__ == "__main__":

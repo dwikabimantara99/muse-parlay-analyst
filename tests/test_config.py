@@ -226,14 +226,26 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_6(self):
-        # Versi 6: patch langkah 1b (2026-11-22) — bpm_replacement
-        # di simulation.nba + bantalan Asuransi target peluang di
-        # filters.nba_alt_under (di atas versi 5: market_line_check +
-        # polymarket_ladder + jup markup).
+    def test_meta_versi_8(self):
+        # Versi 8: Langkah 2 (2026-11-22) — kunci shrinkage_k_games
+        # di simulation.nba (di atas versi 7: bagian recheck
+        # pra-submit; versi 6: patch langkah 1b).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 6)
+        self.assertEqual(meta["version"], 8)
         self.assertEqual(meta["last_reviewed"], "2026-11-22")
+
+    def test_shrinkage_k_games(self):
+        # Shrinkage menit+BPM ke musim lalu (temuan auditor 2):
+        # w = n/(n+K); K=10 pilihan desain mengikuti D-R2, bukan fit.
+        self.assertEqual(self.cfg["simulation"]["nba"]["shrinkage_k_games"], 10)
+
+    def test_recheck_section(self):
+        # Ambang recheck Langkah 2: garis market bergerak > 2 poin ->
+        # hitung ulang simulasi + garis. Ambang harga 3¢ dipakai ulang
+        # dari anomaly.sharp_move_cents (aturan Thunder).
+        recheck = self.cfg["recheck"]
+        self.assertEqual(recheck["market_line_move_points"], 2.0)
+        self.assertEqual(self.cfg["anomaly"]["sharp_move_cents"], 3)
 
     def test_fees_kalshi(self):
         # Koefisien fee taker Kalshi (Fee Schedule resmi, 7 Jul 2026).

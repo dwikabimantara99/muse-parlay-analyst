@@ -180,6 +180,8 @@ class TestParsePlayerAdvanced(unittest.TestCase):
         self.assertEqual(trae["mp"], 596)
         self.assertAlmostEqual(trae["mp_per_game"], 596 / 17)
         self.assertEqual(trae["bpm"], -1.6)
+        # games_played (patch 1c): jumlah laga untuk shrinkage.
+        self.assertEqual(trae["games_played"], 17)
         # Tricode BBRef dipetakan ke tricode stats.nba.com.
         randle = [p for p in players if p["player"] == "Julius Randle"][0]
         self.assertEqual(randle["team"], "BKN")
@@ -206,6 +208,9 @@ class TestParsePlayerAdvanced(unittest.TestCase):
         self.assertEqual(cho["mp"], 200)
         self.assertAlmostEqual(cho["mp_per_game"], 20.0)
         self.assertEqual(cho["bpm"], 1.5)
+        self.assertEqual(cho["games_played"], 10)
+        mia = [p for p in players if p["team"] == "MIA"][0]
+        self.assertEqual(mia["games_played"], 5)
 
     def test_tabel_tidak_ada_format_changed(self):
         with self.assertRaises(ValueError) as ctx:
@@ -228,6 +233,18 @@ class TestParsePlayerAdvanced(unittest.TestCase):
         self.assertIsNone(mia["mp"])
         self.assertIsNone(mia["mp_per_game"])
         self.assertEqual(mia["bpm"], 2.0)
+
+    def test_games_kosong_jadi_none(self):
+        # Kolom games kosong -> games_played None + mp_per_game None
+        # (shrinkage nanti tidak bisa menghitung w untuk pemain ini).
+        html = PLAYER_TOT_HTML.replace(
+            '<td data-stat="games">5</td>', '<td data-stat="games"></td>'
+        )
+        players = bbref.parse_player_advanced(html)
+        mia = [p for p in players if p["team"] == "MIA"][0]
+        self.assertIsNone(mia["games_played"])
+        self.assertIsNone(mia["mp_per_game"])
+        self.assertEqual(mia["mp"], 100)
 
 
 class TestFetchPlayerAdvanced(unittest.TestCase):

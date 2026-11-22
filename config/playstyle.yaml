@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 6
+  version: 8
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22"
   last_reviewed: "2026-11-22"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -199,28 +199,34 @@ simulation:
     min_group_n: 30
   nba:
     distribution: student-t     # §5a: ekor tebal
-    # --- HASIL FIT 2026-11-22 (D12) — menunggu persetujuan user ---
+    # --- HASIL FIT ROLLING point-in-time (diadopsi user 2026-11-22) ---
+    # Menggantikan nilai D12 (fit rating musim penuh: sigma_total
+    # 18,2198; sigma_margin 13,8168; home 1,6552; B2B -1,596; t_nu
+    # 34,5). Nilai rolling dari re-fit yang sama atas rating rolling
+    # (hanya laga sebelum tanggal uji — tanpa look-ahead);
+    # LAPORAN-FIT-NBA.md §12; bukti out/fit_nba_params_rolling.json.
+    # Pergeseran tidak material (sigma +4,2–4,4%). Altitude TIDAK
+    # diadopsi (nilai rolling -0,4094 dalam noise, SE 1,14).
     # Sumber: 2701 laga (2024-25 penuh 1230 + 2025-26 penuh 1230 +
     # 2026-27 parsial 241 s.d. 21 Nov 2026); game log stats.nba.com
-    # leaguegamefinder + rating musim penuh Basketball-Reference.
-    # Script: scripts/fit_nba_params.py; bukti lengkap + keterbatasan:
-    # LAPORAN-FIT-NBA.md. Nilai di bawah ini HASIL FIT, bukan tebakan.
-    sigma_points: 18.2198       # = sigma total (ringkasan satu angka)
+    # leaguegamefinder + rating Basketball-Reference.
+    # Script: scripts/fit_nba_params.py --rolling. Nilai di bawah ini
+    # HASIL FIT, bukan tebakan.
+    sigma_points: 18.9868       # = sigma total (ringkasan satu angka)
     # Sigma margin & total HASIL FIT. Mesin memakai kedua kunci ini.
-    sigma_margin_points: 13.8168  # std residual margin, n=2701
-    sigma_total_points: 18.2198   # std residual total, n=2701
+    sigma_margin_points: 14.4307  # std residual margin, n=2701
+    sigma_total_points: 18.9868   # std residual total, n=2701
     # Derajat bebas Student-t, HASIL FIT (grid MLE 3-50).
-    # Profil log-likelihood DATAR di 20-100 (puncak ~34,5): residual
-    # nyaris normal (kurtosis lebih 0,17) — ekor tebal tidak terukur
-    # kuat di level laga. Nilai 34,5 praktis setara normal.
-    t_nu: 34.5
-    # Intersep regresi OLS margin ~ selisih net rating (n=2701,
-    # slope 0,94, R^2 0,27, SE intersep 0,27; cek silang rata-rata
-    # residual margin 1,65 — cocok).
-    home_advantage_points: 1.6552
+    # Profil log-likelihood DATAR di 20-100 (puncak ~35,0): residual
+    # nyaris normal (kurtosis lebih 0,16) — ekor tebal tidak terukur
+    # kuat di level laga. Nilai 35,0 praktis setara normal.
+    t_nu: 35.0
+    # Intersep regresi OLS margin ~ selisih net rating (n=2701;
+    # re-fit rolling).
+    home_advantage_points: 1.6639
     # BERTANDA: selisih rata-rata residual poin tim B2B vs tidak
-    # (n_b2b=974, SE 0,41) — sim MENAMBAHKAN nilai ini ke poin tim B2B.
-    back_to_back_penalty_points: -1.596
+    # (re-fit rolling) — sim MENAMBAHKAN nilai ini ke poin tim B2B.
+    back_to_back_penalty_points: -1.5164
     # Selisih rata-rata residual margin kandang DEN/UTA vs lainnya
     # (n_alt=180, SE 1,10): praktis NOL — tidak ada efek ketinggian
     # tambahan yang terukur di luar home advantage umum.
@@ -244,6 +250,14 @@ simulation:
     # Berlaku sebagai asumsi yang didokumentasikan, bukan hasil fit
     # (seperti bpm_scale); kalibrasi ulang atas data PAPER bila perlu.
     bpm_replacement: -2.0
+    # Shrinkage menit + BPM ke musim lalu (patch 1c/Langkah 2, temuan
+    # auditor 2): pemain dengan sedikit laga musim ini dicampur
+    # dengan musim lalu — bobot musim ini w = n/(n+K), nilai akhir =
+    # w*nilai_kini + (1-w)*nilai_lalu, untuk menit DAN BPM.
+    # K = 10 laga: PILIHAN DESAIN mengikuti K=10 shrinkage rating
+    # rolling (D-R2), BUKAN hasil fit; menunggu keberatan reviewer.
+    # Rookie/tanpa data musim lalu: pakai nilai musim berjalan.
+    shrinkage_k_games: 10
     # Bobot resensi statistik tim (musim vs 10 laga terakhir).
     # ASUMSI AWAL mengikuti pola §5b bola (60/40) — BELUM DIFIT.
     recency:
@@ -283,6 +297,19 @@ data:
   stale_hours_injury_lineup: 3  # §4: cedera/lineup > 3 jam = "basi", ambil ulang
   recheck_window_minutes: [30, 60]  # §3: cek ulang 30-60 menit sebelum laga
   cross_check_min_sources_injury_lineup: 2  # B2: cedera & lineup min 2 sumber
+
+# ── Cek ulang pra-submit (Tahap 3 Langkah 2) ──────────────────────────────
+recheck:
+  # Garis total market bergerak > ambang ini sejak analisis awal ->
+  # hitung ulang simulasi + garis Asuransi/Utama (keputusan Langkah 2).
+  market_line_move_points: 2.0
+  # Gerakan harga >= anomaly.sharp_move_cents (3¢) sejak fetch pertama
+  # -> ANOMALI + hitung ulang (aturan Thunder; ambang di anomaly,
+  # tidak diduplikasi di sini). Cedera inti berubah (pemain OUT/
+  # DOUBTFUL baru atau status berubah) -> hitung ulang (tanpa ambang
+  # angka: perubahan status apa pun memicu hitung ulang). Data cedera
+  # basi: data.stale_hours_injury_lineup (3 jam). Jendela recheck:
+  # data.recheck_window_minutes ([30, 60]).
 
 # ── §9. Ledger & kalibrasi ──────────────────────────────────────────────────
 calibration:

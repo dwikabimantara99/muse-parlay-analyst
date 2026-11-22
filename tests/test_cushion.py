@@ -265,7 +265,10 @@ class TestUtamaLine(unittest.TestCase):
         self.assertEqual(hasil["spread"], 2.0)
         self.assertEqual(hasil["cushion_points"], 12)
 
-    def test_spread_tidak_diketahui_bantalan_8(self):
+    def test_spread_tidak_diketahui_bantalan_12(self):
+        # Fail-closed konservatif (keputusan user 2026-11-22, Langkah 2):
+        # spread tidak diketahui -> bantalan rapat 12 (sebelumnya 8).
+        # Base max(223, 225,5) = 225,5; required 237,5.
         hasil = cushion.utama_line(
             PERCENTILES_DET_ATL,
             MARKET_LINE_DET_ATL,
@@ -273,8 +276,8 @@ class TestUtamaLine(unittest.TestCase):
             spread=None,
             cfg=CFG_MINIMAL,
         )
-        self.assertEqual(hasil["cushion_points"], 8)
-        self.assertEqual(hasil["line"], 233.5)
+        self.assertEqual(hasil["cushion_points"], 12)
+        self.assertEqual(hasil["line"], 237.5)
 
     def test_median_lebih_tinggi_dari_market(self):
         # Median model 230 > market 225,5 -> base 230, required 238.

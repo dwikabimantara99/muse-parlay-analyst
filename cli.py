@@ -4,14 +4,17 @@
     python cli.py analyze --input slate.json [--out out.json]
         # Tahap 2b ✓ — tarik data (SOP langkah 2-3), tulis
         # out/analysis_<slate_id>.json. Simulasi/tiket Tahap 3+.
-    python cli.py recheck --ticket <id>        # Tahap 5  (belum tersedia)
+    python cli.py recheck --analysis out/analysis_<id>.json [--match DET@ATL_2026-11-22]
+        # Tahap 3 Langkah 2 ✓ — cek ulang pra-submit satu laga NBA.
+        # Exit 0 = GO, 1 = NO-GO (laporan ditulis), 2 = tidak bisa jalan.
     python cli.py log --file ticket.json       # Tahap 1  ✓
     python cli.py log --settle <id> --result WIN|LOSS|PUSH|VOID|CASHOUT
         [--cashout-amount <usd>] [--leg-result <leg_id>=<hasil> ...]
     python cli.py recap [--json]
 
-Exit code: 0 sukses, 1 error (input tidak valid / ledger gagal),
-2 fitur belum tersedia di tahap ini.
+Exit code: 0 sukses, 1 error (input tidak valid / ledger gagal) —
+recheck: 0 = GO, 1 = NO-GO (laporan tetap ditulis), 2 = recheck tidak
+bisa berjalan (tidak ada laporan).
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from ledger import recap as recap_mod  # noqa: E402
 from ledger import store  # noqa: E402
 
-NOT_IMPLEMENTED = 2
+RECHECK_ERROR = 2  # recheck tidak bisa berjalan (tidak ada laporan)
 
 
 def _db_arg(parser: argparse.ArgumentParser) -> None:
@@ -109,16 +112,80 @@ def _league_code(league: str | None) -> str:
     return mapping.get(str(league or ""), str(league or "EPL"))
 
 
+def _lampirkan_nba_analysis(
+    matches_2b: list[dict], entries_slate: list[dict], tanggal_eastern: str
+) -> None:
+    """Lampirkan artefak nba_analysis ke tiap laga NBA hasil build_slate.
+
+    Tahap 3 Langkah 2: untuk tiap laga NBA, tricode diambil dari nama tim
+    entri slate asal (dicocokkan lewat match_id), lalu
+    engine.nba_analysis.build_nba_analysis dipanggil dan hasilnya
+    dilampirkan sebagai kunci "nba_analysis" pada entri MatchData 2b.
+    Bila builder gagal total / tricode tidak bisa dipetakan, dilampirkan
+    artefak minimal DATA_INCOMPLETE — analyze TIDAK gagal hanya karena
+    satu laga NBA. Laga tanpa entri slate asal (mis. slate hasil mock
+    di tes) dilewati: timnya tidak diketahui, tidak bisa dianalisis.
+    """
+    from engine import nba_analysis as nba_analysis_mod
+    from ingest.nba_brain import team_tricode
+
+    per_match_id = {
+        entry.get("match_id"): entry
+        for entry in entries_slate
+        if isinstance(entry, dict)
+    }
+    for match_2b in matches_2b:
+        entri = per_match_id.get(match_2b.get("match_id"))
+        if entri is None:
+            continue
+        start_time = entri.get("start_time")
+        home = team_tricode(entri.get("home") or "")
+        away = team_tricode(entri.get("away") or "")
+        if home is None or away is None:
+            match_2b["nba_analysis"] = nba_analysis_mod.minimal_nba_analysis(
+                entri.get("match_id") or match_2b.get("match_id"),
+                home or "UNK",
+                away or "UNK",
+                tanggal_eastern,
+                [
+                    "tricode_tidak_dikenal: "
+                    f"{entri.get('home')!r} vs {entri.get('away')!r}"
+                ],
+                start_time=start_time,
+            )
+            continue
+        try:
+            match_2b["nba_analysis"] = nba_analysis_mod.build_nba_analysis(
+                home,
+                away,
+                tanggal_eastern,
+                slate_match=match_2b,
+                start_time=start_time,
+            )
+        except Exception as exc:  # noqa: BLE001 - builder gagal != analyze gagal
+            match_2b["nba_analysis"] = nba_analysis_mod.minimal_nba_analysis(
+                f"{away}@{home}_{tanggal_eastern}",
+                home,
+                away,
+                tanggal_eastern,
+                [f"builder_gagal: {type(exc).__name__}: {exc}"],
+                start_time=start_time,
+            )
+
+
 def cmd_analyze(args: argparse.Namespace) -> int:
-    """Jalankan analisis slate Tahap 2b: tarik data + validasi (SOP langkah 2-3).
+    """Jalankan analisis slate Tahap 2b+3: tarik data + validasi (SOP langkah 2-3).
 
     Input slate divalidasi skema, ditolak bila ``confirmed_by_user`` bukan
     true (SOP langkah 1). Laga dikelompokkan per sport; tanggal per sport
     = tanggal start_time laga pertama sport itu — NBA dikonversi ke tanggal
     US Eastern (stats.nba.com memakai tanggal Eastern). Bila laga lintas
     tanggal, laga di tanggal lain tetap diproses — pencocokan berbasis tim,
-    tapi pencarian jadwal memakai tanggal sport itu. Satu file output JSON
-    ditulis (default ``out/analysis_<slate_id>.json``) + ringkasan tercetak.
+    tapi pencarian jadwal memakai tanggal sport itu. Untuk laga NBA,
+    setelah build_slate, dilampirkan artefak "nba_analysis" per laga
+    (Tahap 3 Langkah 2; gagal total -> artefak minimal DATA_INCOMPLETE,
+    slate tetap jalan). Satu file output JSON ditulis (default
+    ``out/analysis_<slate_id>.json``) + ringkasan tercetak.
     """
     try:
         slate = json.loads(Path(args.input).read_text(encoding="utf-8"))
@@ -157,6 +224,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         "tanpa_xg": 0,
     }
     odds_api = {"calls": 0, "credits_used": 0}
+    skip_odds_api = bool(getattr(args, "tanpa_odds_api", False))
     for sport, entries in sorted(by_sport.items()):
         date = _slate_date(entries[0], sport)
         if date is None:
@@ -169,12 +237,22 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         league = _league_code(entries[0].get("league"))
         try:
             if sport == "football":
-                result = build_slate(sport, date, matches=entries, league=league)
+                result = build_slate(
+                    sport,
+                    date,
+                    matches=entries,
+                    league=league,
+                    skip_odds_api=skip_odds_api,
+                )
             else:
-                result = build_slate(sport, date, matches=entries)
+                result = build_slate(
+                    sport, date, matches=entries, skip_odds_api=skip_odds_api
+                )
         except (ValueError, RuntimeError) as exc:
             print(f"error: gagal merakit slate {sport}: {exc}", file=sys.stderr)
             return 1
+        if sport == "nba":
+            _lampirkan_nba_analysis(result["matches"], entries, date)
         all_matches.extend(result["matches"])
         for key in summary:
             summary[key] += result["summary"][key]
@@ -217,19 +295,134 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     for entry in all_matches:
         labels = ",".join(entry.get("labels") or [])
         label_text = f" [{labels}]" if labels else ""
-        print(f"  {entry['match_id']}: {entry['status']}{label_text}")
+        nba = entry.get("nba_analysis")
+        nba_text = (
+            f" | nba_analysis: {nba['status']}"
+            if isinstance(nba, dict) and isinstance(nba.get("status"), str)
+            else ""
+        )
+        print(f"  {entry['match_id']}: {entry['status']}{label_text}{nba_text}")
     print(f"output: {out_path}")
     return 0
 
 
-def cmd_recheck(args: argparse.Namespace) -> int:
-    """Cek ulang tiket sebelum laga (belum tersedia — Tahap 5)."""
-    print(
-        "recheck belum tersedia: Tahap 5 (Telegram) belum dibangun. "
-        "Lihat README.md untuk status tahapan.",
-        file=sys.stderr,
+def _ambil_nba_analysis(
+    data: dict, match_id: str | None
+) -> tuple[dict | None, str | None]:
+    """Ambil artefak nba_analysis dari file input recheck.
+
+    Menerima (a) artefak nba_analysis langsung (format ==
+    "nba_analysis") atau (b) output cli.py analyze (ada kunci
+    "matches"; artefak ada di kunci "nba_analysis" tiap entri laga).
+    match_id: bila diisi, laga yang dicari; bila kosong dan hanya
+    satu laga punya artefak, laga itu yang dipakai. Mengembalikan
+    (artefak, None) atau (None, pesan error).
+    """
+    if not isinstance(data, dict):
+        return None, "file analisis harus berupa objek JSON"
+    if data.get("format") == "nba_analysis":
+        if match_id is not None and data.get("match_id") != match_id:
+            return None, (
+                f"file berisi artefak {data.get('match_id')}, bukan {match_id}"
+            )
+        return data, None
+    matches = data.get("matches")
+    if not isinstance(matches, list):
+        return None, (
+            "file bukan artefak nba_analysis maupun output analyze "
+            "(tidak ada kunci 'matches')"
+        )
+    punya = [
+        m
+        for m in matches
+        if isinstance(m, dict) and isinstance(m.get("nba_analysis"), dict)
+    ]
+    if match_id is not None:
+        for m in punya:
+            if m.get("match_id") == match_id:
+                return m["nba_analysis"], None
+        return None, f"laga {match_id} tidak punya artefak nba_analysis di file ini"
+    if len(punya) == 1:
+        return punya[0]["nba_analysis"], None
+    if not punya:
+        return None, "tidak ada laga dengan artefak nba_analysis di file ini"
+    daftar = ", ".join(m.get("match_id", "?") for m in punya)
+    return (
+        None,
+        f"ada {len(punya)} laga dengan artefak nba_analysis ({daftar}) — "
+        "sebutkan --match",
     )
-    return NOT_IMPLEMENTED
+
+
+def cmd_recheck(args: argparse.Namespace) -> int:
+    """Cek ulang pra-submit satu laga NBA (Tahap 3 Langkah 2).
+
+    Input: file JSON analisis (--analysis) — artefak nba_analysis
+    langsung, atau output cli.py analyze (pilih laga dengan --match).
+    Ambil data segar + putuskan GO / NO-GO via engine.recheck
+    (0 kredit Odds API: recheck hanya memakai cedera + tangga
+    Polymarket/jup.ag). Laporan ditulis ke --out (default
+    out/recheck_<match_id>.json). Exit code: 0 = GO, 1 = NO-GO
+    (laporan tetap ditulis), 2 = recheck tidak bisa berjalan
+    (tidak ada laporan).
+    """
+    try:
+        data = json.loads(Path(args.analysis).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"error: tidak bisa membaca {args.analysis}: {exc}", file=sys.stderr)
+        return RECHECK_ERROR
+    analysis, error = _ambil_nba_analysis(data, args.match)
+    if error is not None:
+        print(f"error: {error}", file=sys.stderr)
+        return RECHECK_ERROR
+    from config import ConfigError
+    from engine import nba_analysis as nba_analysis_mod
+    from engine import recheck as recheck_mod
+
+    error = nba_analysis_mod.validate_nba_analysis(analysis)
+    if error is not None:
+        print(f"error: artefak nba_analysis tidak valid: {error}", file=sys.stderr)
+        return RECHECK_ERROR
+    try:
+        fresh = recheck_mod.fetch_fresh(analysis)
+        laporan = recheck_mod.decide(analysis, fresh)
+    except (ValueError, OSError, ConfigError) as exc:
+        print(f"error: recheck gagal: {exc}", file=sys.stderr)
+        return RECHECK_ERROR
+    match_id = analysis.get("match_id", "unknown")
+    out_path = Path(args.out or (REPO_ROOT / "out" / f"recheck_{match_id}.json"))
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(laporan, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError as exc:
+        print(f"error: tidak bisa menulis {out_path}: {exc}", file=sys.stderr)
+        return RECHECK_ERROR
+    verdict = laporan.get("verdict", "?")
+    resim = "ya" if laporan.get("resimulated") else "tidak"
+    print(f"recheck {match_id}: {verdict} (resim: {resim})")
+    for kaki in laporan.get("legs", []):
+        tiket = kaki.get("ticket")
+        if not tiket:
+            # Laporan recheck belum membawa kunci "ticket" (kontrak
+            # langkah 2); tiket diambil dari akhir leg_id
+            # ("...:total_under_233.5:insurance" -> "insurance").
+            leg_id = kaki.get("leg_id", "?")
+            tiket = leg_id.rsplit(":", 1)[-1] if ":" in leg_id else leg_id
+        garis = (
+            kaki.get("new_line")
+            if kaki.get("new_line") is not None
+            else kaki.get("old_line")
+        )
+        garis_txt = f" U{garis:g}" if isinstance(garis, (int, float)) else ""
+        alasan = kaki.get("reasons") or []
+        alasan_txt = f" — {alasan[0]}" if alasan else ""
+        print(f"  {tiket}{garis_txt}: {kaki.get('verdict')}{alasan_txt}")
+    if laporan.get("action_required"):
+        print(f"  yang harus diubah: {laporan['action_required']}")
+    print(f"output: {out_path}")
+    return 0 if verdict == "GO" else 1
 
 
 def _parse_leg_results(raw: list[str] | None) -> dict[str, str]:
@@ -335,10 +528,35 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="file output JSON (default: out/analysis_<slate_id>.json)",
     )
+    p_analyze.add_argument(
+        "--tanpa-odds-api",
+        action="store_true",
+        help="jangan panggil The Odds API sama sekali (0 kredit; pembanding "
+        "sportsbook dilewati, Kalshi tetap dicoba)",
+    )
     p_analyze.set_defaults(func=cmd_analyze)
 
-    p_recheck = sub.add_parser("recheck", help="cek ulang tiket (Tahap 5)")
-    p_recheck.add_argument("--ticket", required=True, help="id tiket")
+    p_recheck = sub.add_parser(
+        "recheck",
+        help="cek ulang pra-submit satu laga NBA (Tahap 3 Langkah 2)",
+    )
+    p_recheck.add_argument(
+        "--analysis",
+        required=True,
+        help="file JSON analisis: artefak nba_analysis langsung, atau "
+        "output cli.py analyze",
+    )
+    p_recheck.add_argument(
+        "--match",
+        default=None,
+        help="match_id laga yang dicek (wajib bila file berisi lebih "
+        "dari satu laga dengan artefak nba_analysis)",
+    )
+    p_recheck.add_argument(
+        "--out",
+        default=None,
+        help="file output JSON (default: out/recheck_<match_id>.json)",
+    )
     p_recheck.set_defaults(func=cmd_recheck)
 
     p_log = sub.add_parser("log", help="catat / selesaikan tiket (Tahap 1)")
