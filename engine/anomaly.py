@@ -417,55 +417,45 @@ def check_total_line_vs_model(
 
 
 def check_cushion_vs_market(
-    alt_line, model_median_total, market_total_line, spread, cfg: dict | None = None
+    alt_line, model_median_total, market_total_line, cushion_points
 ) -> dict | None:
-    """Anomali bila bantalan D10 lolos menurut model tapi tidak menurut market.
+    """Anomali bila bantalan adaptif lolos menurut model tapi tidak menurut market.
 
     model_cushion = alt_line - model_median_total; market_cushion =
-    alt_line - market_total_line. required dari filters.nba_alt_under:
-    min_cushion_points_close_spread (12) bila spread tidak None dan
-    spread <= close_spread_threshold (2,5), else min_cushion_points (8).
+    alt_line - market_total_line. required = cushion_points, yaitu
+    bantalan adaptif dari engine/analis.py yang TERCATAT pada kaki
+    (mis. hasil cushion.utama_line["cushion_points"]) — BUKAN lagi
+    aturan kaku 8/12 berbasis spread (kunci config
+    min_cushion_points[_close_spread] + close_spread_threshold
+    DIHAPUS di playstyle.yaml versi 13).
 
     Hanya peduli kasus model_cushion >= required TAPI market_cushion <
     required — model bilang bantalan cukup, market bilang tidak.
-    Bila model_cushion sendiri < required, itu urusan filter D10 yang
-    sudah ada (bukan fungsi ini) -> None. Bila salah satu garis None
-    -> None (tidak bisa dicek). Melempar ValueError bila input tidak
-    valid.
+    Bila model_cushion sendiri < required, itu urusan pemilihan garis
+    (bukan fungsi ini) -> None. Bila salah satu garis None ATAU
+    cushion_points None -> None (tidak bisa dicek). Melempar
+    ValueError bila input tidak valid.
     """
-    if alt_line is None or model_median_total is None or market_total_line is None:
+    if (
+        alt_line is None
+        or model_median_total is None
+        or market_total_line is None
+        or cushion_points is None
+    ):
         return None
     alt = _validasi_garis_total(alt_line, "alt_line")
     median = _validasi_garis_total(model_median_total, "model_median_total")
     garis = _validasi_garis_total(market_total_line, "market_total_line")
-    if spread is not None:
-        if (
-            isinstance(spread, bool)
-            or not isinstance(spread, (int, float))
-            or not math.isfinite(spread)
-        ):
-            raise ValueError(f"spread tidak valid: {spread!r} (harus angka hingga)")
-        spread = float(spread)
-    cfg = cfg if cfg is not None else config.load_playstyle()
-    required_biasa = _validasi_ambang(
-        config.get_value(cfg, "filters", "nba_alt_under", "min_cushion_points"),
-        "filters.nba_alt_under.min_cushion_points",
-    )
-    required_rapat = _validasi_ambang(
-        config.get_value(
-            cfg, "filters", "nba_alt_under", "min_cushion_points_close_spread"
-        ),
-        "filters.nba_alt_under.min_cushion_points_close_spread",
-    )
-    ambang_spread = _validasi_ambang(
-        config.get_value(cfg, "filters", "nba_alt_under", "close_spread_threshold"),
-        "filters.nba_alt_under.close_spread_threshold",
-    )
-    required = (
-        required_rapat
-        if spread is not None and spread <= ambang_spread
-        else required_biasa
-    )
+    if (
+        isinstance(cushion_points, bool)
+        or not isinstance(cushion_points, (int, float))
+        or not math.isfinite(cushion_points)
+        or cushion_points < 0
+    ):
+        raise ValueError(
+            f"cushion_points tidak valid: {cushion_points!r} (harus angka hingga >= 0)"
+        )
+    required = float(cushion_points)
     model_cushion = round(alt - median, 9)
     market_cushion = round(alt - garis, 9)
     if model_cushion >= required and market_cushion < required:
@@ -552,14 +542,16 @@ def check_under_safety(
     model_median_total,
     market_total_line,
     alt_line,
-    spread,
+    cushion_points,
     price_delta_cents,
     cfg: dict | None = None,
 ) -> dict:
     """Verdict gabungan untuk satu kaki Under: aman menurut model + market?
 
     Mengumpulkan anomali dari check_total_line_vs_model dan
-    check_cushion_vs_market, DITAMBAH cek harga-melawan: bila
+    check_cushion_vs_market (cushion_points = bantalan adaptif
+    TERCATAT pada kaki, dari engine/analis.py — bukan lagi spread),
+    DITAMBAH cek harga-melawan: bila
     p_model_under >= market_line_check.min_model_under_prob (NILAI
     AWAL yang diusulkan 0,70 — BELUM DIKALIBRASI, menunggu
     validasi/persetujuan user) DAN harga Under TURUN melawan posisi
@@ -581,7 +573,7 @@ def check_under_safety(
     if garis_anomali is not None:
         anomalies.append(garis_anomali)
     bantalan_anomali = check_cushion_vs_market(
-        alt_line, model_median_total, market_total_line, spread, cfg
+        alt_line, model_median_total, market_total_line, cushion_points
     )
     if bantalan_anomali is not None:
         anomalies.append(bantalan_anomali)

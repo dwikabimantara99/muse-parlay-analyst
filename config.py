@@ -33,6 +33,7 @@ REQUIRED_PLAYSTYLE_SECTIONS = (
     "anomaly",
     "market_line_check",
     "polymarket_ladder",
+    "analis",
     "filters",
     "formulas",
     "currency",

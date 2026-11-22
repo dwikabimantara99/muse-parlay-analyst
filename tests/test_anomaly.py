@@ -291,16 +291,11 @@ class TestEvaluateLeg(unittest.TestCase):
 # cfg untuk cek garis market: CFG + ambang baru. Nilai market_line_check
 # adalah NILAI AWAL yang diusulkan (BELUM DIKALIBRASI) — playstyle.yaml
 # belum punya bagian ini (koordinator menambahkannya saat integrasi).
+# Cek bantalan TIDAK lagi membaca config (bantalan adaptif tercatat
+# diteruskan sebagai argumen — kunci D10 dihapus di playstyle v13).
 CFG_GARIS = {
     **CFG,
     "market_line_check": {"total_gap_points": 5.0, "min_model_under_prob": 0.70},
-    "filters": {
-        "nba_alt_under": {
-            "min_cushion_points": 8,
-            "min_cushion_points_close_spread": 12,
-            "close_spread_threshold": 2.5,
-        }
-    },
 }
 
 
@@ -410,9 +405,9 @@ class TestCheckTotalLineVsModel(unittest.TestCase):
 class TestCheckCushionVsMarket(unittest.TestCase):
     def test_kasus_kunci_model_lolos_market_tidak(self):
         # KUNCI: model median 218, garis market 227,5, alt line 227,5,
-        # spread 5,0 -> bantalan model 9,5 (lolos D10) tapi bantalan
-        # market 0 -> ANOMALI.
-        hasil = anomaly.check_cushion_vs_market(227.5, 218, 227.5, 5.0, CFG_GARIS)
+        # bantalan adaptif tercatat 8 -> bantalan model 9,5 (lolos)
+        # tapi bantalan market 0 -> ANOMALI.
+        hasil = anomaly.check_cushion_vs_market(227.5, 218, 227.5, 8.0)
         self.assertIsNotNone(hasil)
         self.assertEqual(hasil["type"], "cushion_tidak_dikonfirmasi_market")
         self.assertAlmostEqual(hasil["model_cushion_points"], 9.5)
@@ -424,55 +419,44 @@ class TestCheckCushionVsMarket(unittest.TestCase):
     def test_lolos_keduanya_bukan_anomali(self):
         # Model median 215, garis market 218, alt line 227,5 ->
         # bantalan market 9,5 >= 8 -> None.
-        self.assertIsNone(
-            anomaly.check_cushion_vs_market(227.5, 215, 218, 5.0, CFG_GARIS)
-        )
+        self.assertIsNone(anomaly.check_cushion_vs_market(227.5, 215, 218, 8.0))
 
-    def test_spread_rapat_required_12(self):
-        # Spread 2,0 <= 2,5 -> required 12: bantalan model 12,5 lolos
-        # tapi bantalan market 10 -> ANOMALI.
-        hasil = anomaly.check_cushion_vs_market(227.5, 215, 217.5, 2.0, CFG_GARIS)
+    def test_bantalan_adaptif_12(self):
+        # Bantalan adaptif tercatat 12 (laga menuntut lebih tebal):
+        # bantalan model 12,5 lolos tapi bantalan market 10 -> ANOMALI.
+        hasil = anomaly.check_cushion_vs_market(227.5, 215, 217.5, 12.0)
         self.assertIsNotNone(hasil)
         self.assertEqual(hasil["type"], "cushion_tidak_dikonfirmasi_market")
         self.assertAlmostEqual(hasil["model_cushion_points"], 12.5)
         self.assertAlmostEqual(hasil["market_cushion_points"], 10.0)
         self.assertEqual(hasil["required_cushion_points"], 12)
 
-    def test_spread_rapat_lolos_keduanya_bukan_anomali(self):
-        # Spread rapat + bantalan market 12,5 >= 12 -> None.
-        self.assertIsNone(
-            anomaly.check_cushion_vs_market(227.5, 213, 215, 2.0, CFG_GARIS)
-        )
+    def test_bantalan_adaptif_12_lolos_keduanya_bukan_anomali(self):
+        # Bantalan adaptif 12 + bantalan market 12,5 >= 12 -> None.
+        self.assertIsNone(anomaly.check_cushion_vs_market(227.5, 213, 215, 12.0))
 
     def test_model_cushion_kurang_bukan_urusan_fungsi_ini(self):
-        # Bantalan model 6,5 < 8 -> urusan filter D10, fungsi ini None
+        # Bantalan model 6,5 < 8 -> urusan pemilihan garis, fungsi ini None
         # (walau bantalan market 2,5 juga kurang).
-        self.assertIsNone(
-            anomaly.check_cushion_vs_market(227.5, 221, 225, 5.0, CFG_GARIS)
-        )
+        self.assertIsNone(anomaly.check_cushion_vs_market(227.5, 221, 225, 8.0))
 
     def test_garis_none_bukan_anomali(self):
-        self.assertIsNone(
-            anomaly.check_cushion_vs_market(None, 218, 227.5, 5.0, CFG_GARIS)
-        )
-        self.assertIsNone(
-            anomaly.check_cushion_vs_market(227.5, None, 227.5, 5.0, CFG_GARIS)
-        )
-        self.assertIsNone(
-            anomaly.check_cushion_vs_market(227.5, 218, None, 5.0, CFG_GARIS)
-        )
+        self.assertIsNone(anomaly.check_cushion_vs_market(None, 218, 227.5, 8.0))
+        self.assertIsNone(anomaly.check_cushion_vs_market(227.5, None, 227.5, 8.0))
+        self.assertIsNone(anomaly.check_cushion_vs_market(227.5, 218, None, 8.0))
 
-    def test_spread_none_pakai_required_biasa(self):
-        # Spread tidak diketahui -> required 8 (bukan 12).
-        hasil = anomaly.check_cushion_vs_market(227.5, 218, 227.5, None, CFG_GARIS)
-        self.assertIsNotNone(hasil)
-        self.assertEqual(hasil["required_cushion_points"], 8)
+    def test_bantalan_none_tidak_bisa_dicek(self):
+        # Bantalan adaptif tidak tercatat -> tidak bisa dicek -> None
+        # (bukan anomali, bukan juga lolos — ketiadaan data).
+        self.assertIsNone(anomaly.check_cushion_vs_market(227.5, 218, 227.5, None))
 
     def test_validasi(self):
         with self.assertRaises(ValueError):
-            anomaly.check_cushion_vs_market(0, 218, 227.5, 5.0, CFG_GARIS)
+            anomaly.check_cushion_vs_market(0, 218, 227.5, 8.0)
         with self.assertRaises(ValueError):
-            anomaly.check_cushion_vs_market(227.5, 218, 227.5, "5", CFG_GARIS)
+            anomaly.check_cushion_vs_market(227.5, 218, 227.5, "8")
+        with self.assertRaises(ValueError):
+            anomaly.check_cushion_vs_market(227.5, 218, 227.5, -1.0)
 
 
 class TestCheckUnderSafety(unittest.TestCase):
@@ -481,7 +465,7 @@ class TestCheckUnderSafety(unittest.TestCase):
         # model_optimis_harga_melawan + safe_confirmed False. Garis
         # sengaja rapat (gap 1, bantalan market 8,5) supaya hanya cek
         # harga yang memicu.
-        hasil = anomaly.check_under_safety(0.80, 218, 219, 227.5, 5.0, -4.0, CFG_GARIS)
+        hasil = anomaly.check_under_safety(0.80, 218, 219, 227.5, 8.0, -4.0, CFG_GARIS)
         self.assertFalse(hasil["safe_confirmed"])
         self.assertEqual(len(hasil["anomalies"]), 1)
         anomali = hasil["anomalies"][0]
@@ -493,13 +477,13 @@ class TestCheckUnderSafety(unittest.TestCase):
     def test_semua_cek_lolos(self):
         # Garis rapat + bantalan terkonfirmasi + gerak harga kecil
         # -> safe_confirmed True, tanpa anomali.
-        hasil = anomaly.check_under_safety(0.80, 218, 219, 227.5, 5.0, -1.0, CFG_GARIS)
+        hasil = anomaly.check_under_safety(0.80, 218, 219, 227.5, 8.0, -1.0, CFG_GARIS)
         self.assertTrue(hasil["safe_confirmed"])
         self.assertEqual(hasil["anomalies"], [])
 
     def test_harga_turun_2_cent_bukan_anomali(self):
         # Turun 2¢ < ambang sharp 3¢ -> bukan anomali harga-melawan.
-        hasil = anomaly.check_under_safety(0.80, 218, 219, 227.5, 5.0, -2.0, CFG_GARIS)
+        hasil = anomaly.check_under_safety(0.80, 218, 219, 227.5, 8.0, -2.0, CFG_GARIS)
         self.assertTrue(hasil["safe_confirmed"])
         self.assertEqual(hasil["anomalies"], [])
 
@@ -507,7 +491,7 @@ class TestCheckUnderSafety(unittest.TestCase):
         # Gap 9,5 + bantalan tak terkonfirmasi -> kedua anomali garis
         # terkumpul, safe_confirmed False (tanpa cek harga).
         hasil = anomaly.check_under_safety(
-            0.60, 218, 227.5, 227.5, 5.0, None, CFG_GARIS
+            0.60, 218, 227.5, 227.5, 8.0, None, CFG_GARIS
         )
         self.assertFalse(hasil["safe_confirmed"])
         jenis = [a["type"] for a in hasil["anomalies"]]
@@ -517,22 +501,22 @@ class TestCheckUnderSafety(unittest.TestCase):
     def test_p_model_none_lewati_cek_harga(self):
         # p None -> cek harga-melawan dilewati walau harga turun 4¢;
         # cek garis tetap jalan (di sini lolos) -> aman.
-        hasil = anomaly.check_under_safety(None, 218, 219, 227.5, 5.0, -4.0, CFG_GARIS)
+        hasil = anomaly.check_under_safety(None, 218, 219, 227.5, 8.0, -4.0, CFG_GARIS)
         self.assertTrue(hasil["safe_confirmed"])
         self.assertEqual(hasil["anomalies"], [])
 
     def test_p_di_bawah_ambang_optimis_bukan_anomali(self):
         # p=0,65 < 0,70 -> model tidak cukup optimis, harga turun 4¢
         # bukan anomali harga-melawan.
-        hasil = anomaly.check_under_safety(0.65, 218, 219, 227.5, 5.0, -4.0, CFG_GARIS)
+        hasil = anomaly.check_under_safety(0.65, 218, 219, 227.5, 8.0, -4.0, CFG_GARIS)
         self.assertTrue(hasil["safe_confirmed"])
         self.assertEqual(hasil["anomalies"], [])
 
     def test_validasi(self):
         with self.assertRaises(ValueError):
-            anomaly.check_under_safety(1.5, 218, 219, 227.5, 5.0, -4.0, CFG_GARIS)
+            anomaly.check_under_safety(1.5, 218, 219, 227.5, 8.0, -4.0, CFG_GARIS)
         with self.assertRaises(ValueError):
-            anomaly.check_under_safety(0.80, 218, 219, 227.5, 5.0, "turun", CFG_GARIS)
+            anomaly.check_under_safety(0.80, 218, 219, 227.5, 8.0, "turun", CFG_GARIS)
 
 
 class TestIlustrasiGarisThunder(unittest.TestCase):
@@ -546,9 +530,10 @@ class TestIlustrasiGarisThunder(unittest.TestCase):
 
     def test_ilustrasi_garis_thunder_hipotetis(self):
         """ILUSTRASI (garis hipotetis, bukan data nyata laga Thunder):
-        model median 218, garis market 227,5, alt line 227,5 -> bantalan
-        model 9,5 lolos D10 tapi bantalan market 0 -> ANOMALI."""
-        hasil = anomaly.check_cushion_vs_market(227.5, 218, 227.5, 5.0, CFG_GARIS)
+        model median 218, garis market 227,5, alt line 227,5, bantalan
+        adaptif tercatat 8 -> bantalan model 9,5 lolos tapi bantalan
+        market 0 -> ANOMALI."""
+        hasil = anomaly.check_cushion_vs_market(227.5, 218, 227.5, 8.0)
         self.assertIsNotNone(hasil)
         self.assertEqual(hasil["type"], "cushion_tidak_dikonfirmasi_market")
 

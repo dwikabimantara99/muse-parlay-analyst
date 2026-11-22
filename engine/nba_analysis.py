@@ -1,4 +1,4 @@
-"""Penyambungan Otak NBA -> artefak analisis per laga (Tahap 3 Langkah 2).
+"""Penyambungan Otak NBA -> artefak analisis per laga (Tahap 3 Langkah 2 + Tahap 4).
 
 Modul ini menyambungkan komponen Otak NBA yang sudah jadi
 (ingest.nba_brain, engine.nba_sim, engine.cushion, tangga Polymarket,
@@ -10,9 +10,13 @@ KONTRAK ARTEFAK (format_version 1 — KONTRAK BERSAMA dengan recheck,
 jangan diubah sepihak; lihat schemas/nba_analysis.schema.json):
   format/format_version/match_id/home_tricode/away_tricode/game_date/
   start_time/generated_at/status/missing/sources/inputs/simulation/
-  market/legs/injuries/anomalies/price_snapshots.
+  market/legs/injuries/anomalies/price_snapshots + analisis_wajar
+  (Tahap 4, opsional — artefak lama tanpanya tetap valid).
   match_id SAMA dengan simulation.match_id ("{AWAY}@{HOME}_{YYYY-MM-DD}").
   legs HANYA Asuransi + Utama (kaki moneyline di luar lingkup langkah ini).
+  Tiap kaki Tahap 4 membawa cushion_points/cushion_reason (dari analis),
+  volume_usd/thin/climb (dari cushion) — semuanya opsional di skema
+  supaya artefak lama tetap valid.
 
 PIPELINE build_nba_analysis:
   1. fetch_match_inputs (input otak) — gagal -> DATA_INCOMPLETE.
@@ -24,10 +28,20 @@ PIPELINE build_nba_analysis:
      kaki. Dua pass memakai noise yang sama bila seed diberikan, jadi
      median pass 1 == median pass 2. Biaya: 2x waktu simulasi (~3,4
      detik untuk 100.000 iterasi default). Gagal -> DATA_INCOMPLETE.
-  4. cushion.insurance_line + cushion.utama_line (spread = nilai
-     absolut garis spread volume terbesar dari tangga; None bila tidak
-     ada spread — Utama lalu memakai bantalan 12 (fail-closed,
-     lihat cushion.py).
+  4. (Tahap 4) Bantalan adaptif DULU (analis.bantalan_adaptif dari
+     statistik laga inputs + distribusi sim), lalu cushion.utama_line
+     (signature baru: cushion_points adaptif, peluang_under dari
+     markets sim, harga_min_cents dari config), lalu
+     cushion.insurance_line (signature baru: garis_di_atas = garis
+     Utama, peluang_under, harga_min_cents). Bila bantalan adaptif
+     None (data tidak lengkap / modul analis belum tersedia) -> kedua
+     kaki fail-closed dengan alasan tercatat, TANPA fallback ke +8.
+     Spread TIDAK LAGI dipakai untuk bantalan (signature baru tanpa
+     spread) maupun cek anomali (cek anomali memakai bantalan adaptif
+     yang tercatat pada kaki); spread dari tangga tetap disimpan di
+     artefak (market.spreads) untuk laporan.
+     Penilaian wajar (analis.nilai_wajar, acuan = median sim) disimpan
+     sebagai top-level `analisis_wajar`.
   5. Per kaki: p_model dari markets sim, p_market dari Kalshi
      (fetch_total_markets + kalshi_probability pada garis yang SAMA
      PERSIS; Under = komplemen 1 - p_over; tidak ada garis cocok ->
@@ -61,13 +75,25 @@ outcomePrices); jup_estimated_cents = estimasi harga venue jup.ag
 (mid + markup tipikal). EV memakai jup_estimated_cents bila ada,
 else price_cents. price_snapshots memakai harga yang sama (baseline
 aturan Thunder untuk recheck).
+
+CATATAN TAHAP 4 (integrasi paralel): engine/analis.py dan signature
+baru cushion.py + kunci config analis.harga_min_*_cents dibangun
+pekerja A (sudah mendarat di working tree saat wiring ini ditulis).
+Bila modul analis belum ada saat builder jalan, bantalan dianggap
+tidak tersedia -> kedua kaki fail-closed (alasan
+"analis_belum_tersedia") dan analisis_wajar = "tidak_terverifikasi".
+Bila cushion lama masih terpasang (TypeError karena kwarg baru),
+builder mengembalikan DATA_INCOMPLETE dengan alasan cushion_gagal —
+JANGAN fallback ke aturan lama.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import re
+import sys
 from datetime import UTC, datetime
 
 import config as config_mod
@@ -84,6 +110,18 @@ from ingest.common import now_iso
 
 FORMAT = "nba_analysis"
 FORMAT_VERSION = 1
+
+# Default sementara harga minimum kaki Tahap 4 (sen) sampai pekerja A
+# menambahkan kunci analis.harga_min_utama_cents /
+# analis.harga_min_asuransi_cents ke playstyle.yaml — nilai ini adalah
+# nilai kontrak bersama (75¢), BUKAN karangan. Bila kunci sudah ada di
+# config, nilai config yang dipakai (dan divalidasi); bila belum ada,
+# default ini yang dipakai + dicatat sumbernya ("default").
+# Pola yang sama dengan DEFAULT_* di engine/cushion.py.
+DEFAULT_HARGA_MIN_CENTS = 75.0
+
+# Penilaian yang sah dari analis.nilai_wajar (kontrak bersama).
+_PENILAIAN_WAJAR = ("wajar", "di_bawah_wajar", "tidak_terverifikasi")
 
 _SKEMA_NBA_ANALYSIS = "nba_analysis.schema.json"
 _SKEMA_SIMULASI = "simulation.schema.json"
@@ -439,6 +477,273 @@ def _p_market_kalshi(
     return p_under
 
 
+# ---------------------------------------------------------------------------
+# Helper Tahap 4 (bantalan adaptif + penilaian wajar + harga minimum).
+# ---------------------------------------------------------------------------
+
+
+def _muat_analis():
+    """Muat engine.analis (pekerja A); None bila modul belum tersedia.
+
+    Modul yang belum ada (find_spec None) adalah keadaan operasional
+    yang sah selama integrasi paralel — pemanggil memperlakukannya
+    sebagai bantalan tidak tersedia (fail-closed), bukan error.
+    Modul yang ADA tapi gagal diimpor (ImportError di dalamnya)
+    DIBIARKAN raise: itu bug kode, bukan data hilang, dan jaring
+    pengaman build_nba_analysis akan mengubahnya jadi artefak
+    DATA_INCOMPLETE dengan kesalahan_internal tercatat.
+    """
+    modul = sys.modules.get("engine.analis")
+    if modul is not None:
+        return modul
+    try:
+        if importlib.util.find_spec("engine.analis") is None:
+            return None
+    except (ImportError, ValueError):
+        return None
+    from engine import analis as analis_mod
+
+    return analis_mod
+
+
+def _total_rata_tim(blok_tim: dict) -> float | None:
+    """Rata-rata total poin (cetak + kebobolan) satu tim semusim.
+
+    Dari home_record + road_record (ppg/opp_ppg, dibobot jumlah laga
+    w+l tiap rekor). None bila tidak ada rekor yang bisa dipakai —
+    jangan ditebak dari satu rekor saja.
+    """
+    total_terbobot = 0.0
+    total_laga = 0
+    for kunci in ("home_record", "road_record"):
+        rekor = blok_tim.get(kunci)
+        if not isinstance(rekor, dict):
+            continue
+        menang = rekor.get("w")
+        kalah = rekor.get("l")
+        if (
+            isinstance(menang, bool)
+            or isinstance(kalah, bool)
+            or not isinstance(menang, int)
+            or not isinstance(kalah, int)
+        ):
+            continue
+        laga = menang + kalah
+        ppg = _angka(rekor.get("ppg"))
+        opp_ppg = _angka(rekor.get("opp_ppg"))
+        if laga <= 0 or ppg is None or opp_ppg is None:
+            continue
+        total_terbobot += laga * (ppg + opp_ppg)
+        total_laga += laga
+    if total_laga <= 0:
+        return None
+    return total_terbobot / total_laga
+
+
+def stats_laga_untuk_analis(inputs_data: dict) -> dict:
+    """Statistik laga untuk analis.bantalan_adaptif (kontrak bersama).
+
+    Mengembalikan {"ortg_home", "ortg_away", "ortg_liga_rata",
+    "total_rata_5laga", "total_rata_musim"}; yang tidak tersedia diisi
+    None, JANGAN ditebak.
+      - ortg_home/ortg_away: off_rtg MUSIM (stats_season) tiap tim —
+        pilihan wiring Tahap 4: angka musim penuh lebih stabil
+        daripada last10; analis yang menilai (koordinator boleh
+        mengubah pilihan ini bila analis meminta last10).
+      - ortg_liga_rata: inputs["league"]["avg_off_rtg"] (rata-rata
+        liga dari nba_brain; BUKAN dari simulasi).
+      - total_rata_5laga: rata-rata (pts + opp_pts) semua laga form5
+        kedua tim (maks 10 laga); None bila tidak ada laga yang bisa
+        dipakai.
+      - total_rata_musim: rata-rata total_rata_tim kedua tim (ppg +
+        opp_ppg semusim, dibobot laga kandang+tandang); None bila
+        salah satu tim tidak punya rekor yang bisa dipakai.
+    """
+    home = inputs_data.get("home")
+    away = inputs_data.get("away")
+    home = home if isinstance(home, dict) else {}
+    away = away if isinstance(away, dict) else {}
+    liga = inputs_data.get("league")
+    liga = liga if isinstance(liga, dict) else {}
+
+    def _off_rtg_musim(blok: dict) -> float | None:
+        musim = blok.get("stats_season")
+        if not isinstance(musim, dict):
+            return None
+        return _angka(musim.get("off_rtg"))
+
+    total_5laga: list[float] = []
+    for blok in (home, away):
+        form5 = blok.get("form5")
+        if not isinstance(form5, list):
+            continue
+        for laga in form5:
+            if not isinstance(laga, dict):
+                continue
+            pts = _angka(laga.get("pts"))
+            opp_pts = _angka(laga.get("opp_pts"))
+            if pts is not None and opp_pts is not None:
+                total_5laga.append(pts + opp_pts)
+    total_musim_home = _total_rata_tim(home)
+    total_musim_away = _total_rata_tim(away)
+    return {
+        "ortg_home": _off_rtg_musim(home),
+        "ortg_away": _off_rtg_musim(away),
+        "ortg_liga_rata": _angka(liga.get("avg_off_rtg")),
+        "total_rata_5laga": (
+            sum(total_5laga) / len(total_5laga) if total_5laga else None
+        ),
+        "total_rata_musim": (
+            (total_musim_home + total_musim_away) / 2.0
+            if total_musim_home is not None and total_musim_away is not None
+            else None
+        ),
+    }
+
+
+def peluang_under_dari_markets(markets_sim: dict) -> dict:
+    """Konversi markets sim -> {garis: P(Under)} untuk cushion.
+
+    cushion.utama_line/insurance_line menerima peluang_under sebagai
+    dict GARIS (float) -> probabilitas 0-1, BUKAN dict markets mentah
+    (kunci string "total_under_<garis>" + moneyline + total_over).
+    Hanya kunci "total_under_<garis>" yang dipakai; garis diparse
+    jadi float, peluang divalidasi 0-1. Kunci malformed / peluang
+    tidak valid DILEWATI (bukan error) — cushion memakai interpolasi
+    persentil bila garis tak ada, dan kaki gagal via p_model None di
+    _rakit_kaki bila kuncinya memang hilang.
+    """
+    hasil: dict[float, float] = {}
+    if not isinstance(markets_sim, dict):
+        return hasil
+    for kunci, nilai in markets_sim.items():
+        if not isinstance(kunci, str) or not kunci.startswith("total_under_"):
+            continue
+        try:
+            garis = float(kunci[len("total_under_") :])
+        except ValueError:
+            continue
+        peluang = _peluang(nilai)
+        if peluang is not None:
+            hasil[garis] = peluang
+    return hasil
+
+
+def baca_harga_min(cfg: dict, kunci: str) -> tuple[float, str]:
+    """Baca analis.<kunci> (harga minimum kaki, sen) dari config.
+
+    Mengembalikan (nilai, sumber) dengan sumber "config" bila kunci
+    ada, "default" bila belum ada (pekerja A belum menambahkan —
+    dipakai DEFAULT_HARGA_MIN_CENTS = nilai kontrak 75¢). Nilai yang
+    ada divalidasi (0 < v < 100); tidak valid -> ValueError.
+    Pola yang sama dengan _baca_param_baru di engine/cushion.py.
+    """
+    section = cfg.get("analis", {})
+    if not isinstance(section, dict) or kunci not in section:
+        return DEFAULT_HARGA_MIN_CENTS, "default"
+    nilai = section[kunci]
+    if (
+        isinstance(nilai, bool)
+        or not isinstance(nilai, (int, float))
+        or not math.isfinite(nilai)
+        or not 0.0 < nilai < 100.0
+    ):
+        raise ValueError(f"analis.{kunci} tidak valid: {nilai!r} (harus angka 0-100)")
+    return float(nilai), "config"
+
+
+def _hasil_cushion_gagal(alasan: str) -> dict:
+    """Hasil cushion meets=False untuk kaki fail-closed (bantalan None).
+
+    Bentuknya sama dengan hasil cushion yang tidak memenuhi (semua
+    kunci yang dibaca _rakit_kaki ada, bernilai None) supaya kaki
+    tetap dirakit dengan alasan tercatat.
+    """
+    return {
+        "line": None,
+        "meets": False,
+        "reason": alasan,
+        "price_cents": None,
+        "jup_estimated_cents": None,
+        "cushion_vs_market_points": None,
+        "cushion_vs_median_points": None,
+        "volume_usd": None,
+        "thin": None,
+        "climb": None,
+    }
+
+
+def _analisis_wajar_tidak_terverifikasi(
+    acuan_sim,
+    garis_market,
+    garis_harga,
+    harga_cents,
+    bantalan_dibutuhkan_poin,
+    penjelasan: str,
+) -> dict:
+    """Dict analisis_wajar penilaian 'tidak_terverifikasi' (kontrak).
+
+    Dipakai bila modul analis belum tersedia atau nilai_wajar gagal /
+    mengembalikan bentuk yang tidak sah — angka yang ada tetap
+    dicatat apa adanya (bukan ditebak), jarak_poin dihitung bila
+    acuan + garis harga tersedia, else None.
+    """
+    acuan = _angka(acuan_sim)
+    garis = _angka(garis_harga)
+    jarak = round(garis - acuan, 9) if acuan is not None and garis is not None else None
+    return {
+        "acuan_sim": acuan,
+        "garis_market": _angka(garis_market),
+        "garis_harga": garis,
+        "harga_cents": _angka(harga_cents),
+        "jarak_poin": jarak,
+        "bantalan_dibutuhkan_poin": _angka(bantalan_dibutuhkan_poin),
+        "penilaian": "tidak_terverifikasi",
+        "penjelasan": penjelasan,
+    }
+
+
+def _analisis_wajar_sah(nilai) -> bool:
+    """Hasil nilai_wajar sah vs kontrak skema? (8 kunci + jenis benar).
+
+    Validasi ketat di sini penting: hasil tak sah yang lolos akan
+    menggagalkan validasi SELURUH artefak di _finalisasi (artefak
+    minimal) — lebih baik jatuh ke 'tidak_terverifikasi'.
+    """
+    if not isinstance(nilai, dict):
+        return False
+    for kunci in (
+        "acuan_sim",
+        "garis_market",
+        "garis_harga",
+        "harga_cents",
+        "jarak_poin",
+        "bantalan_dibutuhkan_poin",
+    ):
+        if kunci not in nilai:
+            return False
+        angka = nilai[kunci]
+        if angka is not None and _angka(angka) is None:
+            return False
+    if nilai.get("penilaian") not in _PENILAIAN_WAJAR:
+        return False
+    return isinstance(nilai.get("penjelasan"), str)
+
+
+def _sanitasi_climb(nilai):
+    """Climb dari hasil cushion: hanya bool/angka-hingga/dict yang lolos.
+
+    Bentuk climb adalah wewenang cushion (pekerja A); wiring hanya
+    meneruskannya apa adanya bila jenisnya dikenal skema, else None
+    supaya artefak tidak gagal validasi karena nilai tak terduga.
+    """
+    if nilai is None or isinstance(nilai, (bool, dict)):
+        return nilai
+    if isinstance(nilai, (int, float)) and math.isfinite(nilai):
+        return nilai
+    return None
+
+
 def _rakit_kaki(
     ticket: str,
     hasil_cushion: dict,
@@ -450,11 +755,16 @@ def _rakit_kaki(
     start_time: str | None,
     cfg: dict,
     generated_at: str,
+    hasil_bantalan: dict | None = None,
 ) -> dict:
     """Rakit satu leg Alt Under dari hasil cushion + sim + Kalshi.
 
     Kaki meets=false tetap dirakit (line null, leg_id '...:total_under_
     none:<ticket>') supaya keberadaannya tercatat dengan alasan.
+    Tahap 4: cushion_points/cushion_reason dari hasil_bantalan
+    (analis.bantalan_adaptif; None bila bantalan tidak tersedia);
+    volume_usd/thin/climb dari hasil_cushion (None bila cushion
+    tidak membawanya — mis. kaki fail-closed).
     """
     garis = _angka(hasil_cushion.get("line"))
     leg_id = (
@@ -506,6 +816,16 @@ def _rakit_kaki(
         reason = "blend_gagal"
     else:
         reason = None
+    # Tahap 4: field baru. cushion_points/cushion_reason dari analis
+    # (sama untuk kedua kaki — satu bantalan adaptif per laga);
+    # volume_usd/thin/climb dari hasil cushion.
+    bantalan_poin = None
+    bantalan_alasan = None
+    if isinstance(hasil_bantalan, dict):
+        bantalan_poin = _angka(hasil_bantalan.get("cushion_points"))
+        alasan_mentah = hasil_bantalan.get("alasan")
+        bantalan_alasan = alasan_mentah if isinstance(alasan_mentah, str) else None
+    thin_mentah = hasil_cushion.get("thin")
     return {
         "leg_id": leg_id,
         "market_type": "total_under",
@@ -525,6 +845,11 @@ def _rakit_kaki(
         "cushion_vs_market_points": _angka(
             hasil_cushion.get("cushion_vs_market_points")
         ),
+        "cushion_points": bantalan_poin,
+        "cushion_reason": bantalan_alasan,
+        "volume_usd": _angka(hasil_cushion.get("volume_usd")),
+        "thin": thin_mentah if isinstance(thin_mentah, bool) else None,
+        "climb": _sanitasi_climb(hasil_cushion.get("climb")),
         "meets": meets,
         "reason": reason if isinstance(reason, str) else None,
         "fetched_at": generated_at,
@@ -535,7 +860,6 @@ def _kumpulkan_anomali(
     legs: list[dict],
     median: float | None,
     main_line: float | None,
-    spread_abs: float | None,
     cfg: dict,
 ) -> tuple[list[dict], list[str]]:
     """Kumpulkan anomali engine/anomaly.py (dideduplikasi) + kegagalan cek.
@@ -544,6 +868,9 @@ def _kumpulkan_anomali(
     check_cushion_vs_market + check_under_safety (yang di dalamnya
     menjalankan dua cek pertama — duplikat dibuang berdasarkan isi)
     + check_model_vs_market dan check_jup_vs_market bila p_market ada.
+    check_cushion_vs_market/check_under_safety memakai bantalan
+    adaptif yang TERCATAT pada kaki (leg["cushion_points"], dari
+    analis) — BUKAN lagi spread (signature baru anomaly.py Tahap 4).
     check_under_safety dipanggil dengan price_delta_cents=None: di
     analisis awal belum ada harga sebelumnya (snapshot pertama baru
     dibuat di artefak ini), jadi cek harga-melawan dilewati.
@@ -578,6 +905,7 @@ def _kumpulkan_anomali(
     for leg in legs:
         garis = leg.get("line")
         leg_id = leg["leg_id"]
+        bantalan_kaki = _angka(leg.get("cushion_points"))
         if garis is not None:
             _tambah(
                 _cek(
@@ -586,8 +914,7 @@ def _kumpulkan_anomali(
                     garis,
                     median,
                     main_line,
-                    spread_abs,
-                    cfg,
+                    bantalan_kaki,
                 ),
                 leg_id,
             )
@@ -598,7 +925,7 @@ def _kumpulkan_anomali(
                 median,
                 main_line,
                 garis,
-                spread_abs,
+                bantalan_kaki,
                 None,
                 cfg,
             )
@@ -883,17 +1210,74 @@ def _build_nba_analysis(
     markets_sim = sim2.get("markets") or {}
     dist_total = (sim2.get("score_distribution") or {}).get("total") or {}
 
-    # Tahap 4: garis Asuransi + Utama dari cushion.
-    try:
-        hasil_asuransi = cushion_mod.insurance_line(
-            dist_total, main_line, entri_under, cfg_efektif
-        )
-        hasil_utama = cushion_mod.utama_line(
-            dist_total, main_line, entri_under, spread=spread_abs, cfg=cfg_efektif
-        )
-    except (ValueError, config_mod.ConfigError) as exc:
-        missing.append(f"cushion_gagal: {exc}")
-        return _gagal()
+    # Tahap 4: bantalan adaptif DULU, lalu Utama, lalu
+    # Asuransi di atas Utama. Bila bantalan adaptif None (data tidak
+    # lengkap / modul analis belum tersedia) -> kedua kaki fail-closed
+    # dengan alasan tercatat, TANPA fallback ke +8.
+    stats_laga = stats_laga_untuk_analis(inputs_data)
+    analis_mod = _muat_analis()
+    hasil_bantalan = None
+    alasan_bantalan = None
+    if analis_mod is None:
+        alasan_bantalan = "analis_belum_tersedia"
+    else:
+        try:
+            hasil_bantalan = analis_mod.bantalan_adaptif(
+                stats_laga, dist_total, cfg_efektif
+            )
+        except Exception as exc:  # noqa: BLE001 - analis gagal = kaki gagal
+            alasan_bantalan = f"bantalan_adaptif_gagal: {type(exc).__name__}"
+            hasil_bantalan = None
+        if hasil_bantalan is not None:
+            if (
+                not isinstance(hasil_bantalan, dict)
+                or _angka(hasil_bantalan.get("cushion_points")) is None
+            ):
+                alasan_bantalan = "bantalan_adaptif_hasil_tidak_valid"
+                hasil_bantalan = None
+        elif alasan_bantalan is None:
+            alasan_bantalan = "bantalan_adaptif_tidak_tersedia"
+    if hasil_bantalan is None:
+        missing.append(f"bantalan_adaptif: {alasan_bantalan}")
+        hasil_utama = _hasil_cushion_gagal(alasan_bantalan)
+        hasil_asuransi = _hasil_cushion_gagal(alasan_bantalan)
+    else:
+        try:
+            harga_min_utama, _sumber_min_utama = baca_harga_min(
+                cfg_efektif, "harga_min_utama_cents"
+            )
+            harga_min_asuransi, _sumber_min_asuransi = baca_harga_min(
+                cfg_efektif, "harga_min_asuransi_cents"
+            )
+            # Utama DULU (signature baru, tanpa spread), lalu Asuransi
+            # di atas garis Utama. peluang_under dikonversi dari
+            # markets sim ke {garis: P(Under)} (kontrak cushion).
+            peluang_under = peluang_under_dari_markets(markets_sim)
+            hasil_utama = cushion_mod.utama_line(
+                dist_total,
+                main_line,
+                entri_under,
+                cfg=cfg_efektif,
+                cushion_points=_angka(hasil_bantalan["cushion_points"]),
+                peluang_under=peluang_under,
+                harga_min_cents=harga_min_utama,
+            )
+            garis_utama = _angka(hasil_utama.get("line"))
+            hasil_asuransi = cushion_mod.insurance_line(
+                dist_total,
+                main_line,
+                entri_under,
+                cfg=cfg_efektif,
+                garis_di_atas=garis_utama,
+                peluang_under=peluang_under,
+                harga_min_cents=harga_min_asuransi,
+            )
+        except (ValueError, config_mod.ConfigError, TypeError) as exc:
+            # TypeError di sini berarti signature baru cushion belum
+            # terpasang (cushion lama menolak kwarg baru) — JANGAN
+            # fallback ke aturan lama; DATA_INCOMPLETE + alasan.
+            missing.append(f"cushion_gagal: {exc}")
+            return _gagal()
 
     # Tahap 5: pembanding Kalshi (gagal -> MODEL_ONLY, bukan DATA_INCOMPLETE).
     kalshi_markets: list[dict] | None = None
@@ -930,6 +1314,7 @@ def _build_nba_analysis(
             start_time,
             cfg_efektif,
             generated_at,
+            hasil_bantalan,
         ),
         _rakit_kaki(
             "main",
@@ -942,6 +1327,7 @@ def _build_nba_analysis(
             start_time,
             cfg_efektif,
             generated_at,
+            hasil_bantalan,
         ),
     ]
     artefak["legs"] = legs
@@ -956,10 +1342,60 @@ def _build_nba_analysis(
                 "at": generated_at,
             }
 
-    # Tahap 6: anomali.
-    anomalies, gagal_anomali = _kumpulkan_anomali(
-        legs, median, main_line, spread_abs, cfg_efektif
+    # Penilaian wajar (Tahap 4): acuan = median sim, garis + harga jup
+    # kaki Utama, bantalan yang dibutuhkan = bantalan adaptif. Bila
+    # analis belum tersedia / nilai_wajar gagal / hasilnya tidak sah
+    # -> "tidak_terverifikasi" dengan angka yang ada tetap dicatat.
+    kaki_utama = legs[1]
+    harga_utama = _angka(kaki_utama.get("jup_estimated_cents"))
+    if harga_utama is None:
+        harga_utama = _angka(kaki_utama.get("price_cents"))
+    bantalan_dibutuhkan = (
+        _angka(hasil_bantalan.get("cushion_points"))
+        if isinstance(hasil_bantalan, dict)
+        else None
     )
+    analisis_wajar = None
+    if analis_mod is not None:
+        try:
+            analisis_wajar = analis_mod.nilai_wajar(
+                acuan_sim=median,
+                garis_market=main_line,
+                garis_harga=_angka(kaki_utama.get("line")),
+                harga_cents=harga_utama,
+                bantalan_dibutuhkan_poin=bantalan_dibutuhkan,
+                cfg=cfg_efektif,
+            )
+        except Exception:  # noqa: BLE001 - nilai_wajar gagal = tidak terverifikasi
+            analisis_wajar = None
+    if not _analisis_wajar_sah(analisis_wajar):
+        if analis_mod is None:
+            penjelasan = (
+                "Modul analis belum tersedia, jadi kewajaran harga "
+                "belum bisa dinilai."
+            )
+        elif bantalan_dibutuhkan is None:
+            penjelasan = (
+                "Bantalan adaptif tidak tersedia, jadi kewajaran harga "
+                "belum bisa dinilai."
+            )
+        else:
+            penjelasan = (
+                "Penilaian wajar gagal dihitung, jadi kewajaran harga "
+                "belum bisa dinilai."
+            )
+        analisis_wajar = _analisis_wajar_tidak_terverifikasi(
+            median,
+            main_line,
+            kaki_utama.get("line"),
+            harga_utama,
+            bantalan_dibutuhkan,
+            penjelasan,
+        )
+    artefak["analisis_wajar"] = analisis_wajar
+
+    # Tahap 6: anomali.
+    anomalies, gagal_anomali = _kumpulkan_anomali(legs, median, main_line, cfg_efektif)
     artefak["anomalies"] = anomalies
     missing.extend(gagal_anomali)
 

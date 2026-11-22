@@ -2,10 +2,13 @@
 
 fetch_match_inputs, fetch_event_by_slug, dan fetch_total_markets
 di-stub (unittest.mock); parse_event_ladders, nba_sim.simulate
-(kecuali tes yang men-stub-nya secara eksplisit), cushion, devig,
-price_labels, dan anomaly dipakai ASLI. Config dibaca dari
+(kecuali tes yang men-stub-nya secara eksplisit), analis, cushion,
+devig, price_labels, dan anomaly dipakai ASLI. Config dibaca dari
 playstyle.yaml asli (nilai parameter TIDAK di-hardcode di sini —
-khususnya parameter simulasi hasil adopsi rolling v7).
+khususnya parameter simulasi hasil adopsi rolling v7). Aturan garis
+yang diuji adalah aturan TAHAP 4 (bantalan adaptif + harga minimum
++ Asuransi di atas Utama); contoh lama 1b (233,5/233,5) sudah tidak
+berlaku dan digantikan contoh Tahap 4 di TestContoh1b.
 """
 
 import io
@@ -202,13 +205,21 @@ def _event_gamma(garis_total=None, dengan_spread=True):
         249.5: 0.075,
         253.5: 0.045,
     }
+    # Tahap 4: 241.5 dan 245.5 diberi volume + book (tidak tipis)
+    # supaya kaki Asuransi BISA memenuhi syarat di fixture ini —
+    # aturan baru menjadikan volume tipis penghalang KERAS Asuransi,
+    # dan tanpa garis jauh yang cair, status selalu HOLD. Dua garis
+    # cair diperlukan karena sim nyata (median 228, p74 242) membuat
+    # 241.5 tidak mencapai lantai p74, sementara sim stub (p74 232)
+    # memakai 241.5. Garis jauh lain tetap tipis (meniru live
+    # DET@ATL: hanya 249.5 yang cair di sana).
     volume = {
         225.5: 41964.0,
         229.5: 1200.0,
         233.5: 11.0,
         237.5: 9.0,
-        241.5: 8.0,
-        245.5: 7.0,
+        241.5: 500.0,
+        245.5: 500.0,
         249.5: 6.0,
         253.5: 5.0,
     }
@@ -235,10 +246,14 @@ def _event_gamma(garis_total=None, dengan_spread=True):
             _pasar_spread("Detroit Pistons", "Atlanta Hawks", 5.5, 0.48, 9000.0)
         )
     for garis in garis_total:
-        # Garis jauh tipis: tanpa book (harga dari outcomePrices saja).
+        # Garis jauh tipis: tanpa book (harga dari outcomePrices saja),
+        # kecuali 241.5 dan 245.5 yang cair (lihat komentar volume).
         markets.append(
             _pasar_total(
-                garis, harga_over[garis], volume[garis], pakai_book=garis <= 229.5
+                garis,
+                harga_over[garis],
+                volume[garis],
+                pakai_book=garis <= 229.5 or garis in (241.5, 245.5),
             )
         )
     return {
@@ -426,21 +441,45 @@ class TestArtefakLengkap(_BasisTes):
             self.assertIn(kunci, artefak["price_snapshots"])
 
     def test_garis_kaki_memenuhi_aturan_cushion(self):
-        # Properti (bukan hardcode garis): garis Asuransi = garis tangga
-        # terkecil >= max(p74, garis market + 8); Utama = terkecil >=
-        # max(median, garis market) + 8 (spread 5,5 > 2,5).
+        # Properti Tahap 4 (bukan hardcode garis): Utama = garis tangga
+        # terkecil >= max(median, garis market) + bantalan adaptif yang
+        # tercatat di kaki, lalu naik tangga sampai harga jup >= 75¢;
+        # Asuransi = garis tangga terkecil yang >= p74 DAN di atas garis
+        # Utama, harga jup >= 75¢, TIDAK tipis, p_model >= 0,74.
         self._patch_fetch()
         artefak = self._bangun()
         dist = artefak["simulation"]["score_distribution"]["total"]
-        garis_under = sorted(
-            {e["line"] for e in artefak["market"]["totals"] if e["side"] == "under"}
+        markets_sim = artefak["simulation"]["markets"]
+        asuransi, utama = artefak["legs"]
+        self.assertTrue(utama["meets"])
+        self.assertTrue(asuransi["meets"])
+        # Asuransi DI ATAS Utama di laga yang sama (filosofi Tahap 4).
+        self.assertGreater(asuransi["line"], utama["line"])
+        # Kedua kaki membawa bantalan adaptif yang SAMA.
+        self.assertIsNotNone(utama["cushion_points"])
+        self.assertEqual(asuransi["cushion_points"], utama["cushion_points"])
+        bantalan = utama["cushion_points"]
+        tangga = sorted(
+            (e for e in artefak["market"]["totals"] if e["side"] == "under"),
+            key=lambda e: e["line"],
         )
-        required_asuransi = max(dist["p74"], 225.5 + 8.0)
-        harap_asuransi = min(g for g in garis_under if g >= required_asuransi)
-        required_utama = max(dist["median"], 225.5) + 8.0
-        harap_utama = min(g for g in garis_under if g >= required_utama)
-        self.assertEqual(artefak["legs"][0]["line"], harap_asuransi)
-        self.assertEqual(artefak["legs"][1]["line"], harap_utama)
+        required_utama = max(dist["median"], 225.5) + bantalan
+        harap_utama = next(
+            e["line"]
+            for e in tangga
+            if e["line"] >= required_utama and (e["jup_estimated_cents"] or 0) >= 75.0
+        )
+        self.assertEqual(utama["line"], harap_utama)
+        harap_asuransi = next(
+            e["line"]
+            for e in tangga
+            if e["line"] >= dist["p74"]
+            and e["line"] > utama["line"]
+            and (e["jup_estimated_cents"] or 0) >= 75.0
+            and e["thin"] is not True
+            and markets_sim.get(f"total_under_{e['line']:g}", 0.0) >= 0.74
+        )
+        self.assertEqual(asuransi["line"], harap_asuransi)
 
     def test_sim_dipanggil_dua_pass_dengan_garis_tangga_plus_median(self):
         sim = _sim_stub({"total_under_233.5": 0.77, "total_under_219": 0.5})
@@ -471,13 +510,18 @@ class TestArtefakLengkap(_BasisTes):
 
 
 class TestContoh1b(_BasisTes):
-    def test_asuransi_233_5_di_66_5_sen(self):
-        # Contoh final 1b (regenerasi): median 219, p74 232, garis
-        # market 225,5 -> lantai market 233,5 yang mengikat.
+    def test_contoh_tahap4_utama_237_5_asuransi_241_5(self):
+        # Contoh Tahap 4 (menggantikan contoh 1b 233,5/233,5):
+        # median 219, std 19, p74 232, garis market 225,5, ORtg
+        # 114/113 vs liga 113 -> bantalan adaptif 8,23
+        # (19*0,42 + 0,5*0,5; form dilewati karena form5 kosong).
+        # Utama: max(219, 225,5) + 8,23 = 233,73 -> 237,5 (233,5
+        # harganya 67¢ < 75¢, jadi naik tangga). Asuransi: di atas
+        # Utama + tidak tipis + harga >= 75¢ -> 241,5.
         sim = _sim_stub(
             {
-                "total_under_233.5": 0.77,
                 "total_under_237.5": 0.83,
+                "total_under_241.5": 0.86,
                 "total_under_219": 0.5,
             }
         )
@@ -486,24 +530,49 @@ class TestContoh1b(_BasisTes):
         jsonschema.validate(instance=artefak, schema=_skema_nba_analysis())
         self.assertEqual(artefak["status"], "OK")
         asuransi, utama = artefak["legs"]
-        self.assertEqual(asuransi["line"], 233.5)
-        self.assertEqual(asuransi["price_cents"], 66.5)
-        self.assertEqual(asuransi["jup_estimated_cents"], 67.0)
-        self.assertEqual(asuransi["p_model"], 0.77)
+        self.assertEqual(asuransi["line"], 241.5)
+        self.assertEqual(asuransi["price_cents"], 83.0)
+        self.assertEqual(asuransi["jup_estimated_cents"], 83.5)
+        self.assertEqual(asuransi["p_model"], 0.86)
         self.assertTrue(asuransi["meets"])
         self.assertIsNone(asuransi["reason"])
-        self.assertEqual(asuransi["leg_id"], f"{MATCH_ID}:total_under_233.5:insurance")
-        # Utama: max(219, 225.5) + 8 = 233.5 (spread 5,5 -> bantalan 8).
-        self.assertEqual(utama["line"], 233.5)
-        self.assertEqual(utama["leg_id"], f"{MATCH_ID}:total_under_233.5:main")
-        # EV = 0,77 * (100/67) - 1 = +14,9% -> DISKON.
-        self.assertAlmostEqual(asuransi["ev_pct"], 14.925373, places=4)
+        self.assertEqual(asuransi["leg_id"], f"{MATCH_ID}:total_under_241.5:insurance")
+        self.assertEqual(utama["line"], 237.5)
+        self.assertEqual(utama["leg_id"], f"{MATCH_ID}:total_under_237.5:main")
+        self.assertEqual(utama["p_model"], 0.83)
+        # Bantalan adaptif tercatat sama di kedua kaki.
+        self.assertEqual(utama["cushion_points"], 8.23)
+        self.assertEqual(asuransi["cushion_points"], 8.23)
+        self.assertIn("8,23", utama["cushion_reason"])
+        # Volume/thin dari tangga: Utama tipis ($9), Asuransi cair ($500).
+        self.assertEqual(utama["volume_usd"], 9.0)
+        self.assertIs(utama["thin"], True)
+        self.assertEqual(asuransi["volume_usd"], 500.0)
+        self.assertIs(asuransi["thin"], False)
+        # EV Asuransi = 0,86 * (100/83,5) - 1 = +2,99% -> DISKON.
+        self.assertAlmostEqual(asuransi["ev_pct"], 2.994012, places=4)
         self.assertEqual(asuransi["price_label"], "DISKON")
-        self.assertEqual(artefak["price_snapshots"]["total_under_233.5"]["cents"], 67.0)
+        self.assertEqual(artefak["price_snapshots"]["total_under_241.5"]["cents"], 83.5)
+        self.assertEqual(artefak["price_snapshots"]["total_under_237.5"]["cents"], 76.0)
+        # Penilaian wajar: jarak 237,5-219 = 18,5 >= bantalan 8,23.
+        wajar = artefak["analisis_wajar"]
+        self.assertEqual(wajar["penilaian"], "wajar")
+        self.assertEqual(wajar["acuan_sim"], 219.0)
+        self.assertEqual(wajar["garis_market"], 225.5)
+        self.assertEqual(wajar["garis_harga"], 237.5)
+        self.assertEqual(wajar["harga_cents"], 76.0)
+        self.assertEqual(wajar["jarak_poin"], 18.5)
+        self.assertEqual(wajar["bantalan_dibutuhkan_poin"], 8.23)
 
     def test_anomali_total_line_vs_model_median_219_vs_market_225_5(self):
         # Temuan main agent 1b: selisih 6,5 > ambang 5,0.
-        sim = _sim_stub({"total_under_233.5": 0.77, "total_under_219": 0.5})
+        sim = _sim_stub(
+            {
+                "total_under_237.5": 0.83,
+                "total_under_241.5": 0.86,
+                "total_under_219": 0.5,
+            }
+        )
         self._patch_fetch(sim=sim)
         artefak = self._bangun(iterations=None)
         tipe = [a["type"] for a in artefak["anomalies"]]
@@ -513,7 +582,8 @@ class TestContoh1b(_BasisTes):
         )
         self.assertEqual(anomali["gap_points"], 6.5)
         self.assertTrue(anomali["kenapa_beda_required"])
-        # Cushion dikonfirmasi market (8,0 >= 8) -> tidak ada anomali itu.
+        # Cushion dikonfirmasi market (12,0 dan 16,0 >= 8,23) ->
+        # tidak ada anomali itu.
         self.assertNotIn("cushion_tidak_dikonfirmasi_market", tipe)
 
 
@@ -617,8 +687,8 @@ class TestKakiDanHarga(_BasisTes):
     def test_p_model_dari_kunci_sim_yang_benar(self):
         sim = _sim_stub(
             {
-                "total_under_233.5": 0.77,
                 "total_under_237.5": 0.83,
+                "total_under_241.5": 0.86,
                 "total_under_219": 0.5,
             }
         )
@@ -635,7 +705,13 @@ class TestKakiDanHarga(_BasisTes):
             _pasar_kalshi_total(226.0, 0.45, 0.47),
             _pasar_kalshi_total(228.0, 0.40, 0.42),
         ]
-        sim = _sim_stub({"total_under_233.5": 0.77, "total_under_219": 0.5})
+        sim = _sim_stub(
+            {
+                "total_under_237.5": 0.83,
+                "total_under_241.5": 0.86,
+                "total_under_219": 0.5,
+            }
+        )
         self._patch_fetch(kalshi=kalshi, sim=sim)
         artefak = self._bangun(iterations=None)
         for leg in artefak["legs"]:
@@ -644,23 +720,39 @@ class TestKakiDanHarga(_BasisTes):
             self.assertEqual(leg["p_final"], leg["p_model"])
 
     def test_p_market_kalshi_komplemen_dan_blend(self):
-        # Kalshi Over 233.5 bid/ask 0,30/0,32 -> p_over 0,31 ->
+        # Kalshi Over 237.5 bid/ask 0,30/0,32 -> p_over 0,31 ->
         # p_under 0,69; blend w_model dari config (0,3):
-        # p_final = 0,3*0,77 + 0,7*0,69 = 0,714.
-        kalshi = [_pasar_kalshi_total(233.5, 0.30, 0.32)]
-        sim = _sim_stub({"total_under_233.5": 0.77, "total_under_219": 0.5})
+        # p_final Utama = 0,3*0,83 + 0,7*0,69 = 0,732. Asuransi
+        # 241.5 tidak punya garis Kalshi cocok -> MODEL_ONLY.
+        kalshi = [_pasar_kalshi_total(237.5, 0.30, 0.32)]
+        sim = _sim_stub(
+            {
+                "total_under_237.5": 0.83,
+                "total_under_241.5": 0.86,
+                "total_under_219": 0.5,
+            }
+        )
         self._patch_fetch(kalshi=kalshi, sim=sim)
         artefak = self._bangun(iterations=None)
         w = config_mod.get_value(CFG, "blend", "w_model")
-        for leg in artefak["legs"]:
-            self.assertEqual(leg["p_market"], 0.69)
-            self.assertEqual(leg["comparison_source"], "kalshi")
-            self.assertAlmostEqual(
-                leg["p_final"], w * 0.77 + (1.0 - w) * 0.69, places=9
-            )
+        asuransi, utama = artefak["legs"]
+        self.assertEqual(utama["line"], 237.5)
+        self.assertEqual(utama["p_market"], 0.69)
+        self.assertEqual(utama["comparison_source"], "kalshi")
+        self.assertAlmostEqual(utama["p_final"], w * 0.83 + (1.0 - w) * 0.69, places=9)
+        self.assertEqual(asuransi["line"], 241.5)
+        self.assertIsNone(asuransi["p_market"])
+        self.assertIsNone(asuransi["comparison_source"])
+        self.assertEqual(asuransi["p_final"], asuransi["p_model"])
 
     def test_kalshi_gagal_model_only_status_tetap_ok(self):
-        sim = _sim_stub({"total_under_233.5": 0.77, "total_under_219": 0.5})
+        sim = _sim_stub(
+            {
+                "total_under_237.5": 0.83,
+                "total_under_241.5": 0.86,
+                "total_under_219": 0.5,
+            }
+        )
         self._patch_fetch(
             kalshi=_fail("Kalshi API", 2, "Kalshi markets HTTP 500"), sim=sim
         )
@@ -674,22 +766,40 @@ class TestKakiDanHarga(_BasisTes):
         )
 
     def test_label_mahal_saat_ev_negatif(self):
-        sim = _sim_stub({"total_under_233.5": 0.55, "total_under_219": 0.5})
+        # Kaki Utama dengan p_model rendah -> EV negatif -> MAHAL.
+        # (Asuransi tidak bisa dipakai untuk tes ini: syarat peluang
+        # model >= 0,74 membuatnya gagal sebelum EV dihitung.)
+        sim = _sim_stub(
+            {
+                "total_under_237.5": 0.55,
+                "total_under_241.5": 0.86,
+                "total_under_219": 0.5,
+            }
+        )
         self._patch_fetch(sim=sim)
         artefak = self._bangun(iterations=None)
-        asuransi = artefak["legs"][0]
-        # EV = 0,55 * (100/67) - 1 = -17,9% -> MAHAL.
-        self.assertAlmostEqual(asuransi["ev_pct"], -17.910448, places=4)
-        self.assertEqual(asuransi["price_label"], "MAHAL")
+        utama = artefak["legs"][1]
+        # EV Utama = 0,55 * (100/76) - 1 = -27,6% -> MAHAL.
+        self.assertAlmostEqual(utama["ev_pct"], -27.631579, places=4)
+        self.assertEqual(utama["price_label"], "MAHAL")
 
-    def test_tanpa_spread_bantalan_utama_12_dan_dicatat(self):
-        # Fail-closed konservatif (keputusan user 2026-11-22, Langkah 2):
-        # tanpa spread, Utama memakai bantalan rapat 12 (bukan 8):
-        # max(219, 225.5) + 12 = 237.5.
-        sim = _sim_stub({"total_under_233.5": 0.77, "total_under_219": 0.5})
+    def test_tanpa_spread_bantalan_tidak_berubah(self):
+        # Tahap 4: spread TIDAK LAGI memengaruhi bantalan (signature
+        # baru cushion tanpa spread; aturan lama 8/12 dihapus). Garis
+        # Utama sama dengan dan tanpa spread (237,5 dari bantalan
+        # adaptif 8,23 + naik tangga harga); "spread_tidak_diketahui"
+        # tetap dicatat sebagai info diagnostik.
+        sim = _sim_stub(
+            {
+                "total_under_237.5": 0.83,
+                "total_under_241.5": 0.86,
+                "total_under_219": 0.5,
+            }
+        )
         self._patch_fetch(event=_event_gamma(dengan_spread=False), sim=sim)
         artefak = self._bangun(iterations=None)
         self.assertEqual(artefak["legs"][1]["line"], 237.5)
+        self.assertEqual(artefak["legs"][1]["cushion_points"], 8.23)
         self.assertIn("spread_tidak_diketahui", artefak["missing"])
 
     def test_tanpa_slate_match_moneyline_null_dan_dicatat(self):
@@ -707,7 +817,13 @@ class TestTanpaOddsApi(_BasisTes):
         # meledak — builder hanya boleh memakai Kalshi sebagai pembanding.
         from ingest import odds_api as odds_api_mod
 
-        sim = _sim_stub({"total_under_233.5": 0.77, "total_under_219": 0.5})
+        sim = _sim_stub(
+            {
+                "total_under_237.5": 0.83,
+                "total_under_241.5": 0.86,
+                "total_under_219": 0.5,
+            }
+        )
         self._patch_fetch(sim=sim)
         with mock.patch.object(
             odds_api_mod,
@@ -717,6 +833,223 @@ class TestTanpaOddsApi(_BasisTes):
             artefak = self._bangun(iterations=None)
         self.assertEqual(artefak["status"], "OK")
         self.assertNotIn("odds_api", {s["kind"] for s in artefak["sources"]})
+
+
+class TestWiringTahap4(_BasisTes):
+    """Wiring Tahap 4: bantalan adaptif -> Utama dulu -> Asuransi di atas.
+
+    Modul analis + cushion dipakai ASLI (pekerja A sudah mendarat);
+    hanya bantalan None / analis hilang yang di-mock untuk menguji
+    jalur fail-closed.
+    """
+
+    def _sim_tahap4(self):
+        return _sim_stub(
+            {
+                "total_under_237.5": 0.83,
+                "total_under_241.5": 0.86,
+                "total_under_219": 0.5,
+            }
+        )
+
+    def test_urutan_utama_dulu_asuransi_di_atas(self):
+        # Observable urutan Utama-dulu: Asuransi > Utama, dan
+        # analisis_wajar menilai garis UTAMA (bukan Asuransi).
+        self._patch_fetch(sim=self._sim_tahap4())
+        artefak = self._bangun(iterations=None)
+        asuransi, utama = artefak["legs"]
+        self.assertGreater(asuransi["line"], utama["line"])
+        self.assertEqual(artefak["analisis_wajar"]["garis_harga"], utama["line"])
+        self.assertEqual(
+            artefak["analisis_wajar"]["bantalan_dibutuhkan_poin"],
+            utama["cushion_points"],
+        )
+
+    def test_climb_harga_tercatat_di_kaki_utama(self):
+        # std sim kecil (5,0) -> bantalan mentah 2,35 dibatasi ke
+        # minimum 4,0 -> garis bantalan 229,5 (56,5¢ < 75¢) -> naik
+        # tangga harga ke 237,5; climb tercatat di kaki Utama.
+        sim = self._sim_tahap4()
+        sim["score_distribution"]["total"]["std"] = 5.0
+        self._patch_fetch(sim=sim)
+        artefak = self._bangun(iterations=None)
+        asuransi, utama = artefak["legs"]
+        self.assertEqual(utama["cushion_points"], 4.0)
+        self.assertEqual(utama["line"], 237.5)
+        self.assertEqual(
+            utama["climb"],
+            {
+                "from_line": 229.5,
+                "to_line": 237.5,
+                "rungs": 2,
+                "reason": "harga_minimum",
+            },
+        )
+        # Asuransi tidak naik tangga (241.5 langsung lolos).
+        self.assertEqual(asuransi["line"], 241.5)
+        self.assertIsNone(asuransi["climb"])
+
+    def test_bantalan_none_kedua_kaki_fail_closed_tanpa_fallback(self):
+        # bantalan_adaptif None (data tidak lengkap) -> kedua kaki
+        # fail-closed dengan alasan tercatat; TANPA fallback ke +8
+        # (garis None, bukan 233,5/237,5).
+        from engine import analis as analis_mod
+
+        self._patch_fetch(sim=self._sim_tahap4())
+        with mock.patch.object(analis_mod, "bantalan_adaptif", return_value=None):
+            artefak = self._bangun(iterations=None)
+        jsonschema.validate(instance=artefak, schema=_skema_nba_analysis())
+        self.assertEqual(artefak["status"], "HOLD")
+        self.assertEqual(len(artefak["legs"]), 2)
+        for leg in artefak["legs"]:
+            self.assertFalse(leg["meets"])
+            self.assertIsNone(leg["line"])
+            self.assertEqual(leg["reason"], "bantalan_adaptif_tidak_tersedia")
+            self.assertIsNone(leg["cushion_points"])
+            self.assertIsNone(leg["cushion_reason"])
+        self.assertIn(
+            "bantalan_adaptif: bantalan_adaptif_tidak_tersedia",
+            artefak["missing"],
+        )
+        self.assertEqual(artefak["analisis_wajar"]["penilaian"], "tidak_terverifikasi")
+        self.assertIsNone(artefak["analisis_wajar"]["garis_harga"])
+
+    def test_analis_hilang_kaki_fail_closed(self):
+        # Modul analis belum tersedia (_muat_analis -> None) -> sama
+        # seperti bantalan None: fail-closed + alasan tercatat.
+        self._patch_fetch(sim=self._sim_tahap4())
+        with mock.patch.object(nba_analysis_mod, "_muat_analis", return_value=None):
+            artefak = self._bangun(iterations=None)
+        self.assertEqual(artefak["status"], "HOLD")
+        for leg in artefak["legs"]:
+            self.assertFalse(leg["meets"])
+            self.assertEqual(leg["reason"], "analis_belum_tersedia")
+        self.assertIn("bantalan_adaptif: analis_belum_tersedia", artefak["missing"])
+        self.assertEqual(artefak["analisis_wajar"]["penilaian"], "tidak_terverifikasi")
+
+    def test_analisis_wajar_tidak_terverifikasi_bila_utama_gagal(self):
+        # Tangga hanya 225,5/229,5: Utama tidak punya garis -> nilai
+        # wajar tidak terverifikasi (garis_harga None).
+        self._patch_fetch(
+            event=_event_gamma(garis_total=[225.5, 229.5]),
+            sim=self._sim_tahap4(),
+        )
+        artefak = self._bangun(iterations=None)
+        self.assertEqual(artefak["status"], "HOLD")
+        wajar = artefak["analisis_wajar"]
+        self.assertEqual(wajar["penilaian"], "tidak_terverifikasi")
+        self.assertIsNone(wajar["garis_harga"])
+        self.assertIsNone(wajar["harga_cents"])
+        self.assertEqual(wajar["acuan_sim"], 219.0)
+        self.assertEqual(wajar["bantalan_dibutuhkan_poin"], 8.23)
+
+    def test_artefak_lama_tanpa_field_baru_tetap_valid(self):
+        # Artefak pra-Tahap 4 (tanpa analisis_wajar + tanpa field baru
+        # di kaki) tetap valid vs skema — field baru opsional.
+        import copy
+
+        self._patch_fetch(sim=self._sim_tahap4())
+        artefak = self._bangun(iterations=None)
+        lama = copy.deepcopy(artefak)
+        del lama["analisis_wajar"]
+        for leg in lama["legs"]:
+            for kunci in (
+                "cushion_points",
+                "cushion_reason",
+                "volume_usd",
+                "thin",
+                "climb",
+            ):
+                del leg[kunci]
+        self.assertIsNone(nba_analysis_mod.validate_nba_analysis(lama))
+        jsonschema.validate(instance=lama, schema=_skema_nba_analysis())
+
+    def test_stats_laga_untuk_analis(self):
+        inputs = {
+            "home": {
+                "stats_season": {"off_rtg": 114.0},
+                "form5": [
+                    {"pts": 100, "opp_pts": 90},
+                    {"pts": 110, "opp_pts": 100},
+                ],
+                "home_record": {"w": 5, "l": 3, "ppg": 110.0, "opp_ppg": 108.0},
+                "road_record": {"w": 4, "l": 4, "ppg": 109.0, "opp_ppg": 109.0},
+            },
+            "away": {
+                "stats_season": {"off_rtg": 113.0},
+                "form5": [{"pts": 120, "opp_pts": 110}],
+                "home_record": {"w": 3, "l": 3, "ppg": 100.0, "opp_ppg": 100.0},
+                "road_record": {"w": 7, "l": 2, "ppg": 118.0, "opp_ppg": 108.0},
+            },
+            "league": {"avg_off_rtg": 113.0},
+        }
+        stats = nba_analysis_mod.stats_laga_untuk_analis(inputs)
+        self.assertEqual(stats["ortg_home"], 114.0)
+        self.assertEqual(stats["ortg_away"], 113.0)
+        self.assertEqual(stats["ortg_liga_rata"], 113.0)
+        # (190 + 210 + 230) / 3.
+        self.assertEqual(stats["total_rata_5laga"], 210.0)
+        # Home 218,0; away (6*200 + 9*226)/15 = 215,6; rata-rata 216,8.
+        self.assertAlmostEqual(stats["total_rata_musim"], 216.8, places=9)
+
+    def test_stats_laga_data_hilang_jadi_none(self):
+        self.assertEqual(
+            nba_analysis_mod.stats_laga_untuk_analis({}),
+            {
+                "ortg_home": None,
+                "ortg_away": None,
+                "ortg_liga_rata": None,
+                "total_rata_5laga": None,
+                "total_rata_musim": None,
+            },
+        )
+        # Satu tim tanpa rekor -> total_rata_musim None (jangan ditebak
+        # dari satu tim saja).
+        inputs = {
+            "home": {
+                "stats_season": {"off_rtg": 114.0},
+                "home_record": {"w": 5, "l": 3, "ppg": 110.0, "opp_ppg": 108.0},
+            },
+            "away": {"stats_season": {"off_rtg": 113.0}},
+            "league": {"avg_off_rtg": 113.0},
+        }
+        stats = nba_analysis_mod.stats_laga_untuk_analis(inputs)
+        self.assertEqual(stats["ortg_home"], 114.0)
+        self.assertIsNone(stats["total_rata_musim"])
+
+    def test_peluang_under_dari_markets(self):
+        markets = {
+            "moneyline_home": 0.59,
+            "moneyline_away": 0.41,
+            "total_over_233.5": 0.23,
+            "total_under_233.5": 0.77,
+            "total_under_219": 0.5,
+            "total_under_buruk": 0.1,
+            "total_under_241.5": 1.5,  # di luar 0-1 -> dilewati
+        }
+        self.assertEqual(
+            nba_analysis_mod.peluang_under_dari_markets(markets),
+            {233.5: 0.77, 219.0: 0.5},
+        )
+        self.assertEqual(nba_analysis_mod.peluang_under_dari_markets({}), {})
+        self.assertEqual(nba_analysis_mod.peluang_under_dari_markets(None), {})
+
+    def test_baca_harga_min(self):
+        nilai, sumber = nba_analysis_mod.baca_harga_min(CFG, "harga_min_utama_cents")
+        self.assertEqual(nilai, 75.0)
+        self.assertEqual(sumber, "config")
+        nilai, sumber = nba_analysis_mod.baca_harga_min({}, "harga_min_utama_cents")
+        self.assertEqual(nilai, 75.0)
+        self.assertEqual(sumber, "default")
+        nilai, sumber = nba_analysis_mod.baca_harga_min(
+            {"analis": {"harga_min_asuransi_cents": 80}}, "harga_min_asuransi_cents"
+        )
+        self.assertEqual(nilai, 80.0)
+        self.assertEqual(sumber, "config")
+        with self.assertRaises(ValueError):
+            nba_analysis_mod.baca_harga_min(
+                {"analis": {"harga_min_utama_cents": 150}}, "harga_min_utama_cents"
+            )
 
 
 class TestHelperTricode(unittest.TestCase):

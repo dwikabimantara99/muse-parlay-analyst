@@ -9,17 +9,22 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 12
+  version: 13
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22"
-  last_reviewed: "2026-11-22"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22 + perbaikan racik analis adaptif (bantalan adaptif, nilai wajar, Asuransi >2,5x, section analis), 2026-11-23"
+  last_reviewed: "2026-11-23"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
 tickets:
   insurance:
     name: "Asuransi"
-    multiplier_min: 2.20        # §6a default 2,20x
-    multiplier_max: 2.50        # §6a default 2,50x
+    # Filosofi user 2026-11-23: Asuransi HARUS lebih tebal dari Utama
+    # dan tumpukan tembus DI ATAS x2,5 (x2,0 = impas BEP bila modal
+    # $10+$10; x2,5 = untung $5 walau Utama hangus). Rentang 2,5–3,0
+    # USULAN (menunggu keberatan user/reviewer): tidak tumpang tindih
+    # dengan Utama 3,0–5,0 sehingga kedua tiket selalu beda peran.
+    multiplier_min: 2.5         # dulu 2,20x (§6a) — naik per filosofi user
+    multiplier_max: 3.0         # dulu 2,50x (§6a) — USULAN, lihat komentar
     min_leg_prob: 0.74          # §6a idealnya ≥74% per kaki
     # Syarat wajib §6a: pengali x modal Asuransi >= total modal kedua tiket.
     must_cover_total_stake: true
@@ -33,9 +38,15 @@ tickets:
     # hiburan. Menggantikan default blueprint 6,0x.
     multiplier_max: 5.0
     # Target lunak peracik (profil user 2026-11-22): racikan Utama
-    # diusahakan ≤ 4,0x; di atas itu hanya bila tidak ada kombinasi
-    # yang masuk target (tetap ≤ multiplier_max 5,0x).
+    # diusahakan ≤ 4,0x; di atas itu HANYA bila mesin "yakin" (semua
+    # kaki p_final ≥ yakin_min_leg_prob + semua TETAP_OK + tanpa
+    # anomali — kriteria USULAN Tahap 4, menunggu keberatan
+    # user/reviewer); subset yakin di atas lunak DIUTAMAKAN atas
+    # subset lunak (keputusan koordinator integrasi Tahap 4).
     target_multiplier_max: 4.0
+    # Ambang p_final per kaki untuk kriteria "yakin" Utama di atas
+    # target lunak (USULAN Tahap 4 — menunggu keberatan).
+    yakin_min_leg_prob: 0.75
     min_leg_prob: 0.65          # §6a idealnya ≥65% per kaki
   # Mode default. "aggressive" hanya atas perintah user per malam ("malam ini
   # mode agresif"). Di mode agresif: multiplier_max Utama bebas + moneyline
@@ -140,6 +151,39 @@ polymarket_ladder:
   # adalah kumulatif, jadi ini ukuran kasar, bukan likuiditas saat ini.
   min_volume_usd: 100.0
 
+# ── Mesin analis: bantalan adaptif + nilai wajar (2026-11-23) ─────────────
+analis:
+  # Harga minimum kaki (estimasi jup.ag, sen) — filosofi user 2026-11-23:
+  # Utama WAJIB >= 75¢ (boleh 81–82¢ bila laga butuh lebih aman);
+  # Asuransi juga >= 75¢. Garis dipilih dari HARGA dulu, bukan cuma peluang.
+  harga_min_utama_cents: 75
+  harga_min_asuransi_cents: 75
+  # Rumus bantalan adaptif (engine/analis.py bantalan_adaptif):
+  #   bantalan = clamp(std_sim * std_factor
+  #                    + (ortg_rata_kedua_tim - ortg_liga_rata) * ortg_weight
+  #                    + (total_rata_5laga - total_rata_musim) * form_weight,
+  #                    min_points, max_points)
+  # NILAI AWAL — BELUM DIKALIBRASI. std_factor 0,42 dipilih supaya laga
+  # biasa (std sim ~19 poin, sesuai sigma_total hasil fit 18,9868)
+  # memberi bantalan ~8 poin (acuan user); ortg_weight + form_weight
+  # nilai awal yang menunggu kalibrasi atas data PAPER + persetujuan user.
+  # +8 BUKAN lagi aturan kaku: mesin menghitung bantalan per laga, boleh
+  # di bawah 8 bila statistik membenarkan, wajib di atas 8 bila laga menuntut.
+  cushion:
+    acuan_points: 8.0           # acuan user ("+8"), bukan aturan kaku
+    std_factor: 0.42            # bobot sebaran sim (dasar bantalan)
+    ortg_weight: 0.5            # bobot selisih rating serang vs liga
+    form_weight: 0.25           # bobot selisih skor 5 laga vs musim
+    min_points: 4.0             # batas bawah bantalan (jangan nol)
+    max_points: 20.0            # batas atas bantalan (jangan tak masuk akal)
+  # Nilai wajar (engine/analis.py nilai_wajar): "wajar" bila
+  # jarak (garis_harga - acuan_sim) - bantalan_dibutuhkan_poin
+  # >= selisih_minimum_poin. Nilai 0,0 = garis tempat harga duduk harus
+  # menyediakan minimal bantalan yang diminta statistik (tidak ada
+  # toleransi tambahan; naikkan hanya atas persetujuan user).
+  wajar:
+    selisih_minimum_poin: 0.0
+
 # ── §7a. Filter keras (kaki langsung dicoret, alasan dicatat) ───────────────
 filters:
   all_markets:
@@ -157,18 +201,19 @@ filters:
     drtg_bad_rank_to: 30
     # Kedua tim masuk 10 besar Pace -> coret.
     both_top_pace_n: 10
-    # D10: bantalan = garis Alt Under - median proyeksi total.
-    # Coret bila bantalan < 8 poin (< 12 poin kalau spread <= 2,5).
-    min_cushion_points: 8
-    min_cushion_points_close_spread: 12
-    close_spread_threshold: 2.5
+    # Bantalan ADAPTIF (filosofi user 2026-11-23, menggantikan D10 kaku
+    # 8/12 poin berbasis spread — kunci min_cushion_points,
+    # min_cushion_points_close_spread, close_spread_threshold DIHAPUS
+    # di versi 13): mesin menghitung bantalan per laga dari sebaran sim
+    # + kekuatan serang + form skor (section analis, engine/analis.py).
     # Bantalan Asuransi dari target peluang (keputusan user 2026-11-22,
     # patch langkah 1b perbaikan 3): garis terkecil dari tangga yang
-    # P_model(Under) >= insurance_target_probability DAN
-    # >= garis market + market_cushion_floor_points. Bila re-fit
-    # mengubah sebaran, bantalan ikut menyesuaikan otomatis.
+    # P_model(Under) >= insurance_target_probability, DI ATAS garis
+    # Utama, harga >= analis.harga_min_asuransi_cents, dan TIDAK tipis
+    # (volume = penghalang keras). Lantai market+8 (kunci
+    # market_cushion_floor_points) DIHAPUS di versi 13 — digantikan
+    # syarat "di atas Utama" + harga minimum + volume.
     insurance_target_probability: 0.74
-    market_cushion_floor_points: 8
   football_btts_yes:
     min_combined_xg: 2.45           # §7a: total xG gabungan < 2,45 -> coret
   football_lineup:

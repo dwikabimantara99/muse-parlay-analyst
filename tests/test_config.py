@@ -24,8 +24,10 @@ class TestPlaystyle(unittest.TestCase):
     # §6a — dua tiket
     def test_tiket_asuransi(self):
         ins = self.cfg["tickets"]["insurance"]
-        self.assertEqual(ins["multiplier_min"], 2.20)
-        self.assertEqual(ins["multiplier_max"], 2.50)
+        # Filosofi user 2026-11-23: Asuransi > x2,5 (x2,0 = impas BEP);
+        # rentang 2,5–3,0 USULAN (tidak tumpang tindih dengan Utama).
+        self.assertEqual(ins["multiplier_min"], 2.5)
+        self.assertEqual(ins["multiplier_max"], 3.0)
         self.assertEqual(ins["min_leg_prob"], 0.74)
         self.assertTrue(ins["must_cover_total_stake"])
 
@@ -35,6 +37,8 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(main["multiplier_min"], 3.0)
         self.assertEqual(main["multiplier_max"], 5.0)
         self.assertEqual(main["target_multiplier_max"], 4.0)
+        # Kriteria "yakin" Tahap 4 (USULAN): ambang p_final per kaki.
+        self.assertEqual(main["yakin_min_leg_prob"], 0.75)
         self.assertEqual(main["min_leg_prob"], 0.65)
 
     def test_mode_default_standard(self):
@@ -149,10 +153,18 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(f["drtg_bad_rank_from"], 23)
         self.assertEqual(f["drtg_bad_rank_to"], 30)
         self.assertEqual(f["both_top_pace_n"], 10)
-        # D10: bantalan = garis Alt Under - median proyeksi total.
-        self.assertEqual(f["min_cushion_points"], 8)
-        self.assertEqual(f["min_cushion_points_close_spread"], 12)
-        self.assertEqual(f["close_spread_threshold"], 2.5)
+        # Bantalan kaku D10 (8/12 berbasis spread) + lantai market+8
+        # DIHAPUS di versi 13 — digantikan bantalan adaptif (analis)
+        # + syarat "di atas Utama" + harga minimum + volume.
+        for kunci_mati in (
+            "min_cushion_points",
+            "min_cushion_points_close_spread",
+            "close_spread_threshold",
+            "market_cushion_floor_points",
+        ):
+            self.assertNotIn(kunci_mati, f)
+        # Target peluang Asuransi TETAP 0,74.
+        self.assertEqual(f["insurance_target_probability"], 0.74)
 
     def test_filter_btts(self):
         self.assertEqual(
@@ -228,13 +240,31 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_12(self):
-        # Versi 12: Langkah 6 (2026-11-22) — belajar sendiri
-        # (kalibrasi w + usulan belajar: min_legs_w, section learning;
-        # di atas versi 11: Langkah 5, otak bola).
+    def test_meta_versi_13(self):
+        # Versi 13: perbaikan racik analis adaptif (2026-11-23) —
+        # bantalan adaptif + nilai wajar (section analis), Asuransi
+        # 2,5–3,0x, kunci bantalan kaku D10 + lantai market+8 dihapus
+        # (di atas versi 12: Langkah 6, belajar sendiri).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 12)
-        self.assertEqual(meta["last_reviewed"], "2026-11-22")
+        self.assertEqual(meta["version"], 13)
+        self.assertEqual(meta["last_reviewed"], "2026-11-23")
+
+    def test_analis_section(self):
+        # Section analis (v13): harga minimum kaki + parameter rumus
+        # bantalan adaptif + parameter nilai wajar. Bobot bantalan
+        # NILAI AWAL — BELUM DIKALIBRASI, lihat komentar di yaml.
+        analis = self.cfg["analis"]
+        self.assertEqual(analis["harga_min_utama_cents"], 75)
+        self.assertEqual(analis["harga_min_asuransi_cents"], 75)
+        bantalan = analis["cushion"]
+        self.assertEqual(bantalan["acuan_points"], 8.0)
+        self.assertEqual(bantalan["std_factor"], 0.42)
+        self.assertEqual(bantalan["ortg_weight"], 0.5)
+        self.assertEqual(bantalan["form_weight"], 0.25)
+        self.assertEqual(bantalan["min_points"], 4.0)
+        self.assertEqual(bantalan["max_points"], 20.0)
+        self.assertGreater(bantalan["max_points"], bantalan["min_points"])
+        self.assertEqual(analis["wajar"]["selisih_minimum_poin"], 0.0)
 
     def test_soccer_section(self):
         # Wiring otak bola (Langkah 5): section soccer + jendela hasil.
@@ -299,7 +329,7 @@ class TestGetValue(unittest.TestCase):
         cfg = config.load_playstyle()
         self.assertEqual(
             config.get_value(cfg, "tickets", "insurance", "multiplier_min"),
-            2.20,
+            2.5,
         )
 
     def test_kunci_hilang_melempar(self):

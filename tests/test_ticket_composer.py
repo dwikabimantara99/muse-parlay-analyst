@@ -1,10 +1,12 @@
 """Tes engine/ticket_composer.py — SEMUA offline dari fixture, 0 kredit Odds API.
 
-Slate standar: 4 laga, tiap laga dua kaki Alt Under —
+Slate standar: 5 laga, tiap laga dua kaki Alt Under —
 - Asuransi: Under 235.5 @ 75c, p_model 0,80, p_market 0,78 -> p_final 0,786.
-  3 kaki -> pengali (100/75)^3 x 0,945 = 2,24 (target Asuransi 2,2-2,5).
-- Utama: Under 231.5 @ 72c, p_model 0,76, p_market 0,74 -> p_final 0,746.
-  4 kaki -> pengali (100/72)^4 x 0,945 = 3,52 (target Utama 3,5-5,0).
+  4 kaki -> pengali (100/75)^4 x 0,945 = 2,99 (target Asuransi 2,5-3,0).
+- Utama: Under 231.5 @ 75c, p_model 0,78, p_market 0,76 -> p_final 0,766.
+  5 kaki -> pengali (100/75)^5 x 0,945 = 3,98 (target Utama 3,0-5,0).
+  Harga Utama >= 75c (lantai harga filosofi 2026-11-23) dan p_final
+  0,766 (EV tiket positif: 0,766^5 x 3,98 - 1 = +5%).
 Median 224 vs garis market 225,5 (selisih 1,5 < 5,0 — aturan
 condong-ke-market tidak terpicu) kecuali di tes condong.
 """
@@ -32,6 +34,7 @@ LAGA = [
     "BOS@NYK_2026-11-22",
     "LAL@GSW_2026-11-22",
     "MIA@CHI_2026-11-22",
+    "PHX@DAL_2026-11-22",
 ]
 SEKARANG = "2026-11-22T13:00:00+00:00"
 
@@ -56,8 +59,21 @@ def buat_kaki(
     meets=True,
     reason=None,
     tanpa_ticket=False,
+    harga_jup=None,
+    thin=None,
+    cushion_points=None,
+    cushion_reason=None,
+    volume_usd=None,
+    climb=None,
 ):
-    """Satu kaki artefak nba_analysis (bentuk _rakit_kaki)."""
+    """Satu kaki artefak nba_analysis (bentuk _rakit_kaki).
+
+    ``harga`` = price_cents (Polymarket mentah); ``harga_jup`` =
+    jup_estimated_cents (None = sama dengan harga). EV dihitung dari
+    harga venue (jup). Field baru Tahap 4 (thin/cushion/volume/climb)
+    mengikuti kontrak kaki artefak (None = tidak diketahui).
+    """
+    harga_venue = harga_jup if harga_jup is not None else harga
     p_final = None
     ev_pct = None
     if p_model is not None:
@@ -67,7 +83,7 @@ def buat_kaki(
             if p_market is not None
             else p_model
         )
-        ev_pct = round((p_final * (100.0 / harga) - 1.0) * 100.0, 2)
+        ev_pct = round((p_final * (100.0 / harga_venue) - 1.0) * 100.0, 2)
     kaki = {
         "leg_id": (
             f"{match_id}:total_under_{line:g}:{ticket}"
@@ -81,7 +97,7 @@ def buat_kaki(
         "comparison_source": "kalshi" if p_market is not None else None,
         "p_final": p_final,
         "price_cents": harga,
-        "jup_estimated_cents": harga,
+        "jup_estimated_cents": harga_venue,
         "ev_pct": ev_pct,
         "price_label": (
             label
@@ -90,6 +106,11 @@ def buat_kaki(
         ),
         "cushion_vs_median_points": 14.5,
         "cushion_vs_market_points": 8.0,
+        "cushion_points": cushion_points,
+        "cushion_reason": cushion_reason,
+        "volume_usd": volume_usd,
+        "thin": thin,
+        "climb": climb,
         "meets": meets,
         "reason": reason,
         "fetched_at": "2026-11-22T10:00:00+00:00",
@@ -108,12 +129,13 @@ def buat_analisis(
     status="OK",
     game_date="2026-11-22",
     generated_at="2026-11-22T10:00:00+00:00",
+    anomalies=None,
 ):
     """Satu artefak nba_analysis minimal (kaki standar bila tidak diberi)."""
     if kaki_ins is None:
         kaki_ins = buat_kaki(match_id, "insurance", 235.5, 0.80, 0.78, 75.0)
     if kaki_main is None:
-        kaki_main = buat_kaki(match_id, "main", 231.5, 0.76, 0.74, 72.0)
+        kaki_main = buat_kaki(match_id, "main", 231.5, 0.78, 0.76, 75.0)
     legs = [kaki_ins, kaki_main]
     markets = {}
     for kaki in legs:
@@ -134,11 +156,12 @@ def buat_analisis(
             "markets": markets,
         },
         "market": {"main_total_line": garis_market},
+        "anomalies": list(anomalies) if anomalies is not None else [],
     }
 
 
 def slate_standar(laga=LAGA):
-    """Slate 4 laga standar (semua kaki lolos, garis berbeda)."""
+    """Slate 5 laga standar (semua kaki lolos, garis berbeda)."""
     return [buat_analisis(m) for m in laga]
 
 
@@ -211,6 +234,19 @@ def recheck_semua_ok(analyses, recheck_at="2026-11-22T12:30:00+00:00"):
     return [buat_recheck(a, recheck_at=recheck_at) for a in analyses]
 
 
+def cfg_tanpa_lantai():
+    """CFG dengan lantai harga 0 (kaki murah boleh lolos).
+
+    Untuk tes yang menguji logika lain (subset 1 kaki, mode agresif,
+    kriteria yakin) tanpa lantai harga menghalangi — lantai adalah
+    nilai config, jadi tes boleh memakai varian config.
+    """
+    cfg = copy.deepcopy(CFG)
+    cfg.setdefault("analis", {})["harga_min_utama_cents"] = 0
+    cfg["analis"]["harga_min_asuransi_cents"] = 0
+    return cfg
+
+
 class TestRacikStandar(unittest.TestCase):
     def test_dua_tiket_dari_slate_standar(self):
         analyses = slate_standar()
@@ -225,29 +261,29 @@ class TestRacikStandar(unittest.TestCase):
         # Stake 50/50 dari 20.
         self.assertEqual(ins["stake"], 10)
         self.assertEqual(main["stake"], 10)
-        # Pengali: Asuransi 3 kaki @75c = 2,24; Utama 4 kaki @72c = 3,52.
-        self.assertAlmostEqual(ins["multiplier"], 2.24, places=2)
-        self.assertAlmostEqual(main["multiplier"], 3.5166, places=3)
-        self.assertEqual(len(ins["legs"]), 3)
-        self.assertEqual(len(main["legs"]), 4)
+        # Pengali: Asuransi 4 kaki @75c = 2,99; Utama 5 kaki @75c = 3,98.
+        self.assertAlmostEqual(ins["multiplier"], 2.9867, places=3)
+        self.assertAlmostEqual(main["multiplier"], 3.9822, places=3)
+        self.assertEqual(len(ins["legs"]), 4)
+        self.assertEqual(len(main["legs"]), 5)
         # ID unik per tanggal.
         self.assertEqual(ins["ticket_id"], "tkt-2026-11-22-ins")
         self.assertEqual(main["ticket_id"], "tkt-2026-11-22-utm")
         self.assertEqual(ins["type"], "Asuransi")
         self.assertEqual(main["type"], "Utama")
         # P menang = Π p_final (laga berbeda = independen).
-        self.assertAlmostEqual(ins["metrics"]["p_win"], 0.786**3, places=3)
-        self.assertAlmostEqual(main["metrics"]["p_win"], 0.746**4, places=3)
+        self.assertAlmostEqual(ins["metrics"]["p_win"], 0.786**4, places=3)
+        self.assertAlmostEqual(main["metrics"]["p_win"], 0.766**5, places=3)
         # EV tiket = P x pengali - 1.
         self.assertAlmostEqual(
-            ins["metrics"]["combined_ev_pct"], (0.786**3 * 2.24 - 1) * 100, places=1
+            ins["metrics"]["combined_ev_pct"], (0.786**4 * 2.9867 - 1) * 100, places=1
         )
         self.assertEqual(ins["combo_spread_pct"], 5.5)
         self.assertEqual(main["combo_spread_pct"], 5.5)
         # Ringkasan menyebut kedua tiket + pengali.
         self.assertIn("ASURANSI", hasil["summary"])
         self.assertIn("UTAMA", hasil["summary"])
-        self.assertIn("x2.24", hasil["summary"])
+        self.assertIn("x2.99", hasil["summary"])
         self.assertEqual(hasil["warnings"], [])
 
     def test_tiket_valid_terhadap_skema(self):
@@ -298,11 +334,15 @@ class TestRacikStandar(unittest.TestCase):
 
     def test_config_main_maks_5_target_4(self):
         # Perubahan config Langkah 3 (profil user 2026-11-22); versi
-        # config kini 12 (Langkah 4 menambah section live, Langkah 5
-        # menambah section soccer, Langkah 6 menambah section learning).
-        self.assertEqual(CFG["meta"]["version"], 12)
+        # config kini 13 (perbaikan racik analis adaptif 2026-11-23:
+        # section analis, Asuransi 2,5-3,0).
+        self.assertEqual(CFG["meta"]["version"], 13)
         self.assertEqual(CFG["tickets"]["main"]["multiplier_max"], 5.0)
         self.assertEqual(CFG["tickets"]["main"]["target_multiplier_max"], 4.0)
+        self.assertEqual(CFG["tickets"]["insurance"]["multiplier_min"], 2.5)
+        self.assertEqual(CFG["tickets"]["insurance"]["multiplier_max"], 3.0)
+        self.assertEqual(CFG["analis"]["harga_min_utama_cents"], 75)
+        self.assertEqual(CFG["analis"]["harga_min_asuransi_cents"], 75)
 
     def test_kaki_tanpa_kunci_ticket_dibaca_dari_leg_id(self):
         # Laporan/kaki lama tanpa kunci "ticket" — tiket diturunkan dari
@@ -320,12 +360,12 @@ class TestRacikStandar(unittest.TestCase):
 
 class TestGarisBerbeda(unittest.TestCase):
     def test_garis_sama_hanya_masuk_asuransi(self):
-        # Satu laga garis Asuransi = garis Utama (233.5); 4 laga standar.
+        # Satu laga garis Asuransi = garis Utama (233.5); 5 laga standar.
         laga_x = "AAA@BBB_2026-11-22"
         analisis_x = buat_analisis(
             laga_x,
             kaki_ins=buat_kaki(laga_x, "insurance", 233.5, 0.80, 0.78, 75.0),
-            kaki_main=buat_kaki(laga_x, "main", 233.5, 0.76, 0.74, 72.0),
+            kaki_main=buat_kaki(laga_x, "main", 233.5, 0.78, 0.76, 75.0),
         )
         analyses = [analisis_x] + slate_standar()
         hasil = ticket_composer.compose_tickets(
@@ -348,7 +388,7 @@ class TestGarisBerbeda(unittest.TestCase):
         analisis_x = buat_analisis(
             laga_x,
             kaki_ins=buat_kaki(laga_x, "insurance", 230.5, 0.80, 0.78, 75.0),
-            kaki_main=buat_kaki(laga_x, "main", 234.5, 0.76, 0.74, 72.0),
+            kaki_main=buat_kaki(laga_x, "main", 234.5, 0.78, 0.76, 75.0),
         )
         analyses = [analisis_x] + slate_standar()
         hasil = ticket_composer.compose_tickets(
@@ -381,17 +421,66 @@ class TestGarisBerbeda(unittest.TestCase):
                 float(garis_main["selection"].split()[1]),
             )
 
+    def test_garis_terbalik_det_atl_hanya_asuransi(self):
+        # Kasus nyata "SEBELUM" (DET@ATL): garis Asuransi 233,5 LEBIH
+        # RENDAH dari garis Utama 237,5 (terbalik) — laga hanya masuk
+        # Asuransi, Utama tetap terracik dari laga lain.
+        laga_x = "AAA@BBB_2026-11-22"
+        analisis_x = buat_analisis(
+            laga_x,
+            kaki_ins=buat_kaki(laga_x, "insurance", 233.5, 0.80, 0.78, 75.0),
+            kaki_main=buat_kaki(laga_x, "main", 237.5, 0.78, 0.76, 75.0),
+        )
+        analyses = [analisis_x] + slate_standar()
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        self.assertIsNotNone(hasil["insurance"])
+        self.assertIsNotNone(hasil["main"])
+        laga_ins = {k["match_id"] for k in hasil["insurance"]["legs"]}
+        laga_main = {k["match_id"] for k in hasil["main"]["legs"]}
+        self.assertIn(laga_x, laga_ins)
+        self.assertNotIn(laga_x, laga_main)
+        self.assertIn("tidak lebih aman", hasil["summary"])
+
+    def test_tanpa_asuransi_garis_utama_tidak_difilter(self):
+        # Bila Asuransi tidak terbentuk sama sekali (semua kaki
+        # Asuransi tipis -> dicoret), kaki Utama TIDAK difilter aturan
+        # garis — tidak ada garis Asuransi yang menjadi acuan.
+        analyses = []
+        for match_id in LAGA:
+            analyses.append(
+                buat_analisis(
+                    match_id,
+                    kaki_ins=buat_kaki(
+                        match_id, "insurance", 233.5, 0.80, 0.78, 75.0, thin=True
+                    ),
+                    kaki_main=buat_kaki(match_id, "main", 237.5, 0.78, 0.76, 75.0),
+                )
+            )
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        self.assertIsNone(hasil["insurance"])
+        self.assertIsNotNone(hasil["main"])
+        self.assertEqual(len(hasil["main"]["legs"]), 5)
+        self.assertEqual({k["match_id"] for k in hasil["main"]["legs"]}, set(LAGA))
+
 
 class TestCondongKeMarket(unittest.TestCase):
     def test_tanpa_recheck_market_rendah_kaki_asuransi_gugur(self):
         # Median 219 vs garis market 225,5 (selisih 6,5 > 5,0), harga
         # market 70c -> probabilitas market 0,70 < 0,74: kaki Asuransi
-        # gugur, kaki Utama tetap lolos.
+        # gugur, kaki Utama tetap lolos. Harga venue 75c (jup) supaya
+        # kaki lolos lantai harga — aturan condong memakai harga
+        # mentah Polymarket (70c), bukan estimasi jup.ag.
         laga_x = "AAA@BBB_2026-11-22"
         analisis_x = buat_analisis(
             laga_x,
-            kaki_ins=buat_kaki(laga_x, "insurance", 235.5, 0.80, 0.78, 70.0),
-            kaki_main=buat_kaki(laga_x, "main", 231.5, 0.76, 0.74, 72.0),
+            kaki_ins=buat_kaki(
+                laga_x, "insurance", 235.5, 0.80, 0.78, 70.0, harga_jup=75.0
+            ),
+            kaki_main=buat_kaki(laga_x, "main", 231.5, 0.78, 0.76, 75.0),
             median=219.0,
         )
         analyses = [analisis_x] + slate_standar()
@@ -411,18 +500,18 @@ class TestCondongKeMarket(unittest.TestCase):
         analisis_x = buat_analisis(
             laga_x,
             kaki_ins=buat_kaki(laga_x, "insurance", 235.5, 0.80, 0.78, 76.0),
-            kaki_main=buat_kaki(laga_x, "main", 231.5, 0.76, 0.74, 72.0),
+            kaki_main=buat_kaki(laga_x, "main", 231.5, 0.78, 0.76, 75.0),
             median=219.0,
         )
-        analyses = [analisis_x] + slate_standar(LAGA[:2])
+        analyses = [analisis_x] + slate_standar(LAGA[:3])
         hasil = ticket_composer.compose_tickets(
             analyses, None, CFG, stake_total=20, now=SEKARANG
         )
         ins = hasil["insurance"]
         self.assertIsNotNone(ins)
-        self.assertEqual(len(ins["legs"]), 3)
+        self.assertEqual(len(ins["legs"]), 4)
         # P menang memakai 0,76 (market) untuk laga X, bukan 0,786.
-        self.assertAlmostEqual(ins["metrics"]["p_win"], 0.76 * 0.786 * 0.786, places=3)
+        self.assertAlmostEqual(ins["metrics"]["p_win"], 0.76 * 0.786**3, places=3)
         self.assertIn("probabilitas market", hasil["summary"])
 
     def test_dengan_recheck_probabilitas_market_dipakai(self):
@@ -430,7 +519,7 @@ class TestCondongKeMarket(unittest.TestCase):
         # value 0,80, TETAP_OK -> peracik memakai 0,80.
         laga_x = "AAA@BBB_2026-11-22"
         analisis_x = buat_analisis(laga_x, median=219.0)
-        analyses = [analisis_x] + slate_standar(LAGA[:2])
+        analyses = [analisis_x] + slate_standar(LAGA[:3])
         rechecks = []
         for analisis in analyses:
             if analisis["match_id"] == laga_x:
@@ -454,7 +543,7 @@ class TestCondongKeMarket(unittest.TestCase):
         )
         ins = hasil["insurance"]
         self.assertIsNotNone(ins)
-        self.assertAlmostEqual(ins["metrics"]["p_win"], 0.80 * 0.786 * 0.786, places=3)
+        self.assertAlmostEqual(ins["metrics"]["p_win"], 0.80 * 0.786**3, places=3)
 
 
 class TestFilterRecheck(unittest.TestCase):
@@ -514,7 +603,7 @@ class TestFilterRecheck(unittest.TestCase):
         # Kaki Asuransi laga yang sama tetap TETAP_OK -> masuk Asuransi.
         laga_ins = {k["match_id"] for k in hasil["insurance"]["legs"]}
         self.assertIn(LAGA[0], laga_ins)
-        # Hanya 3 kaki Utama tersisa -> pengali maks 2,53 < 3,5: Utama None.
+        # Hanya 4 kaki Utama tersisa -> pengali maks 2,99 < 3,0: Utama None.
         self.assertIsNone(hasil["main"])
         self.assertIn("tidak tercapai", hasil["main_reason"])
         self.assertIn("DATA_INCOMPLETE", hasil["summary"])
@@ -583,7 +672,7 @@ class TestFilterRecheck(unittest.TestCase):
 
 class TestTargetPengali(unittest.TestCase):
     def test_target_tidak_tercapai_none_dengan_alasan(self):
-        # Hanya 2 laga: Asuransi maks 1,68 < 2,2; Utama maks 1,82 < 3,5.
+        # Hanya 2 laga: Asuransi maks 1,68 < 2,5; Utama maks 1,68 < 3,0.
         analyses = slate_standar(LAGA[:2])
         hasil = ticket_composer.compose_tickets(
             analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
@@ -595,16 +684,16 @@ class TestTargetPengali(unittest.TestCase):
         self.assertIn("tidak tercapai", hasil["main_reason"])
 
     def test_kombinasi_tidak_pas_jendela(self):
-        # Kaki Asuransi @50c: 1 kaki -> 1,89; 2 kaki -> 3,78 — tidak ada
-        # kombinasi yang masuk jendela 2,2-2,5. Utama 2 kaki @50c = 3,78
-        # justru masuk target.
+        # Kaki Asuransi @79c: 4 kaki -> 2,43 (< 2,5); 5 kaki -> 3,07
+        # (> 3,0) — tidak ada kombinasi yang masuk jendela 2,5-3,0.
+        # Utama 5 kaki @75c = 3,98 justru masuk target.
         analyses = []
-        for match_id in LAGA[:2]:
+        for match_id in LAGA:
             analyses.append(
                 buat_analisis(
                     match_id,
-                    kaki_ins=buat_kaki(match_id, "insurance", 235.5, 0.82, 0.80, 50.0),
-                    kaki_main=buat_kaki(match_id, "main", 231.5, 0.76, 0.74, 50.0),
+                    kaki_ins=buat_kaki(match_id, "insurance", 235.5, 0.82, 0.80, 79.0),
+                    kaki_main=buat_kaki(match_id, "main", 231.5, 0.78, 0.76, 75.0),
                 )
             )
         hasil = ticket_composer.compose_tickets(
@@ -613,21 +702,27 @@ class TestTargetPengali(unittest.TestCase):
         self.assertIsNone(hasil["insurance"])
         self.assertIn("tidak ada yang masuk target", hasil["insurance_reason"])
         self.assertIsNotNone(hasil["main"])
-        self.assertAlmostEqual(hasil["main"]["multiplier"], 3.78, places=2)
+        self.assertAlmostEqual(hasil["main"]["multiplier"], 3.98, places=2)
 
     def test_satu_kaki_bila_terpaksa(self):
         # Satu laga, kaki Asuransi @40c -> pengali 2,36 (masuk target
-        # sendirian); Utama @40c -> 2,36 < 3,5.
+        # sendirian); Utama @40c -> 2,36 < 3,0. Lantai harga + target
+        # Asuransi lama (2,2-2,5) dipakai lewat varian config supaya
+        # logika subset 1 kaki tetap teruji — di config live, 1 kaki
+        # tidak bisa membentuk tiket (maks 1,26x di lantai 75c).
+        cfg = cfg_tanpa_lantai()
+        cfg["tickets"]["insurance"]["multiplier_min"] = 2.2
+        cfg["tickets"]["insurance"]["multiplier_max"] = 2.5
         match_id = LAGA[0]
         analyses = [
             buat_analisis(
                 match_id,
                 kaki_ins=buat_kaki(match_id, "insurance", 235.5, 0.82, 0.80, 40.0),
-                kaki_main=buat_kaki(match_id, "main", 231.5, 0.76, 0.74, 40.0),
+                kaki_main=buat_kaki(match_id, "main", 231.5, 0.78, 0.76, 40.0),
             )
         ]
         hasil = ticket_composer.compose_tickets(
-            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+            analyses, recheck_semua_ok(analyses), cfg, stake_total=20, now=SEKARANG
         )
         ins = hasil["insurance"]
         self.assertIsNotNone(ins)
@@ -636,44 +731,27 @@ class TestTargetPengali(unittest.TestCase):
         self.assertTrue(any("hanya berisi 1 kaki" in w for w in hasil["warnings"]))
         self.assertIsNone(hasil["main"])
 
-    def test_utama_melebihi_target_lunak_bila_terpaksa(self):
-        # Kombinasi Utama yang tersedia hanya di atas 4,0 (tapi <= 5,0):
-        # 3 kaki @62c -> (100/62)^3 x 0,945 = 3,96... pakai @60c:
-        # 3 kaki -> 4,37 (dalam 3,5-5,0, di atas target lunak 4,0).
-        analyses = []
-        for match_id in LAGA[:3]:
-            analyses.append(
-                buat_analisis(
-                    match_id,
-                    kaki_ins=buat_kaki(match_id, "insurance", 235.5, 0.80, 0.78, 75.0),
-                    kaki_main=buat_kaki(match_id, "main", 231.5, 0.76, 0.74, 60.0),
-                )
-            )
-        hasil = ticket_composer.compose_tickets(
-            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
-        )
-        main = hasil["main"]
-        self.assertIsNotNone(main)
-        self.assertAlmostEqual(main["multiplier"], 4.375, places=2)
-        self.assertLessEqual(main["multiplier"], 5.0)
-
     def test_mode_agresif_maks_utama_bebas(self):
         # 2 kaki Utama @40c -> 5,91x: di atas maks standar 5,0, tapi
-        # boleh di mode agresif.
+        # boleh di mode agresif. Lantai harga dinonaktifkan lewat
+        # varian config (kaki @40c tidak lolos lantai 75c); mode
+        # agresif juga melewati kriteria "yakin" (perintah eksplisit
+        # user per malam).
+        cfg_std = cfg_tanpa_lantai()
         analyses = []
         for match_id in LAGA[:2]:
             analyses.append(
                 buat_analisis(
                     match_id,
                     kaki_ins=buat_kaki(match_id, "insurance", 235.5, 0.82, 0.80, 40.0),
-                    kaki_main=buat_kaki(match_id, "main", 231.5, 0.76, 0.74, 40.0),
+                    kaki_main=buat_kaki(match_id, "main", 231.5, 0.78, 0.76, 40.0),
                 )
             )
         hasil_std = ticket_composer.compose_tickets(
-            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+            analyses, recheck_semua_ok(analyses), cfg_std, stake_total=20, now=SEKARANG
         )
         self.assertIsNone(hasil_std["main"])
-        cfg_agresif = copy.deepcopy(CFG)
+        cfg_agresif = copy.deepcopy(cfg_std)
         cfg_agresif["tickets"]["mode"] = "aggressive"
         hasil_agr = ticket_composer.compose_tickets(
             analyses,
@@ -740,15 +818,15 @@ class TestMatematikaKombo(unittest.TestCase):
         self.assertIn("korelasi", catatan[0])
 
     def test_ev_negatif_memicu_peringatan(self):
-        # 4 kaki Asuransi p 0,79 @80c: EV per kaki -1,25% (WAJAR, bukan
-        # MAHAL) tapi EV tiket = 0,79^4 x 2,31 - 1 = -10% -> peringatan.
+        # 5 kaki Asuransi p 0,79 @80c: EV per kaki -1,25% (WAJAR, bukan
+        # MAHAL) tapi EV tiket = 0,79^5 x 2,88 - 1 = -11% -> peringatan.
         analyses = []
         for match_id in LAGA:
             analyses.append(
                 buat_analisis(
                     match_id,
                     kaki_ins=buat_kaki(match_id, "insurance", 235.5, 0.79, 0.79, 80.0),
-                    kaki_main=buat_kaki(match_id, "main", 231.5, 0.76, 0.74, 72.0),
+                    kaki_main=buat_kaki(match_id, "main", 231.5, 0.78, 0.76, 75.0),
                 )
             )
         hasil = ticket_composer.compose_tickets(
@@ -818,7 +896,7 @@ class TestFilterLain(unittest.TestCase):
                         match_id, "insurance", 235.5, 0.80, 0.78, 75.0, label=label
                     ),
                     kaki_main=buat_kaki(
-                        match_id, "main", 231.5, 0.76, 0.74, 72.0, label=label
+                        match_id, "main", 231.5, 0.78, 0.76, 75.0, label=label
                     ),
                 )
             )
@@ -843,7 +921,7 @@ class TestFilterLain(unittest.TestCase):
                         kaki_ins=buat_kaki(
                             match_id, "insurance", 235.5, 0.80, None, 75.0
                         ),
-                        kaki_main=buat_kaki(match_id, "main", 231.5, 0.76, 0.74, 72.0),
+                        kaki_main=buat_kaki(match_id, "main", 231.5, 0.78, 0.76, 75.0),
                     )
                 )
             else:
@@ -866,7 +944,7 @@ class TestFilterLain(unittest.TestCase):
                         kaki_ins=buat_kaki(
                             match_id, "insurance", 235.5, 0.72, 0.69, 75.0
                         ),
-                        kaki_main=buat_kaki(match_id, "main", 231.5, 0.60, 0.60, 72.0),
+                        kaki_main=buat_kaki(match_id, "main", 231.5, 0.60, 0.60, 75.0),
                     )
                 )
             else:
@@ -876,7 +954,7 @@ class TestFilterLain(unittest.TestCase):
         )
         laga_ins = {k["match_id"] for k in hasil["insurance"]["legs"]}
         self.assertNotIn(LAGA[0], laga_ins)
-        self.assertIsNone(hasil["main"])  # hanya 3 kaki Utama tersisa
+        self.assertIsNone(hasil["main"])  # hanya 4 kaki Utama tersisa
 
     def test_analisis_hold_ditolak(self):
         analyses = slate_standar()
@@ -886,7 +964,7 @@ class TestFilterLain(unittest.TestCase):
         )
         laga_ins = {k["match_id"] for k in hasil["insurance"]["legs"]}
         self.assertNotIn(LAGA[0], laga_ins)
-        # Hanya 3 kaki Utama tersisa -> Utama tidak terracik.
+        # Hanya 4 kaki Utama tersisa -> Utama tidak terracik.
         self.assertIsNone(hasil["main"])
 
     def test_kaki_tidak_meets_ditolak(self):
@@ -911,8 +989,8 @@ class TestFilterLain(unittest.TestCase):
         lama = buat_analisis(LAGA[0], generated_at="2026-11-22T09:00:00+00:00")
         baru = buat_analisis(
             LAGA[0],
-            kaki_ins=buat_kaki(LAGA[0], "insurance", 235.5, 0.80, 0.78, 70.0),
-            kaki_main=buat_kaki(LAGA[0], "main", 231.5, 0.76, 0.74, 72.0),
+            kaki_ins=buat_kaki(LAGA[0], "insurance", 235.5, 0.80, 0.78, 76.0),
+            kaki_main=buat_kaki(LAGA[0], "main", 231.5, 0.78, 0.76, 75.0),
             generated_at="2026-11-22T11:00:00+00:00",
         )
         analyses = [lama, baru] + slate_standar(LAGA[1:])
@@ -920,13 +998,13 @@ class TestFilterLain(unittest.TestCase):
             analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
         )
         # Kaki Asuransi laga pertama yang dipakai adalah yang terbaru
-        # (harga 70c, bukan 75c) — bila ada di tiket.
+        # (harga 76c, bukan 75c) — bila ada di tiket.
         ins = hasil["insurance"]
         kaki = [k for k in ins["legs"] if k["match_id"] == LAGA[0]]
         if kaki:
-            self.assertEqual(kaki[0]["jup_price_cents"], 70.0)
-        # Main tetap 4 kaki (dedupe tidak menggandakan laga).
-        self.assertEqual(len(hasil["main"]["legs"]), 4)
+            self.assertEqual(kaki[0]["jup_price_cents"], 76.0)
+        # Main tetap 5 kaki (dedupe tidak menggandakan laga).
+        self.assertEqual(len(hasil["main"]["legs"]), 5)
 
 
 def buat_kaki_bola(
@@ -1129,6 +1207,538 @@ class TestTanpaXg(unittest.TestCase):
         self.assertEqual(
             ticket_composer._seleksi_kaki({"market_type": "btts_yes"}, analisis),
             "Kedua tim mencetak gol",
+        )
+
+
+class TestLantaiHarga(unittest.TestCase):
+    def _kandidat(self, analisis, cfg=None):
+        return ticket_composer._kumpulkan_kandidat(
+            {analisis["match_id"]: analisis}, {}, cfg or CFG
+        )
+
+    def test_main_di_bawah_lantai_dicoret(self):
+        analisis = buat_analisis(
+            LAGA[0],
+            kaki_main=buat_kaki(LAGA[0], "main", 231.5, 0.78, 0.76, 74.0),
+        )
+        kandidat, coret = self._kandidat(analisis)
+        self.assertEqual(kandidat["main"], [])
+        self.assertTrue(any("lantai 75" in c for c in coret["main"]), coret["main"])
+        # Kaki Asuransi @75 tidak ikut dicoret.
+        self.assertEqual(len(kandidat["insurance"]), 1)
+
+    def test_asuransi_di_bawah_lantai_dicoret(self):
+        analisis = buat_analisis(
+            LAGA[0],
+            kaki_ins=buat_kaki(LAGA[0], "insurance", 235.5, 0.80, 0.78, 74.0),
+        )
+        kandidat, coret = self._kandidat(analisis)
+        self.assertEqual(kandidat["insurance"], [])
+        self.assertTrue(
+            any("lantai 75" in c for c in coret["insurance"]),
+            coret["insurance"],
+        )
+
+    def test_harga_tepat_di_lantai_lolos(self):
+        kandidat, _coret = self._kandidat(buat_analisis(LAGA[0]))
+        self.assertEqual(len(kandidat["insurance"]), 1)
+        self.assertEqual(len(kandidat["main"]), 1)
+
+    def test_fallback_price_cents_bila_tanpa_jup(self):
+        # Tanpa jup_estimated_cents, lantai memakai price_cents.
+        kaki_murah = buat_kaki(LAGA[0], "main", 231.5, 0.78, 0.76, 74.0)
+        del kaki_murah["jup_estimated_cents"]
+        analisis = buat_analisis(LAGA[0], kaki_main=kaki_murah)
+        kandidat, _coret = self._kandidat(analisis)
+        self.assertEqual(kandidat["main"], [])
+        kaki_pas = buat_kaki(LAGA[0], "main", 231.5, 0.78, 0.76, 75.0)
+        del kaki_pas["jup_estimated_cents"]
+        analisis = buat_analisis(LAGA[0], kaki_main=kaki_pas)
+        kandidat, _coret = self._kandidat(analisis)
+        self.assertEqual(len(kandidat["main"]), 1)
+
+    def test_lantai_dibaca_dari_config(self):
+        cfg80 = copy.deepcopy(CFG)
+        cfg80["analis"]["harga_min_utama_cents"] = 80
+        kandidat, _coret = self._kandidat(buat_analisis(LAGA[0]), cfg80)
+        self.assertEqual(kandidat["main"], [])
+        cfg70 = copy.deepcopy(CFG)
+        cfg70["analis"]["harga_min_utama_cents"] = 70
+        analisis = buat_analisis(
+            LAGA[0],
+            kaki_main=buat_kaki(LAGA[0], "main", 231.5, 0.78, 0.76, 72.0),
+        )
+        kandidat, _coret = self._kandidat(analisis, cfg70)
+        self.assertEqual(len(kandidat["main"]), 1)
+
+    def test_lantai_default_dicatat_di_ringkasan(self):
+        # Tanpa section analis di config -> default 75 dipakai +
+        # sumbernya dicatat di ringkasan (bukan warnings).
+        cfg = copy.deepcopy(CFG)
+        del cfg["analis"]
+        analyses = slate_standar()
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), cfg, stake_total=20, now=SEKARANG
+        )
+        self.assertIsNotNone(hasil["insurance"])
+        self.assertIsNotNone(hasil["main"])
+        self.assertIn("nilai default", hasil["summary"])
+        self.assertIn("75¢", hasil["summary"])
+        self.assertFalse(any("nilai default" in w for w in hasil["warnings"]))
+
+    def test_lantai_tidak_berlaku_untuk_bola(self):
+        # Kaki bola @55c (moneyline) TIDAK kena lantai harga NBA.
+        kaki = buat_kaki_bola(
+            LAGA_BOLA[0][0], "moneyline_home", "home", 0.75, 0.71, 55.0
+        )
+        analisis = buat_analisis_bola(
+            LAGA_BOLA[0][0], LAGA_BOLA[0][1], LAGA_BOLA[0][2], [kaki]
+        )
+        kandidat, _coret = ticket_composer._kumpulkan_kandidat(
+            {LAGA_BOLA[0][0]: analisis}, {}, CFG
+        )
+        self.assertEqual(len(kandidat["main"]), 1)
+
+
+class TestThin(unittest.TestCase):
+    def test_thin_asuransi_penghalang_keras(self):
+        # Thin @80c (harga lolos lantai) tetap dicoret dari Asuransi.
+        analisis = buat_analisis(
+            LAGA[0],
+            kaki_ins=buat_kaki(
+                LAGA[0], "insurance", 235.5, 0.80, 0.78, 80.0, thin=True
+            ),
+        )
+        kandidat, coret = ticket_composer._kumpulkan_kandidat(
+            {LAGA[0]: analisis}, {}, CFG
+        )
+        self.assertEqual(kandidat["insurance"], [])
+        self.assertTrue(
+            any("volume tipis" in c for c in coret["insurance"]),
+            coret["insurance"],
+        )
+
+    def test_thin_none_bukan_penghalang(self):
+        # thin None (volume tidak diketahui, bentuk kaki A) -> lolos.
+        analisis = buat_analisis(
+            LAGA[0],
+            kaki_ins=buat_kaki(
+                LAGA[0], "insurance", 235.5, 0.80, 0.78, 75.0, thin=None
+            ),
+        )
+        kandidat, _coret = ticket_composer._kumpulkan_kandidat(
+            {LAGA[0]: analisis}, {}, CFG
+        )
+        self.assertEqual(len(kandidat["insurance"]), 1)
+
+    def test_thin_utama_boleh_dengan_peringatan(self):
+        # Satu kaki Utama tipis (vol $6,3, seperti Utama DET@ATL)
+        # BOLEH masuk tiket, tapi ditandai flag + peringatan.
+        analyses = []
+        for i, match_id in enumerate(LAGA):
+            analyses.append(
+                buat_analisis(
+                    match_id,
+                    kaki_main=buat_kaki(
+                        match_id,
+                        "main",
+                        231.5,
+                        0.78,
+                        0.76,
+                        75.0,
+                        thin=(i == 0),
+                        volume_usd=6.3 if i == 0 else 5000.0,
+                    ),
+                )
+            )
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        main = hasil["main"]
+        self.assertIsNotNone(main)
+        kaki_tipis = next(k for k in main["legs"] if k["match_id"] == LAGA[0])
+        self.assertIn("VOLUME_TIPIS", kaki_tipis["flags"])
+        self.assertTrue(
+            any("volume tipis" in w for w in hasil["warnings"]),
+            hasil["warnings"],
+        )
+        self.assertIn("volume tipis", hasil["summary"])
+
+
+class TestTargetPengaliBaru(unittest.TestCase):
+    def test_asuransi_target_baru_empat_kaki(self):
+        # Target live 2,5-3,0: slate standar -> 4 kaki @75c = 2,99.
+        analyses = slate_standar()
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        self.assertEqual(len(hasil["insurance"]["legs"]), 4)
+        self.assertAlmostEqual(hasil["insurance"]["multiplier"], 2.9867, places=3)
+
+    def test_asuransi_tiga_laga_tidak_cukup(self):
+        # 3 laga: maks 2,24 < 2,5 -> Asuransi None.
+        analyses = slate_standar(LAGA[:3])
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        self.assertIsNone(hasil["insurance"])
+        self.assertIn("tidak tercapai", hasil["insurance_reason"])
+
+    def test_target_dibaca_dari_config(self):
+        # Varian config target lama 2,2-2,5 -> 3 kaki @75c = 2,24.
+        cfg = copy.deepcopy(CFG)
+        cfg["tickets"]["insurance"]["multiplier_min"] = 2.2
+        cfg["tickets"]["insurance"]["multiplier_max"] = 2.5
+        analyses = slate_standar()
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), cfg, stake_total=20, now=SEKARANG
+        )
+        self.assertEqual(len(hasil["insurance"]["legs"]), 3)
+        self.assertAlmostEqual(hasil["insurance"]["multiplier"], 2.24, places=2)
+
+
+class TestYakinUtamaX5(unittest.TestCase):
+    def _kandidat_yakin(self, p_final=0.766, verdict="TETAP_OK", anomali=False):
+        return {
+            "p_final": p_final,
+            "recheck_verdict": verdict,
+            "ada_anomali": anomali,
+        }
+
+    def test_yakin_semua_syarat_lolos(self):
+        subset = [self._kandidat_yakin() for _ in range(3)]
+        self.assertTrue(ticket_composer._yakin_utama(subset, 0.75))
+
+    def test_yakin_gagal_p_final_rendah(self):
+        subset = [self._kandidat_yakin(), self._kandidat_yakin(p_final=0.746)]
+        self.assertFalse(ticket_composer._yakin_utama(subset, 0.75))
+
+    def test_yakin_gagal_perhatian(self):
+        subset = [self._kandidat_yakin(), self._kandidat_yakin(verdict="PERHATIAN")]
+        self.assertFalse(ticket_composer._yakin_utama(subset, 0.75))
+
+    def test_yakin_gagal_tanpa_recheck(self):
+        subset = [self._kandidat_yakin(), self._kandidat_yakin(verdict=None)]
+        self.assertFalse(ticket_composer._yakin_utama(subset, 0.75))
+
+    def test_yakin_gagal_anomali(self):
+        subset = [self._kandidat_yakin(), self._kandidat_yakin(anomali=True)]
+        self.assertFalse(ticket_composer._yakin_utama(subset, 0.75))
+
+    def test_yakin_subset_kosong_gagal(self):
+        self.assertFalse(ticket_composer._yakin_utama([], 0.75))
+
+    def _buat_kandidat_pilih(self, harga_list):
+        return [
+            {
+                "harga_jup": harga,
+                "decision_prob": 0.766,
+                "leg": {"leg_id": f"leg-{i}-{harga:g}"},
+            }
+            for i, harga in enumerate(harga_list)
+        ]
+
+    def test_pilih_subset_di_atas_lunak_yakin_lolos(self):
+        # 3 kaki @60c = 4,37 (> lunak 4,0): yakin -> dipilih.
+        kandidat = self._buat_kandidat_pilih([60.0, 60.0, 60.0])
+        subset, _maks, _pangkas, blokir = ticket_composer._pilih_subset(
+            kandidat, 3.0, 5.0, 4.0, 5.5, yakin_fn=lambda s: True
+        )
+        self.assertIsNotNone(subset)
+        self.assertEqual(len(subset), 3)
+        self.assertFalse(blokir)
+
+    def test_pilih_subset_di_atas_lunak_tidak_yakin_ditolak(self):
+        kandidat = self._buat_kandidat_pilih([60.0, 60.0, 60.0])
+        subset, _maks, _pangkas, blokir = ticket_composer._pilih_subset(
+            kandidat, 3.0, 5.0, 4.0, 5.5, yakin_fn=lambda s: False
+        )
+        self.assertIsNone(subset)
+        self.assertTrue(blokir)
+
+    def test_pilih_subset_di_bawah_lunak_tidak_kena_yakin(self):
+        # 3 kaki @75c = 2,24 (<= lunak 2,5): dipilih walau yakin_fn False.
+        kandidat = self._buat_kandidat_pilih([75.0, 75.0, 75.0])
+        subset, _maks, _pangkas, blokir = ticket_composer._pilih_subset(
+            kandidat, 2.2, 2.5, 2.5, 5.5, yakin_fn=lambda s: False
+        )
+        self.assertIsNotNone(subset)
+        self.assertFalse(blokir)
+
+    def _slate_60c(self, p_model=0.78, p_market=0.76, laga=LAGA[:3]):
+        # Kaki Utama @60c: satu-satunya subset valid adalah 3 kaki
+        # (4,37x, di atas lunak) — 2 kaki hanya 2,63x < 3,0.
+        analyses = []
+        for match_id in laga:
+            analyses.append(
+                buat_analisis(
+                    match_id,
+                    kaki_main=buat_kaki(
+                        match_id, "main", 231.5, p_model, p_market, 60.0
+                    ),
+                )
+            )
+        return analyses
+
+    def _racik_60c(self, analyses, rechecks):
+        return ticket_composer.compose_tickets(
+            analyses, rechecks, cfg_tanpa_lantai(), stake_total=20, now=SEKARANG
+        )
+
+    def test_compose_yakin_lolos_di_atas_4(self):
+        # Semua p_final 0,766 + TETAP_OK + tanpa anomali -> 4,37 lolos.
+        analyses = self._slate_60c()
+        hasil = self._racik_60c(analyses, recheck_semua_ok(analyses))
+        self.assertIsNotNone(hasil["main"])
+        self.assertAlmostEqual(hasil["main"]["multiplier"], 4.375, places=2)
+
+    def test_compose_tidak_yakin_p_final_rendah(self):
+        analyses = self._slate_60c(p_model=0.76, p_market=0.74)  # p_final 0,746
+        hasil = self._racik_60c(analyses, recheck_semua_ok(analyses))
+        self.assertIsNone(hasil["main"])
+        self.assertIn("yakin", hasil["main_reason"])
+
+    def test_compose_tidak_yakin_perhatian(self):
+        analyses = self._slate_60c()
+        rechecks = []
+        for i, analisis in enumerate(analyses):
+            if i == 0:
+                rechecks.append(
+                    buat_recheck(
+                        analisis,
+                        putusan={
+                            "main": (
+                                "PERHATIAN",
+                                ["harga bergerak 2c"],
+                                "model",
+                                None,
+                            )
+                        },
+                    )
+                )
+            else:
+                rechecks.append(buat_recheck(analisis))
+        hasil = self._racik_60c(analyses, rechecks)
+        self.assertIsNone(hasil["main"])
+        self.assertIn("yakin", hasil["main_reason"])
+
+    def test_compose_tidak_yakin_tanpa_recheck(self):
+        analyses = self._slate_60c()
+        hasil = self._racik_60c(analyses, None)
+        self.assertIsNone(hasil["main"])
+        self.assertIn("yakin", hasil["main_reason"])
+
+    def test_compose_tidak_yakin_anomali(self):
+        analyses = self._slate_60c()
+        analyses[0]["anomalies"] = [{"type": "sharp_move", "key": "x"}]
+        hasil = self._racik_60c(analyses, recheck_semua_ok(analyses))
+        self.assertIsNone(hasil["main"])
+        self.assertIn("yakin", hasil["main_reason"])
+
+    def test_agresif_melewati_yakin(self):
+        # p_final 0,746 (tidak yakin) tapi mode agresif -> 4,37 lolos.
+        analyses = self._slate_60c(p_model=0.76, p_market=0.74)
+        cfg = cfg_tanpa_lantai()
+        cfg["tickets"]["mode"] = "aggressive"
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), cfg, stake_total=20, now=SEKARANG
+        )
+        self.assertIsNotNone(hasil["main"])
+        self.assertAlmostEqual(hasil["main"]["multiplier"], 4.375, places=2)
+
+    def test_yakin_di_atas_lunak_diutamakan(self):
+        # Keputusan koordinator integrasi Tahap 4 (menggantikan temuan
+        # struktural pekerja B): subset yakin di atas target lunak
+        # DIUTAMAKAN atas subset lunak — tanpa ini gate yakin tidak
+        # pernah mengubah hasil dan x5 tidak pernah terjadi (dengan
+        # lantai 75c, subset di atas 4,0 selalu punya sub-subset lunak).
+        # 6 laga @75/80, semua yakin -> Utama 4,98 (6 kaki).
+        analyses = []
+        for i, match_id in enumerate(LAGA + ["AAA@BBB_2026-11-22"]):
+            harga_main = 80.0 if i == 5 else 75.0
+            analyses.append(
+                buat_analisis(
+                    match_id,
+                    kaki_main=buat_kaki(
+                        match_id, "main", 231.5, 0.78, 0.76, harga_main
+                    ),
+                )
+            )
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        main = hasil["main"]
+        self.assertIsNotNone(main)
+        self.assertEqual(len(main["legs"]), 6)
+        self.assertAlmostEqual(main["multiplier"], 4.9778, places=3)
+
+    def test_tidak_yakin_di_atas_lunak_tetap_kalah_dari_lunak(self):
+        # Satu kaki tidak yakin (p_final 0,70 < ambang yakin 0,75) ->
+        # subset 6 kaki tidak yakin -> dipangkas -> subset lunak menang
+        # (5 kaki, 3,73x). Pasangan dari test_yakin_di_atas_lunak.
+        analyses = []
+        for i, match_id in enumerate(LAGA + ["AAA@BBB_2026-11-22"]):
+            harga_main = 80.0 if i == 5 else 75.0
+            p_model, p_market = (0.70, 0.70) if i == 0 else (0.78, 0.76)
+            analyses.append(
+                buat_analisis(
+                    match_id,
+                    kaki_main=buat_kaki(
+                        match_id, "main", 231.5, p_model, p_market, harga_main
+                    ),
+                )
+            )
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        main = hasil["main"]
+        self.assertIsNotNone(main)
+        self.assertEqual(len(main["legs"]), 5)
+        self.assertLessEqual(main["multiplier"], 4.0)
+        self.assertAlmostEqual(main["multiplier"], 3.7333, places=3)
+        self.assertEqual(len(main["legs"]), 5)
+
+
+class TestUtamaTakTerlindungi(unittest.TestCase):
+    def test_peringatan_saat_asuransi_tidak_terbentuk(self):
+        # Bentuk kasus 22 Nov (out/tickets_2026-11-22.json): Utama
+        # terracik, Asuransi tidak — dulu warnings KOSONG, kini WAJIB
+        # ada peringatan "Tiket Utama tidak terlindungi".
+        analyses = []
+        for match_id in LAGA:
+            analyses.append(
+                buat_analisis(
+                    match_id,
+                    kaki_ins=buat_kaki(match_id, "insurance", 235.5, 0.80, 0.78, 70.0),
+                )
+            )
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        self.assertIsNotNone(hasil["main"])
+        self.assertIsNone(hasil["insurance"])
+        peringatan = [w for w in hasil["warnings"] if "tidak terlindungi" in w]
+        self.assertEqual(len(peringatan), 1)
+        self.assertIn("Tiket Utama tidak terlindungi", peringatan[0])
+        self.assertIn("tidak ada uang yang kembali dari Asuransi", peringatan[0])
+        self.assertIn("Tiket Utama tidak terlindungi", hasil["summary"])
+        self.assertIn("tidak ada uang yang kembali dari Asuransi", hasil["summary"])
+
+    def test_tanpa_peringatan_bila_kedua_tiket_terbentuk(self):
+        analyses = slate_standar()
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        self.assertIsNotNone(hasil["insurance"])
+        self.assertIsNotNone(hasil["main"])
+        self.assertFalse(any("tidak terlindungi" in w for w in hasil["warnings"]))
+
+    def test_tanpa_peringatan_bila_keduanya_none(self):
+        analyses = slate_standar(LAGA[:2])
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        self.assertIsNone(hasil["insurance"])
+        self.assertIsNone(hasil["main"])
+        self.assertFalse(any("tidak terlindungi" in w for w in hasil["warnings"]))
+
+
+class TestFieldBaruKaki(unittest.TestCase):
+    def test_field_baru_disalin_ke_tiket_dan_valid_skema(self):
+        climb = {
+            "from_line": 233.5,
+            "to_line": 237.5,
+            "rungs": 2,
+            "reason": "harga_minimum",
+        }
+        analyses = []
+        for i, match_id in enumerate(LAGA):
+            analyses.append(
+                buat_analisis(
+                    match_id,
+                    kaki_ins=buat_kaki(
+                        match_id,
+                        "insurance",
+                        235.5,
+                        0.80,
+                        0.78,
+                        75.0,
+                        thin=False,
+                        cushion_points=8.5,
+                        cushion_reason="karena sebaran sim lebar",
+                        volume_usd=270.0,
+                        climb=climb,
+                    ),
+                    kaki_main=buat_kaki(
+                        match_id,
+                        "main",
+                        231.5,
+                        0.78,
+                        0.76,
+                        75.0,
+                        thin=(i == 0),
+                        cushion_points=8.5,
+                        cushion_reason="karena sebaran sim lebar",
+                        volume_usd=6.3 if i == 0 else 5000.0,
+                        climb=climb if i == 0 else None,
+                    ),
+                )
+            )
+        hasil = ticket_composer.compose_tickets(
+            analyses, recheck_semua_ok(analyses), CFG, stake_total=20, now=SEKARANG
+        )
+        for tiket in (hasil["insurance"], hasil["main"]):
+            self.assertIsNotNone(tiket)
+            jsonschema.validate(instance=tiket, schema=SKEMA_TIKET)
+            self.assertIsNone(ticket_composer.validate_ticket(tiket))
+            for kaki in tiket["legs"]:
+                self.assertEqual(kaki["cushion_points"], 8.5)
+                self.assertEqual(kaki["cushion_reason"], "karena sebaran sim lebar")
+                self.assertIsNotNone(kaki["volume_usd"])
+        kaki_tipis = next(k for k in hasil["main"]["legs"] if k["match_id"] == LAGA[0])
+        self.assertTrue(kaki_tipis["thin"])
+        self.assertEqual(
+            kaki_tipis["climb"],
+            {
+                "from_line": 233.5,
+                "to_line": 237.5,
+                "rungs": 2,
+                "reason": "harga_minimum",
+            },
+        )
+        self.assertIn("VOLUME_TIPIS", kaki_tipis["flags"])
+
+    def test_salin_climb(self):
+        self.assertIsNone(ticket_composer._salin_climb(None))
+        self.assertIsNone(ticket_composer._salin_climb("naik"))
+        self.assertIsNone(ticket_composer._salin_climb(2))
+        self.assertEqual(
+            ticket_composer._salin_climb(
+                {
+                    "from_line": 233.5,
+                    "to_line": 237.5,
+                    "rungs": 2,
+                    "reason": "x",
+                }
+            ),
+            {
+                "from_line": 233.5,
+                "to_line": 237.5,
+                "rungs": 2,
+                "reason": "x",
+            },
+        )
+        # rungs bukan int -> None; kunci tak dikenal dibuang.
+        self.assertEqual(
+            ticket_composer._salin_climb(
+                {"from_line": 233.5, "rungs": "dua", "aneh": 1}
+            ),
+            {
+                "from_line": 233.5,
+                "to_line": None,
+                "rungs": None,
+                "reason": None,
+            },
         )
 
 

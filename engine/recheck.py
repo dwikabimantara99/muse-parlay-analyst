@@ -142,6 +142,7 @@ yang dihasilkannya tidak valid (itu bug kode, bukan data).
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import math
 import re
@@ -150,6 +151,12 @@ from datetime import UTC, datetime
 
 import config
 from engine import cushion, nba_sim, price_labels
+
+# Default sementara harga minimum kaki Tahap 4 (sen) sampai kunci
+# analis.harga_min_utama_cents / analis.harga_min_asuransi_cents ada di
+# playstyle.yaml — nilai kontrak bersama (75¢), BUKAN karangan. Pola
+# yang sama dengan DEFAULT_HARGA_MIN_CENTS di engine/nba_analysis.py.
+_DEFAULT_HARGA_MIN_CENTS = 75.0
 
 # Status cedera yang dihitung dalam perbandingan (normalisasi huruf besar).
 STATUS_DIHITUNG = ("OUT", "DOUBTFUL", "QUESTIONABLE", "PROBABLE")
@@ -331,8 +338,9 @@ def spread_abs_dari_tangga(spreads) -> float | None:
     Aturan yang sama seperti W1 di engine/nba_analysis.py: nilai
     absolut garis spread bervolume_usd terbesar; seri -> entri
     pertama. None bila tidak ada entri spread yang membawa garis +
-    volume (pemanggil lalu mengirim None ke cushion.utama_line,
-    yang berarti bantalan 12 fail-closed).
+    volume. (Tidak lagi dipakai hitung ulang sejak bantalan adaptif
+    menggantikan aturan spread — dipertahankan sebagai helper +
+    untuk tes.)
     """
     if not isinstance(spreads, (list, tuple)):
         return None
@@ -696,6 +704,93 @@ def needs_resim(
     return (len(alasan) > 0, alasan)
 
 
+def _muat_modul(nama: str):
+    """Muat satu modul engine; None bila modul belum tersedia.
+
+    Cermin ``_muat_analis`` di engine/nba_analysis.py: modul yang
+    belum ada (find_spec None) adalah keadaan operasional yang sah
+    selama integrasi paralel — pemanggil memperlakukannya sebagai
+    data tidak tersedia (fail-closed), bukan error. Modul yang ADA
+    tapi gagal diimpor DIBIARKAN raise (bug kode, bukan data hilang).
+    """
+    modul = sys.modules.get(nama)
+    if modul is not None:
+        return modul
+    try:
+        if importlib.util.find_spec(nama) is None:
+            return None
+    except (ImportError, ValueError):
+        return None
+    return importlib.import_module(nama)
+
+
+def _harga_min_cents(cfg: dict, tiket: str) -> float:
+    """Harga minimum kaki (sen) dari analis.harga_min_*_cents.
+
+    Kunci hilang -> default kontrak 75¢ (cermin
+    ``baca_harga_min`` di engine/nba_analysis.py). Nilai yang ada
+    tapi tidak valid (bukan angka 0–100) -> ValueError.
+    """
+    kunci = "harga_min_utama_cents" if tiket == "main" else "harga_min_asuransi_cents"
+    section = cfg.get("analis", {})
+    if not isinstance(section, dict) or kunci not in section:
+        return _DEFAULT_HARGA_MIN_CENTS
+    nilai = section[kunci]
+    if (
+        isinstance(nilai, bool)
+        or not isinstance(nilai, (int, float))
+        or not math.isfinite(nilai)
+        or not 0.0 < nilai < 100.0
+    ):
+        raise ValueError(f"analis.{kunci} tidak valid: {nilai!r} (harus angka 0-100)")
+    return float(nilai)
+
+
+def _hitung_bantalan(
+    simulation: dict, inputs: dict | None, cfg: dict
+) -> tuple[float | None, str | None]:
+    """Bantalan adaptif Utama via engine.analis (cermin nba_analysis).
+
+    Input SAMA seperti nba_analysis Tahap 4: stats laga dari
+    ``nba_analysis.stats_laga_untuk_analis(inputs)`` + distribusi sim
+    (``simulation["score_distribution"]["total"]``, butuh median +
+    std). Mengembalikan (cushion_points, alasan) — alasan None bila
+    berhasil, else kode alasan gaya nba_analysis
+    ("analis_belum_tersedia", "bantalan_adaptif_tidak_tersedia",
+    "bantalan_adaptif_gagal: <Tipe>",
+    "bantalan_adaptif_hasil_tidak_valid") atau
+    "inputs_tidak_tersedia" / "nba_analysis_belum_tersedia".
+    TIDAK ada tebakan: None berarti kedua kaki resim fail-closed
+    (cermin nba_analysis — Asuransi butuh garis Utama sebagai acuan).
+    """
+    if not isinstance(inputs, dict):
+        return None, "inputs_tidak_tersedia"
+    nba_mod = _muat_modul("engine.nba_analysis")
+    if nba_mod is None:
+        return None, "nba_analysis_belum_tersedia"
+    analis_mod = _muat_modul("engine.analis")
+    if analis_mod is None:
+        return None, "analis_belum_tersedia"
+    persen = (simulation.get("score_distribution") or {}).get("total")
+    if not isinstance(persen, dict):
+        return None, "bantalan_adaptif_tidak_tersedia"
+    try:
+        stats_laga = nba_mod.stats_laga_untuk_analis(inputs)
+    except Exception as exc:  # noqa: BLE001 - statistik gagal = bantalan gagal
+        return None, f"bantalan_adaptif_gagal: {type(exc).__name__}"
+    try:
+        hasil = analis_mod.bantalan_adaptif(stats_laga, persen, cfg)
+    except Exception as exc:  # noqa: BLE001 - analis gagal = bantalan gagal
+        return None, f"bantalan_adaptif_gagal: {type(exc).__name__}"
+    if hasil is None:
+        return None, "bantalan_adaptif_tidak_tersedia"
+    poin = _angka(hasil.get("cushion_points")) if isinstance(hasil, dict) else None
+    if poin is None:
+        return None, "bantalan_adaptif_hasil_tidak_valid"
+    alasan = hasil.get("alasan")
+    return poin, (alasan if isinstance(alasan, str) else None)
+
+
 def _bangun_kaki_resim(
     simulation: dict,
     entri_under: list[dict],
@@ -704,26 +799,31 @@ def _bangun_kaki_resim(
     match_id: str,
     fetched_at: str,
     cfg: dict,
-    spread_abs: float | None = None,
+    inputs: dict | None = None,
 ) -> list[dict]:
     """Bangun kaki baru dari sim segar + tangga segar (murni).
 
-    Untuk tiap kaki lama total_under: pilih garis baru via
-    cushion.insurance_line / cushion.utama_line, lalu p_model dari
-    simulation["markets"]["total_under_{garis:g}"]. spread_abs
-    adalah spread absolut laga dari tangga spread segar (|garis
-    spread volume terbesar|, lihat spread_abs_dari_tangga) dan
-    diteruskan ke cushion.utama_line; None (tangga tidak
-    menyediakan spread) berarti bantalan 12 fail-closed konservatif
-    (keputusan user 2026-11-22 — BUKAN 8). p_market DIBAWA dari
-    kaki lama (recheck tidak mengambil pembanding baru — 0 kredit
-    Odds API; pembanding segar di luar lingkup langkah 2) dan
-    p_final di-blend ulang dengan bobot config (bila p_market None
-    -> p_final = p_model). EV% + label harga dihitung ulang dari
-    harga venue garis baru. Bila garis baru tidak meets: garis lama
-    dipertahankan + meets False + reason dari cushion. Kaki bukan
-    total_under / tiket tidak dikenal dibawa apa adanya (resim
-    hanya menangani total_under).
+    Urutan cermin nba_analysis Tahap 4: bantalan adaptif DULU
+    (``_hitung_bantalan`` — input yang sama seperti nba_analysis:
+    stats laga dari inputs + distribusi sim segar), lalu garis Utama
+    via ``cushion.utama_line`` (signature baru: cushion_points
+    adaptif, peluang_under = markets sim, harga_min_cents dari
+    config), lalu garis Asuransi via ``cushion.insurance_line``
+    dengan garis_di_atas = garis Utama. Bila bantalan tidak tersedia
+    (inputs tidak ada / analis belum ada / data sim tidak lengkap),
+    KEDUA kaki fail-closed dengan alasan tercatat — TANPA fallback ke
+    aturan lama (cermin nba_analysis). p_model dari
+    simulation["markets"]["total_under_{garis:g}"]. p_market DIBAWA
+    dari kaki lama (recheck tidak mengambil pembanding baru — 0 kredit
+    Odds API; pembanding segar di luar lingkup langkah 2) dan p_final
+    di-blend ulang dengan bobot config (bila p_market None -> p_final
+    = p_model). EV% + label harga dihitung ulang dari harga venue
+    garis baru. Bila garis baru tidak meets: garis lama dipertahankan
+    + meets False + reason dari cushion. Kaki bukan total_under /
+    tiket tidak dikenal dibawa apa adanya (resim hanya menangani
+    total_under). Kaki hasil membawa cushion_points/cushion_reason
+    (bantalan adaptif per laga; None + kode alasan bila tidak
+    tersedia) seperti kaki analisis.
     """
     persen = (simulation.get("score_distribution") or {}).get("total")
     if not isinstance(persen, dict):
@@ -740,6 +840,52 @@ def _bangun_kaki_resim(
     ):
         raise ValueError(f"blend.w_model tidak valid: {w_model!r} (harus 0–1)")
     peta_under = _peta_harga_under(entri_under)
+    # Bantalan adaptif sekali per laga (sama untuk kedua kaki).
+    bantalan, alasan_bantalan = _hitung_bantalan(simulation, inputs, cfg)
+    ada_ins = any(
+        isinstance(leg, dict)
+        and leg.get("market_type") in (None, "total_under")
+        and leg.get("ticket") == "insurance"
+        for leg in legs_lama
+    )
+    ada_main = any(
+        isinstance(leg, dict)
+        and leg.get("market_type") in (None, "total_under")
+        and leg.get("ticket") == "main"
+        for leg in legs_lama
+    )
+    if bantalan is None:
+        # Fail-closed cermin nba_analysis: tanpa bantalan, garis Utama
+        # tidak bisa dipilih dan Asuransi kehilangan acuannya.
+        gagal = {"meets": False, "reason": alasan_bantalan}
+        pilihan_ins = gagal if ada_ins else None
+        pilihan_main = gagal if ada_main else None
+    else:
+        pilihan_main = None
+        garis_utama = None
+        if ada_main:
+            pilihan_main = cushion.utama_line(
+                persen,
+                garis_market,
+                entri_under,
+                cfg=cfg,
+                cushion_points=bantalan,
+                peluang_under=markets,
+                harga_min_cents=_harga_min_cents(cfg, "main"),
+            )
+            if pilihan_main.get("meets"):
+                garis_utama = _angka(pilihan_main.get("line"))
+        pilihan_ins = None
+        if ada_ins:
+            pilihan_ins = cushion.insurance_line(
+                persen,
+                garis_market,
+                entri_under,
+                cfg=cfg,
+                garis_di_atas=garis_utama,
+                peluang_under=markets,
+                harga_min_cents=_harga_min_cents(cfg, "insurance"),
+            )
     hasil: list[dict] = []
     for leg_lama in legs_lama:
         if not isinstance(leg_lama, dict):
@@ -751,12 +897,7 @@ def _bangun_kaki_resim(
         ):
             hasil.append(dict(leg_lama))
             continue
-        if tiket == "insurance":
-            pilihan = cushion.insurance_line(persen, garis_market, entri_under, cfg=cfg)
-        else:
-            pilihan = cushion.utama_line(
-                persen, garis_market, entri_under, spread=spread_abs, cfg=cfg
-            )
+        pilihan = pilihan_ins if tiket == "insurance" else pilihan_main
         garis_lama = _angka(leg_lama.get("line"))
         if pilihan.get("meets"):
             garis_baru = _angka(pilihan.get("line"))
@@ -820,6 +961,8 @@ def _bangun_kaki_resim(
                 "price_label": label,
                 "cushion_vs_median_points": bantalan_median,
                 "cushion_vs_market_points": bantalan_market,
+                "cushion_points": bantalan,
+                "cushion_reason": alasan_bantalan,
                 "meets": meets,
                 "reason": alasan,
                 "fetched_at": fetched_at,
@@ -839,11 +982,8 @@ def _resim_default(
     gerakan harga/garis tidak butuh inputs baru), dan (b) kaki lama
     (tiket + p_market yang dibawa). Tanpa analysis, kaki dibangun
     untuk kedua tiket (insurance + main) dari match_id simulasi.
-    Spread untuk garis Utama diambil dari tangga spread SEGAR
-    (fresh["ladders"]["spreads"], |garis spread volume terbesar| —
-    aturan yang sama seperti W1 di nba_analysis); bila tangga
-    tidak menyediakan spread, None diteruskan ke utama_line yang
-    berarti bantalan 12 fail-closed.
+    Inputs (segar atau lama) diteruskan ke _bangun_kaki_resim untuk
+    bantalan adaptif — input yang sama seperti nba_analysis.
     Mengembalikan {"simulation": dict, "legs": [leg baru]}.
     Melempar ValueError bila inputs (segar maupun lama) tidak ada,
     tangga total segar kosong, atau garis market tidak diketahui.
@@ -862,8 +1002,6 @@ def _resim_default(
         )
     ladders = fresh.get("ladders")
     totals = ladders.get("totals") if isinstance(ladders, dict) else None
-    spreads = ladders.get("spreads") if isinstance(ladders, dict) else None
-    spread_abs = spread_abs_dari_tangga(spreads)
     entri_under = _tangga_under(totals)
     if not entri_under:
         raise ValueError("resim butuh tangga total segar; tangga kosong")
@@ -893,7 +1031,7 @@ def _resim_default(
         match_id,
         fresh.get("fetched_at") or _sekarang_iso(),
         cfg,
-        spread_abs=spread_abs,
+        inputs=inputs,
     )
     return {"simulation": simulation, "legs": legs_baru}
 
@@ -1531,8 +1669,11 @@ def decide(
                 action_required = "tunggu analisis berstatus OK sebelum submit"
             elif aturan_market_aktif and prob_market is not None:
                 action_required = (
-                    "cari garis Asuransi lain — harga market garis "
-                    f"{_format_garis(garis_lama_kaki)} di bawah ambang Asuransi"
+                    "jangan pasang kaki Asuransi garis "
+                    f"{_format_garis(garis_lama_kaki)} — mesin sudah "
+                    "menaikkan garis ke anak tangga yang lebih aman, tapi "
+                    "harga marketnya tetap di bawah ambang Asuransi "
+                    f"({target_asuransi * 100:g}%)"
                 )
         legs_laporan.append(
             {

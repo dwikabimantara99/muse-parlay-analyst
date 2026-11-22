@@ -10,11 +10,13 @@ Fixture JSON di tests/fixtures/recheck/:
   Jalen Duren OUT di kedua sisi.
 """
 
+import contextlib
 import copy
 import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import jsonschema
 
@@ -190,6 +192,154 @@ def validasi_skema(laporan):
         (REPO_ROOT / "schemas" / "recheck.schema.json").read_text(encoding="utf-8")
     )
     jsonschema.validate(instance=laporan, schema=schema)
+
+
+class CushionStub:
+    """Pengganti engine.cushion dengan signature BARU (kontrak pekerja A).
+
+    Mencatat tiap pemanggilan (kwargs) + mengembalikan garis yang
+    diminta dari tangga. garis_ins/garis_main None = meets False
+    dengan alasan stub. Dipakai karena cushion asli sedang dibangun
+    paralel oleh pekerja A — tes recheck menguji wiring-nya, bukan
+    logika pemilihan garis cushion.
+    """
+
+    def __init__(
+        self, garis_ins=233.5, garis_main=233.5, alasan="tidak_ada_garis_memenuhi"
+    ):
+        self.calls = []
+        self.garis_ins = garis_ins
+        self.garis_main = garis_main
+        self.alasan = alasan
+
+    def _hasil(self, garis, ladder, persen, garis_market):
+        entri = None
+        for baris in ladder:
+            if isinstance(baris, dict) and baris.get("line") == garis:
+                entri = baris
+                break
+        if garis is None or entri is None:
+            return {
+                "line": None,
+                "meets": False,
+                "reason": self.alasan,
+                "price_cents": None,
+                "jup_estimated_cents": None,
+                "cushion_vs_median_points": None,
+                "cushion_vs_market_points": None,
+            }
+        median = persen.get("median")
+        return {
+            "line": garis,
+            "meets": True,
+            "reason": None,
+            "price_cents": entri.get("price_cents"),
+            "jup_estimated_cents": entri.get("jup_estimated_cents"),
+            "cushion_vs_median_points": (
+                round(garis - median, 9) if median is not None else None
+            ),
+            "cushion_vs_market_points": round(garis - garis_market, 9),
+        }
+
+    def insurance_line(
+        self,
+        percentiles,
+        market_line,
+        ladder,
+        cfg=None,
+        garis_di_atas=None,
+        peluang_under=None,
+        harga_min_cents=None,
+    ):
+        self.calls.append(
+            (
+                "insurance",
+                {
+                    "garis_di_atas": garis_di_atas,
+                    "peluang_under": peluang_under,
+                    "harga_min_cents": harga_min_cents,
+                },
+            )
+        )
+        return self._hasil(self.garis_ins, ladder, percentiles, market_line)
+
+    def utama_line(
+        self,
+        percentiles,
+        market_line,
+        ladder,
+        cfg=None,
+        cushion_points=None,
+        peluang_under=None,
+        harga_min_cents=None,
+    ):
+        self.calls.append(
+            (
+                "main",
+                {
+                    "cushion_points": cushion_points,
+                    "peluang_under": peluang_under,
+                    "harga_min_cents": harga_min_cents,
+                },
+            )
+        )
+        return self._hasil(self.garis_main, ladder, percentiles, market_line)
+
+
+@contextlib.contextmanager
+def stub_cushion(stub):
+    """Pasang CushionStub sebagai engine.recheck.cushion sementara."""
+    with mock.patch.object(recheck, "cushion", stub):
+        yield stub
+
+
+@contextlib.contextmanager
+def stub_analis(hasil=None, exception=None):
+    """Suntikkan modul engine.analis palsu ke sys.modules sementara.
+
+    hasil: dict yang dikembalikan bantalan_adaptif (None = analis
+    mengembalikan None). exception: bila diberikan, bantalan_adaptif
+    melemparkannya. Modul palsu mencatat pemanggilan di .calls.
+    """
+    calls = []
+
+    class _Modul:
+        pass
+
+    modul = _Modul()
+
+    def _bantalan(stats_laga, distribusi_sim, cfg=None):
+        calls.append(
+            {
+                "stats_laga": stats_laga,
+                "distribusi_sim": distribusi_sim,
+                "cfg": cfg,
+            }
+        )
+        if exception is not None:
+            raise exception
+        return hasil
+
+    modul.bantalan_adaptif = _bantalan
+    modul.calls = calls
+    lama = sys.modules.get("engine.analis")
+    sys.modules["engine.analis"] = modul
+    try:
+        yield modul
+    finally:
+        if lama is None:
+            sys.modules.pop("engine.analis", None)
+        else:
+            sys.modules["engine.analis"] = lama
+
+
+def inputs_minimal_bantalan():
+    """Inputs minimal untuk stats_laga_untuk_analis (off_rtg musim)."""
+    return {
+        "home": {"stats_season": {"off_rtg": 115.0}},
+        "away": {"stats_season": {"off_rtg": 110.0}},
+        "league": {"avg_off_rtg": 112.0},
+    }
 
 
 class TestCompareInjuries(unittest.TestCase):
@@ -725,6 +875,27 @@ class TestCondongKeMarket(unittest.TestCase):
         self.assertEqual(utama["probability_value"], 0.77)
         validasi_skema(laporan)
 
+    def test_pesan_action_required_baru(self):
+        # Aturan condong menolak kaki Asuransi: pesan lama ("cari garis
+        # Asuransi lain") menyesatkan karena seleksi sudah naik tangga —
+        # pesan baru menjelaskan kaki ditolak setelah naik tangga.
+        # Logika condong TIDAK berubah: market dipakai, nilai sama.
+        analisis = muat_fixture("det_atl_analysis.json")
+        fresh = muat_fixture("det_atl_fresh.json")
+        laporan = recheck.decide(analisis, fresh, sekarang=SEKARANG)
+        self.assertEqual(laporan["verdict"], "NO_GO")
+        self.assertIn(
+            "sudah menaikkan garis ke anak tangga", laporan["action_required"]
+        )
+        self.assertIn("di bawah ambang Asuransi", laporan["action_required"])
+        self.assertNotIn("cari garis Asuransi lain", laporan["action_required"])
+        asuransi = next(
+            leg for leg in laporan["legs"] if leg["leg_id"].endswith(":insurance")
+        )
+        self.assertEqual(asuransi["probability_used"], "market")
+        self.assertEqual(asuransi["probability_value"], 0.665)
+        self.assertEqual(asuransi["verdict"], "JANGAN_PASANG")
+
     def test_alasan_konkret_ada_model_dipakai(self):
         # Cedera bintang baru OUT + garis market tidak bergerak:
         # market belum menghargai cedera -> model boleh dipakai.
@@ -871,8 +1042,8 @@ class TestResimDefault(unittest.TestCase):
         return {
             "slug": "nba-det-atl-2026-11-22",
             "totals": totals,
-            # Spread volume terbesar -5.5 -> spread_abs 5.5 (> 2,5):
-            # kaki Utama memakai bantalan 8.
+            # Spreads ikut dalam ladder tapi DIABAIKAN hitung ulang
+            # sejak bantalan adaptif menggantikan aturan spread.
             "spreads": [
                 {
                     "line": -5.5,
@@ -910,7 +1081,12 @@ class TestResimDefault(unittest.TestCase):
             "errors": {},
         }
         analisis = analisis_minimal(legs=[kaki(tiket="insurance"), kaki(tiket="main")])
-        hasil = recheck._resim_default(fresh, cfg=cfg, analysis=analisis)
+        # Sim NYATA; cushion + analis di-stub (signature baru).
+        with (
+            stub_cushion(CushionStub()),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}),
+        ):
+            hasil = recheck._resim_default(fresh, cfg=cfg, analysis=analisis)
         self.assertIn("simulation", hasil)
         self.assertEqual(len(hasil["legs"]), 2)
         for leg in hasil["legs"]:
@@ -919,6 +1095,7 @@ class TestResimDefault(unittest.TestCase):
             self.assertIsNotNone(leg["p_model"])
             self.assertIsNotNone(leg["p_final"])
             self.assertIsNotNone(leg["price_label"])
+            self.assertEqual(leg["cushion_points"], 8.0)
 
     def test_fallback_inputs_lama(self):
         cfg = self._cfg_kecil()
@@ -930,7 +1107,11 @@ class TestResimDefault(unittest.TestCase):
         }
         analisis = analisis_minimal()
         analisis["inputs"] = self._inputs_minimal()
-        hasil = recheck._resim_default(fresh, cfg=cfg, analysis=analisis)
+        with (
+            stub_cushion(CushionStub()),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}),
+        ):
+            hasil = recheck._resim_default(fresh, cfg=cfg, analysis=analisis)
         self.assertEqual(len(hasil["legs"]), 1)
 
     def test_bangun_kaki_tidak_meets(self):
@@ -941,21 +1122,27 @@ class TestResimDefault(unittest.TestCase):
             },
             "markets": {"total_under_233.5": 0.77},
         }
-        # Tangga hanya sampai 230: tidak ada garis >= max(p74, 225.5+8).
+        # Stub cushion mengembalikan meets=False (tidak ada garis lolos).
         entri = [entri_tangga(229.5, "under", 60.0, 1000.0)]
-        legs = recheck._bangun_kaki_resim(
-            simulation,
-            entri,
-            225.5,
-            [kaki()],
-            "DET@ATL_2026-11-22",
-            "2026-11-22T12:00:00+00:00",
-            config.load_playstyle(),
-        )
+        with (
+            stub_cushion(CushionStub(garis_ins=None)),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}),
+        ):
+            legs = recheck._bangun_kaki_resim(
+                simulation,
+                entri,
+                225.5,
+                [kaki()],
+                "DET@ATL_2026-11-22",
+                "2026-11-22T12:00:00+00:00",
+                config.load_playstyle(),
+                inputs=inputs_minimal_bantalan(),
+            )
         self.assertEqual(len(legs), 1)
         self.assertFalse(legs[0]["meets"])
         self.assertEqual(legs[0]["line"], 233.5)  # garis lama dipertahankan
         self.assertIsNotNone(legs[0]["reason"])
+        self.assertEqual(legs[0]["cushion_points"], 8.0)
 
     def test_resim_fn_bentuk_rusak_data_incomplete(self):
         fresh = fresh_minimal({233.5: 66.5})
@@ -1030,11 +1217,25 @@ class TestSpreadDariTangga(unittest.TestCase):
         ]
         self.assertEqual(recheck.spread_abs_dari_tangga(spreads), 3.5)
 
+
+class TestBangunKakiSignatureBaru(unittest.TestCase):
+    """Pemanggilan cushion signature baru + bantalan adaptif di resim.
+
+    Cushion + analis di-stub (keduanya dibangun paralel pekerja A);
+    tes ini menguji wiring recheck: argumen yang diteruskan, urutan
+    Utama-dulu, dan fail-closed bila bantalan tidak tersedia.
+    """
+
     def _sim_dan_tangga(self):
         simulation = {
             "match_id": "DET@ATL_2026-11-22",
             "score_distribution": {
-                "total": {"median": 219.0, "p74": 231.0, "p75": 232.0}
+                "total": {
+                    "median": 219.0,
+                    "std": 19.0,
+                    "p74": 231.0,
+                    "p75": 232.0,
+                }
             },
             "markets": {
                 f"total_under_{garis:g}": 0.70
@@ -1047,53 +1248,223 @@ class TestSpreadDariTangga(unittest.TestCase):
         ]
         return simulation, entri
 
-    def test_spread_lebar_bantalan_8(self):
-        # spread 5.5 > 2,5 -> bantalan 8: max(219, 225.5) + 8 = 233.5.
-        simulation, entri = self._sim_dan_tangga()
-        legs = recheck._bangun_kaki_resim(
+    def _bangun(self, simulation, entri, legs, cushion_stub, cfg=None, inputs=None):
+        return recheck._bangun_kaki_resim(
             simulation,
             entri,
             225.5,
-            [kaki(tiket="main")],
+            legs,
             "DET@ATL_2026-11-22",
             "2026-11-22T12:00:00+00:00",
-            config.load_playstyle(),
-            spread_abs=5.5,
+            cfg or config.load_playstyle(),
+            inputs=inputs if inputs is not None else inputs_minimal_bantalan(),
         )
-        self.assertTrue(legs[0]["meets"])
-        self.assertEqual(legs[0]["line"], 233.5)
 
-    def test_spread_rapat_bantalan_12(self):
-        # spread 2.0 <= 2,5 -> bantalan 12: 225.5 + 12 = 237.5.
+    def test_utama_dipanggil_dengan_bantalan_adaptif(self):
         simulation, entri = self._sim_dan_tangga()
-        legs = recheck._bangun_kaki_resim(
-            simulation,
-            entri,
-            225.5,
-            [kaki(tiket="main")],
-            "DET@ATL_2026-11-22",
-            "2026-11-22T12:00:00+00:00",
-            config.load_playstyle(),
-            spread_abs=2.0,
-        )
+        stub = CushionStub(garis_main=237.5)
+        with (
+            stub_cushion(stub),
+            stub_analis({"cushion_points": 12.0, "alasan": "laga ketat"}),
+        ):
+            legs = self._bangun(simulation, entri, [kaki(tiket="main")], stub)
+        self.assertEqual(len(stub.calls), 1)
+        tiket, kwargs = stub.calls[0]
+        self.assertEqual(tiket, "main")
+        self.assertEqual(kwargs["cushion_points"], 12.0)
+        self.assertIs(kwargs["peluang_under"], simulation["markets"])
+        self.assertEqual(kwargs["harga_min_cents"], 75)
         self.assertTrue(legs[0]["meets"])
         self.assertEqual(legs[0]["line"], 237.5)
+        self.assertEqual(legs[0]["cushion_points"], 12.0)
+        self.assertEqual(legs[0]["cushion_reason"], "laga ketat")
 
-    def test_spread_tidak_diketahui_bantalan_12(self):
-        # spread None (tangga tanpa spreads) -> bantalan 12 fail-closed.
+    def test_insurance_dipanggil_dengan_garis_di_atas(self):
         simulation, entri = self._sim_dan_tangga()
-        legs = recheck._bangun_kaki_resim(
-            simulation,
-            entri,
-            225.5,
-            [kaki(tiket="main")],
-            "DET@ATL_2026-11-22",
-            "2026-11-22T12:00:00+00:00",
-            config.load_playstyle(),
-            spread_abs=None,
-        )
-        self.assertTrue(legs[0]["meets"])
-        self.assertEqual(legs[0]["line"], 237.5)
+        stub = CushionStub(garis_ins=239.5, garis_main=237.5)
+        with (
+            stub_cushion(stub),
+            stub_analis({"cushion_points": 12.0, "alasan": "stub"}),
+        ):
+            legs = self._bangun(
+                simulation,
+                entri,
+                [kaki(tiket="insurance"), kaki(tiket="main")],
+                stub,
+            )
+        # Utama dipanggil DULU, lalu Asuransi dengan garis_di_atas.
+        self.assertEqual([c[0] for c in stub.calls], ["main", "insurance"])
+        panggilan_ins = next(c for c in stub.calls if c[0] == "insurance")
+        self.assertEqual(panggilan_ins[1]["garis_di_atas"], 237.5)
+        self.assertEqual(panggilan_ins[1]["harga_min_cents"], 75)
+        garis = {leg["ticket"]: leg["line"] for leg in legs}
+        self.assertEqual(garis, {"insurance": 239.5, "main": 237.5})
+
+    def test_insurance_tanpa_garis_utama_bila_utama_gagal(self):
+        simulation, entri = self._sim_dan_tangga()
+        stub = CushionStub(garis_ins=239.5, garis_main=None)
+        with (
+            stub_cushion(stub),
+            stub_analis({"cushion_points": 12.0, "alasan": "stub"}),
+        ):
+            legs = self._bangun(
+                simulation,
+                entri,
+                [kaki(tiket="insurance"), kaki(tiket="main")],
+                stub,
+            )
+        panggilan_ins = next(c for c in stub.calls if c[0] == "insurance")
+        self.assertIsNone(panggilan_ins[1]["garis_di_atas"])
+        leg_main = next(leg for leg in legs if leg["ticket"] == "main")
+        self.assertFalse(leg_main["meets"])
+        self.assertEqual(leg_main["line"], 233.5)  # garis lama dipertahankan
+
+    def test_harga_min_dari_config(self):
+        simulation, entri = self._sim_dan_tangga()
+        cfg = copy.deepcopy(config.load_playstyle())
+        cfg["analis"]["harga_min_utama_cents"] = 80
+        cfg["analis"]["harga_min_asuransi_cents"] = 81
+        stub = CushionStub()
+        with (
+            stub_cushion(stub),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}),
+        ):
+            self._bangun(
+                simulation,
+                entri,
+                [kaki(tiket="insurance"), kaki(tiket="main")],
+                stub,
+                cfg=cfg,
+            )
+        harga = {tiket: kwargs["harga_min_cents"] for tiket, kwargs in stub.calls}
+        self.assertEqual(harga, {"main": 80, "insurance": 81})
+
+    def test_harga_min_default_75_bila_kunci_hilang(self):
+        simulation, entri = self._sim_dan_tangga()
+        cfg = copy.deepcopy(config.load_playstyle())
+        del cfg["analis"]
+        stub = CushionStub()
+        with (
+            stub_cushion(stub),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}),
+        ):
+            self._bangun(
+                simulation,
+                entri,
+                [kaki(tiket="insurance"), kaki(tiket="main")],
+                stub,
+                cfg=cfg,
+            )
+        for _tiket, kwargs in stub.calls:
+            self.assertEqual(kwargs["harga_min_cents"], 75)
+
+    def test_harga_min_tidak_valid_value_error(self):
+        simulation, entri = self._sim_dan_tangga()
+        cfg = copy.deepcopy(config.load_playstyle())
+        cfg["analis"]["harga_min_utama_cents"] = 150
+        stub = CushionStub()
+        with (
+            stub_cushion(stub),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}),
+            self.assertRaises(ValueError),
+        ):
+            self._bangun(simulation, entri, [kaki(tiket="main")], stub, cfg=cfg)
+
+    def test_bantalan_tidak_tersedia_tanpa_inputs(self):
+        # inputs None -> kedua kaki fail-closed, cushion TIDAK dipanggil.
+        simulation, entri = self._sim_dan_tangga()
+        stub = CushionStub()
+        with stub_cushion(stub):
+            legs = recheck._bangun_kaki_resim(
+                simulation,
+                entri,
+                225.5,
+                [kaki(tiket="insurance"), kaki(tiket="main")],
+                "DET@ATL_2026-11-22",
+                "2026-11-22T12:00:00+00:00",
+                config.load_playstyle(),
+                inputs=None,
+            )
+        self.assertEqual(stub.calls, [])
+        self.assertEqual(len(legs), 2)
+        for leg in legs:
+            self.assertFalse(leg["meets"])
+            self.assertEqual(leg["reason"], "inputs_tidak_tersedia")
+            self.assertIsNone(leg["cushion_points"])
+            self.assertEqual(leg["cushion_reason"], "inputs_tidak_tersedia")
+
+    def test_analis_hilang_kedua_kaki_fail_closed(self):
+        simulation, entri = self._sim_dan_tangga()
+        stub = CushionStub()
+        asli = recheck._muat_modul
+
+        def _palsu(nama):
+            if nama == "engine.analis":
+                return None
+            return asli(nama)
+
+        with (
+            stub_cushion(stub),
+            mock.patch.object(recheck, "_muat_modul", side_effect=_palsu),
+        ):
+            legs = self._bangun(
+                simulation,
+                entri,
+                [kaki(tiket="insurance"), kaki(tiket="main")],
+                stub,
+            )
+        self.assertEqual(stub.calls, [])
+        for leg in legs:
+            self.assertFalse(leg["meets"])
+            self.assertEqual(leg["reason"], "analis_belum_tersedia")
+
+    def test_analis_mengembalikan_none(self):
+        simulation, entri = self._sim_dan_tangga()
+        stub = CushionStub()
+        with stub_cushion(stub), stub_analis(None):
+            legs = self._bangun(
+                simulation,
+                entri,
+                [kaki(tiket="insurance"), kaki(tiket="main")],
+                stub,
+            )
+        self.assertEqual(stub.calls, [])
+        for leg in legs:
+            self.assertFalse(leg["meets"])
+            self.assertEqual(leg["reason"], "bantalan_adaptif_tidak_tersedia")
+
+    def test_analis_gagal_exception(self):
+        simulation, entri = self._sim_dan_tangga()
+        stub = CushionStub()
+        with stub_cushion(stub), stub_analis(exception=RuntimeError("boom")):
+            legs = self._bangun(
+                simulation,
+                entri,
+                [kaki(tiket="insurance"), kaki(tiket="main")],
+                stub,
+            )
+        self.assertEqual(stub.calls, [])
+        for leg in legs:
+            self.assertFalse(leg["meets"])
+            self.assertEqual(leg["reason"], "bantalan_adaptif_gagal: RuntimeError")
+
+    def test_analis_menerima_input_yang_sama_dengan_nba_analysis(self):
+        # bantalan_adaptif dipanggil dengan (stats_laga dari inputs,
+        # distribusi sim segar) — input yang sama seperti nba_analysis.
+        simulation, entri = self._sim_dan_tangga()
+        stub = CushionStub()
+        with (
+            stub_cushion(stub),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}) as analis,
+        ):
+            self._bangun(simulation, entri, [kaki(tiket="main")], stub)
+        self.assertEqual(len(analis.calls), 1)
+        panggilan = analis.calls[0]
+        self.assertEqual(panggilan["stats_laga"]["ortg_home"], 115.0)
+        self.assertEqual(panggilan["stats_laga"]["ortg_away"], 110.0)
+        self.assertEqual(panggilan["stats_laga"]["ortg_liga_rata"], 112.0)
+        self.assertEqual(panggilan["distribusi_sim"]["median"], 219.0)
+        self.assertEqual(panggilan["distribusi_sim"]["std"], 19.0)
 
 
 class TestIstirahatMendadak(unittest.TestCase):
@@ -1170,7 +1541,8 @@ class TestIstirahatMendadak(unittest.TestCase):
         return {
             "slug": "nba-det-atl-2026-11-22",
             "totals": totals,
-            # Spread volume terbesar 5,5 (> 2,5): kaki Utama bantalan 8.
+            # Spreads ikut dalam ladder tapi DIABAIKAN hitung ulang
+            # sejak bantalan adaptif menggantikan aturan spread.
             "spreads": [
                 {
                     "line": -5.5,
@@ -1190,8 +1562,7 @@ class TestIstirahatMendadak(unittest.TestCase):
         }
 
     def _analisis_dan_fresh(self):
-        # Kedua kaki di 233.5 (lantai market 225,5+8; spread 5,5
-        # sudah diketahui saat analyze -> bantalan Utama 8).
+        # Kedua kaki di 233.5 (garis stub cushion di tes ini).
         analisis = analisis_minimal(
             legs=[kaki(tiket="insurance"), kaki(tiket="main")],
         )
@@ -1209,9 +1580,14 @@ class TestIstirahatMendadak(unittest.TestCase):
 
     def test_rest_mendadak_resim_dan_putusan_berubah(self):
         analisis, fresh = self._analisis_dan_fresh()
-        laporan = recheck.decide(
-            analisis, fresh, cfg=self._cfg(), sekarang=self.RECHECK
-        )
+        # Sim NYATA; cushion + analis di-stub (garis tetap 233.5).
+        with (
+            stub_cushion(CushionStub()),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}),
+        ):
+            laporan = recheck.decide(
+                analisis, fresh, cfg=self._cfg(), sekarang=self.RECHECK
+            )
         # Resim dipicu kabar cedera baru (OUT apa pun alasannya).
         self.assertTrue(laporan["resimulated"])
         self.assertTrue(any("cedera_baru" in a for a in laporan["resim_reasons"]))
@@ -1229,7 +1605,7 @@ class TestIstirahatMendadak(unittest.TestCase):
             self.assertEqual(leg["kenapa_beda"]["triggered"], True)
             self.assertEqual(leg["kenapa_beda"]["reason_found"], True)
             self.assertEqual(leg["probability_used"], "model")
-            # Garis tidak berubah (lantai market 233,5 mengikat) ->
+            # Garis tidak berubah (stub cushion mengembalikan 233.5) ->
             # PERHATIAN, bukan TETAP_OK: putusan berubah karena resim.
             self.assertEqual(leg["verdict"], "PERHATIAN")
             self.assertEqual(leg["new_line"], 233.5)
@@ -1239,7 +1615,11 @@ class TestIstirahatMendadak(unittest.TestCase):
 
     def test_alasan_rest_tercatat_di_sim_hasil_resim(self):
         analisis, fresh = self._analisis_dan_fresh()
-        hasil = recheck._resim_default(fresh, cfg=self._cfg(), analysis=analisis)
+        with (
+            stub_cushion(CushionStub()),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}),
+        ):
+            hasil = recheck._resim_default(fresh, cfg=self._cfg(), analysis=analisis)
         notes = hasil["simulation"]["inputs_summary"]["notes"]
         self.assertIn("pemain OUT: Cade Cunningham (alasan: rest)", notes)
         # Median sim segar turun dibanding analisis awal (dampak absen

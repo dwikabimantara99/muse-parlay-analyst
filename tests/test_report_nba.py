@@ -639,8 +639,9 @@ def _recheck(verdict="NO_GO"):
         "anomalies": [],
         "missing": [],
         "attention": [],
-        "action_required": "cari garis Asuransi lain — harga market garis "
-        "233.5 di bawah ambang Asuransi",
+        "action_required": "jangan pasang kaki Asuransi garis 233.5 — mesin "
+        "sudah menaikkan garis ke anak tangga yang lebih aman, tapi harga "
+        "marketnya tetap di bawah ambang Asuransi (74%)",
     }
 
 
@@ -917,8 +918,9 @@ class TestRecheck(unittest.TestCase):
         self.assertIn("Kaki Utama — Under 237,5", teks)
         self.assertIn("Putusan: Tetap OK.", teks)
         self.assertIn(
-            "Yang harus dilakukan: cari garis Asuransi lain — harga market "
-            "garis 233.5 di bawah ambang Asuransi.",
+            "Yang harus dilakukan: jangan pasang kaki Asuransi garis 233.5 "
+            "— mesin sudah menaikkan garis ke anak tangga yang lebih aman, "
+            "tapi harga marketnya tetap di bawah ambang Asuransi (74%).",
             teks,
         )
         self.assertIn("selisih median model vs garis market 6.5 poin", teks)
@@ -978,6 +980,178 @@ class TestStrukturJsonDanValidasi(unittest.TestCase):
         salinan = copy.deepcopy(artefak)
         nba_report_mod.render_nba_report(artefak, recheck=_recheck("NO_GO"))
         self.assertEqual(artefak, salinan)
+
+
+def _artefak_tahap4(penilaian="wajar"):
+    """Artefak Tahap 4: analisis_wajar + field baru di kaki.
+
+    Angka meniru hasil SESUDAH DET@ATL 2026-11-22 dari
+    scripts/bandingkan_racik.py (bantalan 9,36; Utama 237,5 naik
+    tangga dari 235,5; Asuransi 249,5) — kecuali kaki Asuransi
+    fixture tetap 233,5 agar tes render tidak bergantung pada
+    seleksi ulang (yang diuji di test_nba_analysis).
+    """
+    artefak = _artefak()
+    artefak["analisis_wajar"] = {
+        "acuan_sim": 219.0,
+        "garis_market": 225.5,
+        "garis_harga": 237.5,
+        "harga_cents": 76.0,
+        "jarak_poin": 18.5,
+        "bantalan_dibutuhkan_poin": 9.36,
+        "penilaian": penilaian,
+        "penjelasan": (
+            "Acuan analisis 219 poin (garis bandar 225,5); harga 76¢ "
+            "duduk di garis 237,5 — jaraknya 18,5 poin dari acuan, "
+            "sementara statistik meminta bantalan 9,36 poin."
+        ),
+    }
+    alasan = (
+        "Bantalan 9,36 poin karena sebaran simulasi biasa "
+        "(simpangan baku 19,46 poin), kekuatan serang kedua tim "
+        "biasa saja, dan skor 5 laga terakhir biasa saja."
+    )
+    asuransi, utama = artefak["legs"]
+    asuransi.update(
+        {
+            "cushion_points": 9.36,
+            "cushion_reason": alasan,
+            "volume_usd": 270.0,
+            "thin": False,
+            "climb": None,
+        }
+    )
+    utama.update(
+        {
+            "cushion_points": 9.36,
+            "cushion_reason": alasan,
+            "volume_usd": 6.3,
+            "thin": True,
+            "climb": {
+                "from_line": 235.5,
+                "to_line": 237.5,
+                "rungs": 1,
+                "reason": "harga_minimum",
+            },
+        }
+    )
+    return artefak
+
+
+def _bagian(data, judul):
+    """Satu bagian laporan dari dict JSON berdasarkan judul."""
+    for bagian in data["sections"]:
+        if bagian["heading"] == judul:
+            return bagian
+    return None
+
+
+class TestTahap4GarisBandarDanBantalan(unittest.TestCase):
+    def test_bagian_garis_bandar_wajar(self):
+        data = nba_report_mod.render_nba_report_json(_artefak_tahap4())
+        judul = [s["heading"] for s in data["sections"]]
+        # Bagian baru langsung setelah Ringkasan (laporan mulai dari
+        # garis bandar).
+        self.assertEqual(judul[1], "Ringkasan")
+        self.assertEqual(judul[2], "Garis bandar — wajar atau tidak?")
+        bagian = _bagian(data, "Garis bandar — wajar atau tidak?")
+        teks = "\n".join(bagian["lines"])
+        self.assertIn("225,5", teks)
+        self.assertIn("219", teks)
+        self.assertIn("237,5", teks)
+        self.assertIn("76¢", teks)
+        self.assertIn("18,5", teks)
+        self.assertIn("9,36", teks)
+        self.assertIn("WAJAR", teks)
+        self.assertIn("Acuan analisis 219 poin", teks)
+
+    def test_bagian_kaki_alasan_bantalan_volume_climb(self):
+        data = nba_report_mod.render_nba_report_json(_artefak_tahap4())
+        bagian = _bagian(data, "Kaki Asuransi & Utama")
+        teks = "\n".join(bagian["lines"])
+        # Alasan analis ditampilkan apa adanya (tanpa "karena" ganda).
+        self.assertIn("Bantalan 9,36 poin karena sebaran simulasi biasa", teks)
+        self.assertNotIn("karena Bantalan 9,36", teks)
+        self.assertIn("Volume garis ini: $270", teks)
+        self.assertIn("Volume garis ini: $6", teks)
+        self.assertIn("pasar TIPIS", teks)
+        self.assertIn(
+            "Garis naik tangga dari 235,5 ke 237,5 karena harga di bawah minimum",
+            teks,
+        )
+
+    def test_artefak_lama_tanpa_analisis_wajar_tidak_crash(self):
+        # Fixture lama (_artefak tanpa field Tahap 4): bagian garis
+        # bandar menulis "tidak terverifikasi", kaki tanpa alasan
+        # bantalan, render tidak crash.
+        data = nba_report_mod.render_nba_report_json(_artefak())
+        bagian = _bagian(data, "Garis bandar — wajar atau tidak?")
+        self.assertIsNotNone(bagian)
+        teks = "\n".join(bagian["lines"])
+        self.assertIn("tidak terverifikasi", teks)
+        self.assertIn(
+            "Penilaian wajar garis bandar: tidak terverifikasi.",
+            data["tidak_terverifikasi"],
+        )
+        kaki = _bagian(data, "Kaki Asuransi & Utama")
+        teks_kaki = "\n".join(kaki["lines"])
+        self.assertNotIn("Bantalan +", teks_kaki)
+        self.assertIn(
+            "Alasan bantalan adaptif: tidak tercatat di artefak "
+            "(artefak lama atau analis belum tersedia).",
+            data["tidak_terverifikasi"],
+        )
+
+    def test_penilaian_di_bawah_wajar(self):
+        data = nba_report_mod.render_nba_report_json(
+            _artefak_tahap4(penilaian="di_bawah_wajar")
+        )
+        bagian = _bagian(data, "Garis bandar — wajar atau tidak?")
+        teks = "\n".join(bagian["lines"])
+        self.assertIn("DI BAWAH WAJAR", teks)
+        self.assertNotIn("Penilaian mesin: WAJAR", teks)
+
+    def test_penilaian_tidak_terverifikasi(self):
+        data = nba_report_mod.render_nba_report_json(
+            _artefak_tahap4(penilaian="tidak_terverifikasi")
+        )
+        bagian = _bagian(data, "Garis bandar — wajar atau tidak?")
+        teks = "\n".join(bagian["lines"])
+        self.assertIn("belum bisa dinilai (tidak terverifikasi)", teks)
+        self.assertIn(
+            "Penilaian wajar garis bandar: tidak terverifikasi.",
+            data["tidak_terverifikasi"],
+        )
+
+    def test_utama_tanpa_asuransi_peringatan_laga(self):
+        artefak = _artefak_tahap4()
+        asuransi = artefak["legs"][0]
+        asuransi.update(
+            {
+                "line": None,
+                "meets": False,
+                "reason": "tidak_ada_garis_lolos: volume_tipis",
+                "p_model": None,
+                "p_final": None,
+                "ev_pct": None,
+                "price_label": None,
+                "leg_id": f"{MATCH_ID}:total_under_none:insurance",
+            }
+        )
+        data = nba_report_mod.render_nba_report_json(artefak)
+        bagian = _bagian(data, "Kaki Asuransi & Utama")
+        teks = "\n".join(bagian["lines"])
+        self.assertIn(
+            "PERHATIAN: kaki Utama memenuhi syarat tapi kaki Asuransi "
+            "tidak — laga ini tidak punya pelindung.",
+            teks,
+        )
+
+    def test_tanpa_peringatan_bila_kedua_kaki_ok(self):
+        data = nba_report_mod.render_nba_report_json(_artefak_tahap4())
+        bagian = _bagian(data, "Kaki Asuransi & Utama")
+        teks = "\n".join(bagian["lines"])
+        self.assertNotIn("PERHATIAN", teks)
 
 
 if __name__ == "__main__":

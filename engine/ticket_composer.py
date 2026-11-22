@@ -43,10 +43,35 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
 - Hanya kaki TETAP_OK yang masuk tiket; PERHATIAN masuk hanya bila
   alasannya tercatat, dan ditandai di kaki (flag) + ringkasan.
 - MAHAL tidak masuk Asuransi; boleh masuk Utama dengan label MAHAL.
-- Target pengali dari config: Asuransi 2,2–2,5; Utama 3,5–5,0
+- Target pengali dari config: Asuransi 2,5–3,0; Utama 3,0–5,0
   (maks 5,0 profil user 2026-11-22) dengan target lunak ≤ 4,0. Bila
   target tidak tercapai dengan kaki yang lolos, tiket menjadi None +
   alasan jujur — kaki yang tidak lolos TIDAK PERNAH dipaksakan masuk.
+- Lantai harga (filosofi user 2026-11-23): kaki NBA dengan harga
+  venue (jup_estimated_cents, fallback price_cents) di bawah
+  analis.harga_min_utama_cents (Utama) / analis.harga_min_asuransi_cents
+  (Asuransi) — keduanya 75¢ — dicoret, alasan tercatat. Seleksi
+  seharusnya sudah menjamin ini; peracik menegakkan sebagai pertahanan
+  lapis kedua. Kaki BOLA tidak kena lantai harga (harga moneyline bola
+  bukan proksi bantalan; pengecualian ini menunggu keberatan
+  user/reviewer).
+- Volume tipis = PENGHALANG KERAS Asuransi: kaki dengan thin=True
+  dicoret dari Asuransi. Untuk Utama, kaki tipis BOLEH masuk tapi
+  ditandai flag VOLUME_TIPIS + peringatan di warnings[] + ringkasan.
+- Kriteria "yakin" Utama di atas target lunak (USULAN — menunggu
+  keberatan user/reviewer): pengali Utama boleh melewati target lunak
+  (≤ 4,0) sampai maks 5,0 HANYA bila SEMUA kaki p_final ≥ ambang yakin
+  (tickets.main.yakin_min_leg_prob: 0,75) DAN semua kaki TETAP_OK
+  (tanpa recheck = tidak yakin) DAN tidak ada anomali di laga
+  kaki-kakinya. Subset yakin di atas lunak DIUTAMAKAN atas subset
+  lunak (keputusan koordinator integrasi Tahap 4 — tanpa ini x5
+  tidak pernah terjadi; menunggu keberatan). Di mode agresif
+  (perintah eksplisit user per malam), kriteria ini tidak berlaku
+  dan preferensi lunak dipertahankan.
+- Utama tak terlindungi: bila Tiket Utama terracik tanpa Tiket
+  Asuransi, warnings[] + ringkasan WAJIB memuat peringatan eksplisit
+  "Tiket Utama tidak terlindungi" + alasan Asuransi tidak terbentuk +
+  artinya (kalau Utama kalah, tidak ada pengembalian dari Asuransi).
 - Peringatan jendela recheck: recheck lebih tua dari
   ``data.recheck_window_minutes`` (batas atas 60 menit) atau belum ada
   recheck sama sekali -> peringatan di ``warnings`` + ringkasan
@@ -114,6 +139,13 @@ _SKEMA_TIKET = REPO_ROOT / "schemas" / "ticket.schema.json"
 _MAKS_KAKI_PENCARIAN = 18
 _EPS = 1e-9
 
+# Default lantai harga kaki (sen) + ambang "yakin" — nilai kontrak
+# bersama filosofi user 2026-11-23, dipakai hanya bila kuncinya belum
+# ada di config (sumber "default" dicatat di ringkasan). JANGAN ubah
+# angka ini tanpa persetujuan user.
+_DEFAULT_HARGA_MIN_CENTS = 75.0
+_DEFAULT_YAKIN_MIN_LEG_PROB = 0.75
+
 # Kunci wajib minimal tiket (dipakai bila jsonschema tidak tersedia).
 _KUNCI_WAJIB_TIKET = ("ticket_id", "type", "stake", "multiplier", "legs")
 _KUNCI_WAJIB_KAKI = (
@@ -164,6 +196,61 @@ def _ambang(cfg: dict, *kunci: str) -> float:
             f"playstyle.yaml kunci {'.'.join(kunci)} bukan angka: {nilai!r}"
         )
     return hasil
+
+
+def _angka_config_atau_default(
+    cfg: dict,
+    kunci: tuple[str, ...],
+    default: float,
+    batas_bawah: float,
+    batas_atas: float,
+) -> tuple[float, str]:
+    """Baca angka dari config; kunci hilang -> (default, "default").
+
+    Kunci ADA tapi bukan angka / di luar batas -> ConfigError (config
+    rusak, bukan data hilang). Dipakai untuk kunci baru Tahap 4 yang
+    mungkin belum ada di config saat integrasi paralel (lantai harga,
+    ambang yakin) — nilai defaultnya adalah keputusan user, bukan
+    karangan, dan sumbernya dicatat di ringkasan.
+    """
+    try:
+        nilai = config_mod.get_value(cfg, *kunci)
+    except config_mod.ConfigError:
+        return default, "default"
+    hasil = _angka(nilai)
+    if hasil is None or not (batas_bawah <= hasil <= batas_atas):
+        raise config_mod.ConfigError(
+            f"playstyle.yaml kunci {'.'.join(kunci)} tidak valid: {nilai!r} "
+            f"(harus angka {batas_bawah:g}–{batas_atas:g})"
+        )
+    return hasil, "config"
+
+
+def _lantai_harga(cfg: dict) -> tuple[dict[str, float], dict[str, str]]:
+    """Lantai harga kaki (sen) per tiket + sumbernya ("config"/"default")."""
+    lantai: dict[str, float] = {}
+    sumber: dict[str, str] = {}
+    for tiket, kunci in (
+        ("insurance", "harga_min_asuransi_cents"),
+        ("main", "harga_min_utama_cents"),
+    ):
+        nilai, asal = _angka_config_atau_default(
+            cfg, ("analis", kunci), _DEFAULT_HARGA_MIN_CENTS, 0.0, 100.0
+        )
+        lantai[tiket] = nilai
+        sumber[tiket] = asal
+    return lantai, sumber
+
+
+def _ambang_yakin(cfg: dict) -> tuple[float, str]:
+    """Ambang p_final minimum kriteria "yakin" Utama + sumbernya."""
+    return _angka_config_atau_default(
+        cfg,
+        ("tickets", "main", "yakin_min_leg_prob"),
+        _DEFAULT_YAKIN_MIN_LEG_PROB,
+        0.0,
+        1.0,
+    )
 
 
 def _parse_iso(teks) -> datetime | None:
@@ -438,6 +525,7 @@ def _kumpulkan_kandidat(
     analisis_per_laga: dict[str, dict],
     recheck_per_laga: dict[str, dict],
     cfg: dict,
+    lantai: dict[str, float] | None = None,
 ) -> tuple[dict[str, list[dict]], dict[str, list[str]]]:
     """Saring kaki-kaki artefak menjadi kandidat per tiket.
 
@@ -448,12 +536,17 @@ def _kumpulkan_kandidat(
     - coret: {"insurance": [...], "main": [...]} — alasan pencoretan
       per kaki, untuk alasan jujur bila tiket tidak terracik dan
       untuk transparansi di ringkasan.
+
+    ``lantai``: lantai harga per tiket (None = baca dari config di
+    sini via ``_lantai_harga``).
     """
     ambang_gap = _ambang(cfg, "market_line_check", "total_gap_points")
     min_prob = {
         "insurance": _ambang(cfg, "tickets", "insurance", "min_leg_prob"),
         "main": _ambang(cfg, "tickets", "main", "min_leg_prob"),
     }
+    if lantai is None:
+        lantai, _sumber_lantai = _lantai_harga(cfg)
     tolak_mahal_ins = bool(
         config_mod.get_value(cfg, "optimizer", "exclude_mahal_from_insurance")
     )
@@ -471,7 +564,10 @@ def _kumpulkan_kandidat(
         recheck = recheck_per_laga.get(match_id)
         putusan_recheck: dict[str, dict] = {}
         recheck_at = None
+        ada_anomali = bool(analisis.get("anomalies"))
         if recheck is not None:
+            if recheck.get("anomalies"):
+                ada_anomali = True
             recheck_at = _parse_iso(recheck.get("recheck_at"))
             for kaki_recheck in recheck.get("legs") or []:
                 if isinstance(kaki_recheck, dict) and kaki_recheck.get("leg_id"):
@@ -519,6 +615,26 @@ def _kumpulkan_kandidat(
                 continue
             if harga_venue is None or not 0.0 < harga_venue < 100.0:
                 coret[tiket].append(f"{match_id} ({label_kaki}): harga venue tidak ada")
+                continue
+            # --- Lantai harga (filosofi 2026-11-23, pertahanan lapis
+            # kedua — seleksi seharusnya sudah menjamin). Hanya kaki
+            # NBA: harga moneyline bola bukan proksi bantalan.
+            if (
+                analisis.get("format") != "soccer_analysis"
+                and harga_venue < lantai[tiket]
+            ):
+                coret[tiket].append(
+                    f"{match_id} ({label_kaki}): harga {harga_venue:g}¢ di "
+                    f"bawah lantai {lantai[tiket]:g}¢ untuk "
+                    f"{'Asuransi' if tiket == 'insurance' else 'Utama'}"
+                )
+                continue
+            # --- Volume tipis = PENGHALANG KERAS Asuransi. ---
+            if tiket == "insurance" and kaki.get("thin") is True:
+                coret[tiket].append(
+                    f"{match_id} ({label_kaki}): volume tipis — garis "
+                    "yang tidak bisa dibeli bukan asuransi"
+                )
                 continue
             label = kaki.get("price_label")
             if label == "MAHAL" and tiket == "insurance" and tolak_mahal_ins:
@@ -664,6 +780,8 @@ def _kumpulkan_kandidat(
                     ),
                     "recheck_alasan": alasan_perhatian,
                     "recheck_at": recheck_at,
+                    "thin": kaki.get("thin") is True,
+                    "ada_anomali": ada_anomali,
                     "sim_markets": pasar_sim,
                 }
             )
@@ -683,32 +801,92 @@ def _kumpulkan_kandidat(
     return kandidat, coret
 
 
+def _yakin_utama(subset: list[dict], ambang_p: float) -> bool:
+    """Kriteria "yakin" Utama di atas target lunak (USULAN — menunggu
+    keberatan user/reviewer).
+
+    True hanya bila subset tidak kosong DAN SEMUA kakinya: p_final >=
+    ambang_p DAN putusan recheck TETAP_OK (tanpa recheck -> verdict
+    None -> tidak yakin) DAN tidak ada anomali di laganya (artefak
+    analisis maupun laporan recheck). PERHATIAN gagal lewat syarat
+    TETAP_OK. Syarat ini monoton: menambah kaki tidak pernah mengubah
+    subset yang tidak yakin menjadi yakin (dipakai pemangkasan di
+    ``_pilih_subset``).
+    """
+    if not subset:
+        return False
+    for kand in subset:
+        if kand["p_final"] < ambang_p:
+            return False
+        if kand.get("recheck_verdict") != "TETAP_OK":
+            return False
+        if kand.get("ada_anomali"):
+            return False
+    return True
+
+
+def _salin_climb(climb) -> dict | None:
+    """Salinan climb {from_line, to_line, rungs, reason} atau None.
+
+    Hanya dict yang disalin (kunci yang dikenal, jenis divalidasi);
+    bentuk lain dibuang — skema tiket hanya mengenal bentuk dict.
+    """
+    if not isinstance(climb, dict):
+        return None
+    rungs = climb.get("rungs")
+    if isinstance(rungs, bool) or not isinstance(rungs, int):
+        rungs = None
+    alasan = climb.get("reason")
+    return {
+        "from_line": _angka(climb.get("from_line")),
+        "to_line": _angka(climb.get("to_line")),
+        "rungs": rungs,
+        "reason": alasan if isinstance(alasan, str) else None,
+    }
+
+
 def _pilih_subset(
     kandidat: list[dict],
     mult_min: float,
     mult_max: float | None,
     soft_max: float,
     potongan_pct: float,
-) -> tuple[list[dict] | None, float, bool]:
+    yakin_fn=None,
+) -> tuple[list[dict] | None, float, bool, bool]:
     """Pilih subset kaki terbaik untuk satu tiket (pencarian menyeluruh).
 
     Mengembalikan (subset | None, pengali_maks_yang_bisa_dicapai,
-    dipangkas). ``dipangkas`` True bila daftar kandidat dipotong ke
-    ``_MAKS_KAKI_PENCARIAN`` kaki teraman.
+    dipangkas, terblokir_yakin). ``dipangkas`` True bila daftar
+    kandidat dipotong ke ``_MAKS_KAKI_PENCARIAN`` kaki teraman.
+    ``terblokir_yakin`` True bila ada subset dalam target yang
+    ditolak HANYA karena kriteria "yakin" (``yakin_fn``) — untuk
+    alasan jujur di ``compose_tickets``.
+
+    ``yakin_fn`` (opsional): callable(subset) -> bool. Bila diberikan,
+    subset dengan pengali di atas ``soft_max`` hanya boleh dicatat
+    bila ``yakin_fn(subset)`` True; subset yang gagal dipangkas
+    (menambah kaki tidak bisa membuatnya yakin — syarat "semua kaki"
+    monoton). Subset pada/di bawah ``soft_max`` tidak kena syarat ini.
 
     Kriteria pilih (berurutan): (1) minimal 2 kaki bila ada subset
     ≥2 kaki yang masuk target — 1 kaki hanya bila tidak ada pilihan
-    lain; (2) pengali dalam target lunak (≤ ``soft_max``) diutamakan;
-    (3) peluang menang (Π peluang keputusan) terbesar; (4) pengali
-    paling dekat ke tengah jendela target; (5) kaki lebih banyak;
-    (6) urutan leg_id (deterministik).
+    lain; (2) subset YAKIN di atas target lunak diutamakan (keputusan
+    koordinator integrasi Tahap 4 — filosofi user 2026-11-23: x5 boleh
+    bila mesin beneran yakin; tanpa preferensi ini gate yakin tidak
+    pernah mengubah hasil karena subset lunak selalu ada — temuan
+    struktural pekerja B; menunggu keberatan user/reviewer); lalu
+    pengali dalam target lunak (≤ ``soft_max``); (3) peluang menang
+    (Π peluang keputusan) terbesar; (4) pengali paling dekat ke tengah
+    jendela target — kecuali di kelas yakin, di mana pengali lebih
+    besar lebih baik (mesin yakin -> ambil bayaran); (5) kaki lebih
+    banyak; (6) urutan leg_id (deterministik).
     """
     dipangkas = False
     if len(kandidat) > _MAKS_KAKI_PENCARIAN:
         kandidat = kandidat[:_MAKS_KAKI_PENCARIAN]
         dipangkas = True
     if not kandidat:
-        return None, 0.0, dipangkas
+        return None, 0.0, dipangkas, False
     potongan = 1.0 - potongan_pct / 100.0
     # Urutkan berdasarkan kontribusi pengali (harga termurah dulu) agar
     # pemangkasan cabang pencarian efektif.
@@ -726,10 +904,24 @@ def _pilih_subset(
     tengah = (mult_min + soft_max) / 2.0
 
     def _kunci(subset: list[dict], mult: float, p_menang: float) -> tuple:
+        di_atas_lunak = mult > soft_max + _EPS
+        # Yakin hanya bermakna bila ada gate (yakin_fn); tanpa gate
+        # (mode agresif) perilaku lama dipertahankan: lunak diutamakan.
+        yakin = bool(yakin_fn) and di_atas_lunak and yakin_fn(subset)
+        if yakin:
+            kelas = 0
+            jarak = -mult  # yakin -> ambil bayaran terbesar
+        elif di_atas_lunak:
+            kelas = 2  # di atas lunak tapi tidak yakin: tidak pernah
+            # dicatat (dipangkas di _telusuri); pertahanan saja.
+            jarak = abs(mult - tengah)
+        else:
+            kelas = 1
+            jarak = abs(mult - tengah)
         return (
-            0 if mult <= soft_max + _EPS else 1,
+            kelas,
             -p_menang,
-            abs(mult - tengah),
+            jarak,
             -len(subset),
             tuple(sorted(k["leg"].get("leg_id") or "" for k in subset)),
         )
@@ -738,9 +930,11 @@ def _pilih_subset(
         "banyak": None,
         "tunggal": None,
     }
+    terblokir_yakin = False
     subset: list[dict] = []
 
     def _telusuri(indeks: int, produk: float, p_menang: float) -> None:
+        nonlocal terblokir_yakin
         # Cabang tidak bisa mencapai target minimum -> pangkas.
         if produk * sufiks[indeks] * potongan < mult_min - _EPS:
             return
@@ -749,6 +943,16 @@ def _pilih_subset(
             if mult_max is not None and mult > mult_max + _EPS:
                 return  # menambah kaki hanya menaikkan pengali
             if mult >= mult_min - _EPS:
+                if (
+                    mult > soft_max + _EPS
+                    and yakin_fn is not None
+                    and not yakin_fn(subset)
+                ):
+                    # Di atas target lunak tapi tidak yakin -> tidak
+                    # boleh dicatat; superset tidak bisa lolos yakin
+                    # (syarat "semua kaki" monoton) -> pangkas.
+                    terblokir_yakin = True
+                    return
                 kunci = _kunci(subset, mult, p_menang)
                 slot = "banyak" if len(subset) >= 2 else "tunggal"
                 lama = terbaik[slot]
@@ -765,8 +969,8 @@ def _pilih_subset(
     _telusuri(0, 1.0, 1.0)
     pilihan = terbaik["banyak"] or terbaik["tunggal"]
     if pilihan is None:
-        return None, pengali_maks, dipangkas
-    return pilihan[1], pengali_maks, dipangkas
+        return None, pengali_maks, dipangkas, terblokir_yakin
+    return pilihan[1], pengali_maks, dipangkas, terblokir_yakin
 
 
 def _tanggal_tiket(subset: list[dict]) -> str:
@@ -813,6 +1017,8 @@ def _rakit_tiket(
             flags.append("TANPA_XG")
         if kand["recheck_verdict"] == "PERHATIAN":
             flags.append("PERHATIAN")
+        if kand.get("thin"):
+            flags.append("VOLUME_TIPIS")
         seleksi = kand.get("selection")
         if seleksi is None:
             # Kandidat dari pemanggil lama (tanpa "selection"): turunkan
@@ -839,6 +1045,17 @@ def _rakit_tiket(
                 "jup_price_cents": kand["harga_jup"],
                 "edge": round(kand["p_final"] - kand["harga_jup"] / 100.0, 4),
                 "ev_pct": kand["ev_pct"],
+                "cushion_points": _angka(kaki.get("cushion_points")),
+                "cushion_reason": (
+                    kaki.get("cushion_reason")
+                    if isinstance(kaki.get("cushion_reason"), str)
+                    else None
+                ),
+                "volume_usd": _angka(kaki.get("volume_usd")),
+                "thin": (
+                    kaki.get("thin") if isinstance(kaki.get("thin"), bool) else None
+                ),
+                "climb": _salin_climb(kaki.get("climb")),
                 "status": "OK",
                 "flags": flags,
                 "jup_provider": "polymarket",
@@ -950,6 +1167,8 @@ def _ringkasan_tiket(
             info += f", {kand['price_label']}"
         if kand.get("no_xg"):
             info += ", TANPA_XG"
+        if kand.get("thin"):
+            info += ", volume tipis"
         if kand["recheck_verdict"] == "PERHATIAN":
             info += " [PERHATIAN: " + "; ".join(kand["recheck_alasan"]) + "]"
         if kand["decision_alasan"]:
@@ -1083,7 +1302,11 @@ def compose_tickets(
 
     analisis_per_laga = _terbaru_per_laga(analyses, "generated_at")
     recheck_per_laga = _terbaru_per_laga(rechecks or [], "recheck_at")
-    kandidat, coret = _kumpulkan_kandidat(analisis_per_laga, recheck_per_laga, cfg)
+    lantai, sumber_lantai = _lantai_harga(cfg)
+    ambang_yakin, sumber_yakin = _ambang_yakin(cfg)
+    kandidat, coret = _kumpulkan_kandidat(
+        analisis_per_laga, recheck_per_laga, cfg, lantai=lantai
+    )
 
     warnings: list[str] = []
     hasil: dict = {}
@@ -1092,7 +1315,7 @@ def compose_tickets(
     belum_dicek: dict[str, bool] = {}
 
     # Asuransi dulu (prioritas bila ada konflik garis laga yang sama).
-    subset_ins, maks_ins, pangkas_ins = _pilih_subset(
+    subset_ins, maks_ins, pangkas_ins, _blokir_ins = _pilih_subset(
         kandidat["insurance"],
         target["insurance"]["min"],
         target["insurance"]["max"],
@@ -1192,12 +1415,18 @@ def compose_tickets(
                 continue
             tersaring.append(kand)
         kandidat_main = tersaring
-    subset_main, maks_main, pangkas_main = _pilih_subset(
+    # Utama: kriteria "yakin" membatasi pengali di atas target lunak —
+    # kecuali mode agresif (perintah eksplisit user per malam).
+    yakin_fn_main = (
+        None if mode_agresif else (lambda subset: _yakin_utama(subset, ambang_yakin))
+    )
+    subset_main, maks_main, pangkas_main, blokir_yakin = _pilih_subset(
         kandidat_main,
         target["main"]["min"],
         target["main"]["max"],
         target["main"]["soft"],
         potongan_pct,
+        yakin_fn=yakin_fn_main,
     )
     if pangkas_main:
         warnings.append(
@@ -1228,6 +1457,14 @@ def compose_tickets(
                 f"target x{target['main']['min']:.2f}–{maks_main_teks} "
                 f"(pengali maksimum yang bisa dicapai x{maks_main:.2f})."
             )
+        if blokir_yakin:
+            alasan_main += (
+                " Kombinasi di atas target lunak "
+                f"x{target['main']['soft']:.2f} ditolak karena kriteria "
+                "'yakin' tidak terpenuhi (butuh tiap kaki p_final "
+                f">= {ambang_yakin * 100:.0f}%, semua TETAP_OK, tanpa "
+                "anomali)."
+            )
         hasil["main"] = None
         hasil["main_reason"] = alasan_main
         subset_terpilih["main"] = None
@@ -1257,6 +1494,14 @@ def compose_tickets(
             subset_terpilih["main"] = subset_main
             info_tiket["main"] = (p_main, ev_main)
             belum_dicek["main"] = belum_main
+            for kand in subset_main:
+                if kand.get("thin"):
+                    seleksi = kand.get("selection") or "kaki"
+                    warnings.append(
+                        f"Kaki Utama {kand['match_id']} ({seleksi}) "
+                        "bervolume tipis — harganya bisa bergerak saat "
+                        "pasang, sebaiknya cek lagi sebelum submit."
+                    )
             if ev_main < 0:
                 warnings.append(
                     f"EV tiket Utama negatif ({ev_main:+.0f}%) — secara "
@@ -1276,6 +1521,16 @@ def compose_tickets(
                 "Pengali Asuransi tidak cukup menutup total modal bila "
                 "tiket Utama kalah."
             )
+
+    # Utama terracik tanpa Asuransi -> WAJIB diperingatkan jelas
+    # (filosofi 2026-11-23; 22 Nov warnings kosong = bug).
+    if hasil.get("main") is not None and hasil.get("insurance") is None:
+        warnings.append(
+            "Tiket Utama tidak terlindungi — Tiket Asuransi tidak "
+            f"terbentuk ({hasil.get('insurance_reason') or 'tanpa alasan'}). "
+            "Kalau Tiket Utama kalah, tidak ada uang yang kembali dari "
+            "Asuransi."
+        )
 
     # Dedup (satu laga bisa muncul di kedua tiket -> peringatan sama).
     warnings = list(dict.fromkeys(warnings))
@@ -1335,6 +1590,19 @@ def compose_tickets(
     if tidak_lolos:
         baris += ["", "KAKI YANG TIDAK LOLOS:"] + [f"  • {c}" for c in tidak_lolos]
     catatan_ringkas = list(catatan_garis)
+    if sumber_lantai["insurance"] == "default" or sumber_lantai["main"] == "default":
+        catatan_ringkas.append(
+            f"Lantai harga kaki {_DEFAULT_HARGA_MIN_CENTS:g}¢ (nilai "
+            "default — kunci analis.harga_min_utama_cents / "
+            "analis.harga_min_asuransi_cents belum ada di config)."
+        )
+    if sumber_yakin == "default":
+        catatan_ringkas.append(
+            "Ambang 'yakin' Utama di atas "
+            f"x{target['main']['soft']:.2f}: tiap kaki p_final "
+            f">= {_DEFAULT_YAKIN_MIN_LEG_PROB * 100:.0f}% (nilai default "
+            "— kunci tickets.main.yakin_min_leg_prob belum ada di config)."
+        )
     catatan_ringkas.append(
         "Hanya kaki Alt Under (NBA) dan kaki 1X2/O-U gol/BTTS (bola) "
         "yang diracik; moneyline NBA tidak dipakai."
@@ -1350,7 +1618,10 @@ def compose_tickets(
             "Asuransi, dengan ambang peluang +5 poin (B4)."
         )
     if mode_agresif:
-        catatan_ringkas.append("Mode agresif: pengali maksimum Utama bebas.")
+        catatan_ringkas.append(
+            "Mode agresif: pengali maksimum Utama bebas; kriteria "
+            "'yakin' tidak berlaku (perintah eksplisit user)."
+        )
     baris += ["", "CATATAN:"] + [f"  • {c}" for c in catatan_ringkas]
     hasil["warnings"] = warnings
     hasil["summary"] = "\n".join(baris)

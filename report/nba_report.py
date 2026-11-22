@@ -7,14 +7,25 @@ fetch, tidak ada simulasi ulang, tidak ada panggilan Odds API, dan
 tidak ada angka yang ditebak. Datum yang tidak ada di artefak ditulis
 "tidak terverifikasi" dan dicatat di daftar kekurangan laporan.
 
-Isi laporan (urut): judul + status, ringkasan, data tim, pemain kunci,
-proyeksi total, kabar pemain (cedera/ketersediaan), bursa & harga
-pasar, kaki Asuransi & Utama, 5 laga terakhir, 5 pertemuan terakhir,
-kandang vs tandang, simulasi 100.000 pertandingan (+ skenario skuad),
-anomali, "Kenapa beda?" (bila |model - pasar| > 8 poin — ambang dari
-playstyle.yaml lewat engine/anomaly.py — atau artefak menandai
-kenapa_beda_required), cek ulang (bila recheck diberikan), sumber
-data, dan daftar yang belum bisa dipastikan.
+Isi laporan (urut): judul + status, ringkasan, garis bandar — wajar
+atau tidak? (Tahap 4: acuan sim vs garis market vs garis harga),
+data tim, pemain kunci, proyeksi total, kabar pemain
+(cedera/ketersediaan), bursa & harga pasar, kaki Asuransi & Utama
+(Tahap 4: alasan bantalan adaptif + volume/tipis/naik tangga per
+kaki), 5 laga terakhir, 5 pertemuan terakhir, kandang vs tandang,
+simulasi 100.000 pertandingan (+ skenario skuad), anomali, "Kenapa
+beda?" (bila |model - pasar| > 8 poin — ambang dari playstyle.yaml
+lewat engine/anomaly.py — atau artefak menandai kenapa_beda_required),
+cek ulang (bila recheck diberikan), sumber data, dan daftar yang
+belum bisa dipastikan.
+
+CATATAN TAHAP 4: bagian "Garis bandar" membaca artefak
+`analisis_wajar` (engine/analis.nilai_wajar); artefak lama yang tidak
+membawanya ditulis "tidak terverifikasi", bukan ditebak. Laporan ini
+tidak menampilkan tiket (tiket diracik engine/ticket_composer.py dan
+ditampilkan cli.py racik) — peringatan "Utama tak terlindungi" di
+tingkat TIKET tampil di sana; di sini hanya ada peringatan tingkat
+LAGA bila kaki Utama memenuhi syarat tapi Asuransi tidak.
 
 BOLA (Tahap 3 Langkah 5): modul ini juga merender laporan RINGKAS
 untuk artefak ``soccer_analysis`` (``render_soccer_report`` /
@@ -356,6 +367,7 @@ class _Laporan:
         """Rakit semua bagian; kembalikan dict laporan terstruktur + teks."""
         self._bagian_judul()
         self._bagian_ringkasan()
+        self._bagian_garis_bandar()
         self._bagian_data_tim()
         self._bagian_pemain_kunci()
         self._bagian_proyeksi()
@@ -498,6 +510,89 @@ class _Laporan:
             putusan = _VERDIK_TIKET.get(self.r.get("verdict"), self.r.get("verdict"))
             baris.append(f"Cek ulang sebelum pasang: {putusan}.")
         self._tambah("Ringkasan", baris)
+
+    # -- bagian: garis bandar (Tahap 4) --------------------------------
+
+    def _bagian_garis_bandar(self) -> None:
+        """Garis bandar — wajar atau tidak? (dari analisis_wajar).
+
+        Filosofi user: laporan mulai dari garis bandar — kenapa bandar
+        pilih garis itu, lalu mesin cek pakai statistik apakah harga
+        itu wajar ("wajar" = jarak antara acuan analisis dan garis
+        tempat harga duduk cukup tebal dibanding bantalan yang
+        dibutuhkan). Artefak lama tanpa analisis_wajar -> ditulis
+        "tidak terverifikasi", jangan crash.
+        """
+        wajar = self.a.get("analisis_wajar")
+        if not isinstance(wajar, dict):
+            self._tambah(
+                "Garis bandar — wajar atau tidak?",
+                [
+                    "Penilaian wajar garis bandar: tidak terverifikasi — "
+                    "artefak ini tidak membawa hasil penilaian analis "
+                    "(artefak lama atau analis belum tersedia).",
+                ],
+            )
+            self._celah("Penilaian wajar garis bandar: tidak terverifikasi.")
+            return
+        baris: list[str] = []
+        acuan = _fmt_poin(wajar.get("acuan_sim"))
+        garis_market = _fmt_poin(wajar.get("garis_market"))
+        garis_harga = _fmt_poin(wajar.get("garis_harga"))
+        harga = _fmt_sen(wajar.get("harga_cents"))
+        jarak = _fmt_poin(wajar.get("jarak_poin"))
+        bantalan = _fmt_poin(wajar.get("bantalan_dibutuhkan_poin"))
+        if garis_market is not None:
+            baris.append(
+                f"Bandar memasang garis total utama {garis_market} — "
+                "garis yang paling banyak dipasang orang (batas bawah "
+                "yang wajar menurut pasar)."
+            )
+        else:
+            baris.append("Garis total utama bandar: tidak terverifikasi.")
+            self._celah("Garis total utama bandar: tidak terverifikasi.")
+        if acuan is not None:
+            baris.append(f"Acuan analisis mesin (nilai tengah simulasi): {acuan} poin.")
+        else:
+            baris.append("Acuan analisis mesin: tidak terverifikasi.")
+            self._celah("Acuan analisis mesin: tidak terverifikasi.")
+        if garis_harga is not None and harga is not None:
+            baris.append(
+                f"Harga kaki Utama duduk di garis {garis_harga} "
+                f"dengan harga {harga}."
+            )
+        elif garis_harga is not None:
+            baris.append(
+                f"Harga kaki Utama duduk di garis {garis_harga} "
+                "(harga tidak tercatat)."
+            )
+        else:
+            baris.append(
+                "Kaki Utama tidak punya garis, jadi tidak ada harga "
+                "yang bisa dinilai kewajarannya."
+            )
+        if jarak is not None and bantalan is not None:
+            baris.append(
+                f"Jarak acuan ke garis harga: {jarak} poin; bantalan "
+                f"yang dibutuhkan menurut analisis laga ini: {bantalan} poin."
+            )
+        elif jarak is not None:
+            baris.append(f"Jarak acuan ke garis harga: {jarak} poin.")
+        penilaian = wajar.get("penilaian")
+        penjelasan = wajar.get("penjelasan")
+        if penilaian == "wajar":
+            baris.append("Penilaian mesin: WAJAR — jaraknya cukup tebal.")
+        elif penilaian == "di_bawah_wajar":
+            baris.append(
+                "Penilaian mesin: DI BAWAH WAJAR — jaraknya lebih tipis "
+                "dari bantalan yang dibutuhkan."
+            )
+        else:
+            baris.append("Penilaian mesin: belum bisa dinilai (tidak terverifikasi).")
+            self._celah("Penilaian wajar garis bandar: tidak terverifikasi.")
+        if isinstance(penjelasan, str) and penjelasan:
+            baris.append(f"Alasan mesin: {penjelasan}")
+        self._tambah("Garis bandar — wajar atau tidak?", baris)
 
     # -- bagian: tim + pemain -----------------------------------------
 
@@ -931,8 +1026,116 @@ class _Laporan:
                     f"{_fmt_poin(bantalan_market)} poin di atas garis market "
                     f"({_fmt_poin(garis_market)})."
                 )
+            # Tahap 4: alasan bantalan adaptif + volume/tipis/naik tangga.
+            bantalan_adaptif = _angka(kaki.get("cushion_points"))
+            alasan_bantalan = kaki.get("cushion_reason")
+            if bantalan_adaptif is not None:
+                if isinstance(alasan_bantalan, str) and alasan_bantalan:
+                    # Alasan analis sudah kalimat lengkap ("Bantalan
+                    # 9,36 poin karena ...") — tampilkan apa adanya,
+                    # jangan ditumpuk "karena".
+                    if alasan_bantalan.startswith("Bantalan "):
+                        baris.append(f"- {alasan_bantalan}")
+                    else:
+                        baris.append(
+                            "- Bantalan "
+                            f"+{_fmt_poin(bantalan_adaptif)} karena "
+                            f"{alasan_bantalan}"
+                        )
+                else:
+                    baris.append(
+                        "- Bantalan "
+                        f"+{_fmt_poin(bantalan_adaptif)} "
+                        "(alasan tidak tercatat di artefak)."
+                    )
+            else:
+                self._celah(
+                    "Alasan bantalan adaptif: tidak tercatat di artefak "
+                    "(artefak lama atau analis belum tersedia)."
+                )
+            volume = _angka(kaki.get("volume_usd"))
+            if volume is not None:
+                teks_volume = f"- Volume garis ini: {_fmt_usd(volume)}"
+                if kaki.get("thin") is True:
+                    teks_volume += " — pasar TIPIS, harga bisa melompat"
+                baris.append(teks_volume + ".")
+            elif kaki.get("thin") is True:
+                baris.append(
+                    "- Pasar garis ini TIPIS (volume tidak tercatat), "
+                    "harga bisa melompat."
+                )
+            climb = kaki.get("climb")
+            teks_climb = self._teks_climb(climb)
+            if teks_climb is not None:
+                baris.append(f"- {teks_climb}")
             baris.append("- Memenuhi syarat: ya.")
+        # Peringatan tingkat LAGA (bukan tiket): Utama ada tapi
+        # Asuransi tidak memenuhi — laga ini tidak punya pelindung.
+        # Peringatan tingkat TIKET ("Utama tak terlindungi") tampil di
+        # cli.py racik dari warnings peracik, bukan di sini.
+        utama_ok = any(k.get("ticket") == "main" and k.get("meets") for k in self.legs)
+        asuransi_ok = any(
+            k.get("ticket") == "insurance" and k.get("meets") for k in self.legs
+        )
+        if utama_ok and not asuransi_ok:
+            baris.append("")
+            baris.append(
+                "PERHATIAN: kaki Utama memenuhi syarat tapi kaki Asuransi "
+                "tidak — laga ini tidak punya pelindung. Bila Utama "
+                "dipasang tanpa Asuransi, tidak ada yang menyelamatkan "
+                "modal bila Utama kalah."
+            )
         self._tambah("Kaki Asuransi & Utama", baris)
+
+    def _teks_climb(self, climb) -> str | None:
+        """Catatan naik tangga jadi kalimat; None bila tidak naik tangga.
+
+        Bentuk climb dari cushion (engine/cushion.py): dict
+        {"from_line", "to_line", "rungs", "reason"} atau None. Reason
+        adalah kode syarat ("harga_minimum", "peluang_model",
+        "volume_tipis", digabung "+") — diterjemahkan ke kata biasa.
+        Bentuk tak dikenal -> None (jangan mengarang).
+        """
+        if climb is None or climb is False:
+            return None
+        if climb is True:
+            return (
+                "Garis naik tangga di atas garis pertama yang memenuhi "
+                "syarat (mis. karena harga minimum atau volume tipis)."
+            )
+        if isinstance(climb, (int, float)) and not isinstance(climb, bool):
+            poin = _fmt_poin(climb)
+            return (
+                f"Garis naik tangga {poin} poin di atas garis pertama "
+                "yang memenuhi syarat."
+                if poin is not None
+                else None
+            )
+        if isinstance(climb, dict):
+            dari = _fmt_poin(climb.get("from_line"))
+            ke = _fmt_poin(climb.get("to_line"))
+            alasan = climb.get("reason")
+            if dari is None or ke is None:
+                return None
+            arti = {
+                "harga_minimum": "harga di bawah minimum",
+                "peluang_model": "peluang model di bawah target",
+                "volume_tipis": "volume tipis",
+            }
+            teks = f"Garis naik tangga dari {dari} ke {ke}"
+            if isinstance(alasan, str) and alasan:
+                sebab = [
+                    arti.get(kode.strip(), kode.strip())
+                    for kode in alasan.split("+")
+                    if kode.strip()
+                ]
+                if sebab:
+                    teks += " karena " + ", ".join(sebab)
+            rungs = climb.get("rungs")
+            if isinstance(rungs, int) and not isinstance(rungs, bool) and rungs > 1:
+                teks += f" ({rungs} anak tangga)"
+            return teks + "."
+        return None
 
     # -- bagian: form, H2H, kandang/tandang, simulasi -------------------
 
