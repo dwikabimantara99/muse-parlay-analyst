@@ -144,6 +144,8 @@ Lima pemindaian penuh (baseline + cek ulang 04:00, 06:00, 07:00, 09:00 WIB mende
 
 **Artinya: Alt Under NBA — pasar utama user — tidak bisa dimainkan lewat jup.ag saat ini.**
 
+**KOREKSI 22 Nov 19:15 WIB — putusan di atas SALAH.** User membuktikan lewat screenshot + URL bahwa pasar spread/total NBA ADA di jup.ag. Penyebab: pemindai hanya membaca endpoint daftar API jup.ag (yang hanya menampilkan 2 moneyline per laga); spread/total-nya hidup di Polymarket (provider asal), yang dirender UI jup.ag. Terverifikasi live: event Polymarket `nba-det-atl-2026-11-22` = 283 pasar, total 31 garis 199,5–255,5. **Alt Under NBA BISA lewat jup.ag.** Arsitektur diperbaiki: tangga total/spread diambil dari Polymarket gamma per event. Detail: DECISIONS.md + LAPORAN-TAHAP-3-LANGKAH-1.md.
+
 ### Kalshi sebagai venue Alt Under — groundwork selesai (21 Nov, 09:08–12:10 WIB)
 
 **Garisnya ADA (terverifikasi live, bukti `out/kalshi_alt_total_2026-11-21.json`):** KXNBATOTAL — 14 event, 406 pasar, 29 garis/event (langkah 2 poin), 29/29 ber-harga bid/ask. Under = sisi No dari pasar Over yang sama. Tangga garis menutup bantalan Alt Under 8/12 poin.
@@ -158,65 +160,99 @@ Lima pemindaian penuh (baseline + cek ulang 04:00, 06:00, 07:00, 09:00 WIB mende
 
 **Yang masih UNKNOWN:** (ii) KYC dari Indonesia; (iii) maker fee spesifik KXNBATOTAL; (iv) legalitas menurut hukum Indonesia ("not restricted" Kalshi ≠ legal lokal). Semua terjawab oleh percobaan signup gratis (tanpa deposit) bila user memilih menjajaki Kalshi.
 
-**Keputusan venue BELUM dibuat** — pilihan: (a) jajaki Kalshi, (b) tetap jup.ag-only, (c) tidak buru-buru.
+**Keputusan venue** — setelah koreksi di atas, Kalshi tidak lagi satu-satunya jalan; venue utama = jup.ag (dikonfirmasi user 22 Nov 19:00 WIB). Groundwork Kalshi tetap tersimpan sebagai cadangan.
 
 ---
 
-## 7. Keadaan mesin sekarang
+## 7. Tahap 3 — Otak + cek ulang + laporan + pantauan + bola + belajar (22 Nov) — SELESAI DIBANGUN
+
+Urutan bangun disetujui user 22 Nov 18:54 WIB. Enam langkah, semua selesai dan terverifikasi independen oleh main agent dari disk (tes, lint, angka kunci dihitung tangan):
+
+### Langkah 1 — Otak NBA (commit 151b2c5, 613 tes)
+
+Simulasi 100.000x per laga (Student-t, OT 5 menit, skenario skuad BPM × menit, B2B, altitude, flag turnamen). Fit dari 2.701 laga: sigma_total 18,22, sigma_margin 13,82, home 1,66, B2B −1,60, t_nu 34,5. Validasi: Brier home-win 0,1859 vs tebakan dasar 0,2436 (skill nyata); Under median+8 tidak membeda-bedakan laga (Brier ≈ tebakan dasar).
+
+### Patch 1b — Perbaikan 4 temuan auditor (commit 634b050, 707 tes)
+
+(1) Validasi rolling point-in-time (Brier home-win 0,1983 — v1 terlalu optimis, skill tetap nyata). (2) Replacement level −2,0 + koreksi tumpang-tindih absensi (Duren: double-count 1,4 poin — angka auditor tepat). (3) Bantalan Asuransi dari target peluang 74% (bukan +12 kaku — titipan user). (4) Cedera NBA dari ESPN (110 cedera) + PDF resmi — B2 terpenuhi; Rotowire turun ke cadangan (paywall).
+
+### Langkah 2 — Cek ulang pra-submit + 5 aturan (commit 5b987a2, 849 tes)
+
+`cli.py recheck`: fetch segar (cedera + tangga harga), sim ulang bila material, verdict per kaki TETAP_OK/PERHATIAN/JANGAN_PASANG + GO/NO-GO tiket. Kelima aturan terpasang + teruji: adopsi nilai rolling (sigma_total 18,99), lapisan ketersediaan (OUT apapun alasannya → absen), shrinkage menit+BPM ke musim lalu (K=10), spread dari tangga market (fallback +12), aturan condong-ke-market (selisih >5 poin tanpa alasan konkret → pakai probabilitas market; <74% → tidak lolos Asuransi). Bukti: fixture istirahat mendadak 45 menit sebelum tip-off tertangkap. Probe DunkAPI (tanpa signup): garis penutupan ADA sejak Juli 2020, uji 150 laga ≈ 150 kredit gratis — signup menunggu user.
+
+### Langkah 3 — Laporan + tanya-jawab + peracik tiket (commit 411f604, 966 tes)
+
+Laporan 17 bagian Bahasa Indonesia sehari-hari; tanya-jawab 6 jenis pertanyaan (termasuk "bagaimana jika X absen" via sim ulang 20.000x); peracik Asuransi + Utama (garis berbeda wajib per laga, condong-ke-market berlaku). Uji live 7 laga: Utama x3,1847 terracik (4 kaki Under, EV +8,57% — hitungan tangan cocok persis); Asuransi TIDAK diracik (hanya 2 kaki lolos, pengali maks x1,65 < target x2,20 — mesin menolak memaksa). Pertanyaan terbuka: min_leg_prob 0,74 gate keras vs lunak (kaki DEN@CHI 0,7352 gugur).
+
+### Langkah 4 — Pantauan live dalam laga (commit 51ebbc5, 1088 tes)
+
+Umpan skor live ESPN + status tiket AMAN/WASPADA/TERANCAM/MENANG/KALAH + flag risiko OT + deteksi anomali (hujan 3PT, FT berlebihan, laju skor tinggi). Proyeksi total akhir pace-based (blend w=menit_lalu/48 — dihitung tangan cocok persis). Replay 5 laga selesai: 4 MENANG 1 KALAH. Belum pernah diuji pada laga yang benar-benar berjalan (hutang).
+
+### Langkah 5 — Otak bola (commit 015a708, 1207 tes)
+
+Dixon-Coles (TANPA_XG), fit 3 musim (1.140 laga/liga), holdout + rolling 38 ronde. Fit MENUNGGU persetujuan user: EPL rho −0,003, home/away 1,6892/1,4062; LaLiga rho +0,024, 1,4679/1,1310. Validasi jujur: skill hanya 1X2 (z −2,61 / −3,04); O/U 2.5 tidak ada skill; BTTS LaLiga gagal signifikan (regime shift). Contoh live Liverpool-Man Utd: HOLD (fail-closed benar). Rumus defence terbalik ditangkap sebelum dipakai. Penghambat terbesar: 0 sumber cedera bola → semua laga bola HOLD.
+
+### Langkah 6 — Belajar sendiri (commit e880cc9, 1308 tes)
+
+Pelacakan hasil dari ledger (Brier per pasar, EV terealisasi vs prediksi), kalibrasi w tiap 50 kaki (rekomendasi saja — TIDAK PERNAH diterapkan otomatis, selalu butuh persetujuan user), usulan belajar 4 aturan (selalu status menunggu_persetujuan), `cli.py belajar`. Replay backtest NBA: cek silang Brier cocok persis (moneyline 0,198308, Under 0,219926). Belum ada satu pun hasil nyata — semua angka belajar hari ini replay/sintetis.
+
+---
+
+## 8. Keadaan mesin sekarang
 
 ### Yang sudah bisa dilakukan
 
-- Mengambil data slate NBA/EPL dari 13 sumber (dengan cache, rate limit, pencocokan laga).
-- Menghitung p_market (devig sportsbook / ESPN odds / Kalshi), jup_markup, dan menandai sumber pembanding.
-- Menandai laga DATA_INCOMPLETE / HOLD / TANPA_XG secara fail-closed (tidak pernah menebak).
-- Mencatat tiket ke ledger (termasuk VOID/PUSH dan CASHOUT) dan membuat rekap.
-- Menjalankan 406 tes dalam ~6 detik; CI GitHub Actions hijau.
+- Analisis NBA lengkap on-demand: data tim + pemain + cedera 2 sumber + proyeksi + simulasi 100.000x + garis Asuransi/Utama + harga market + anomali.
+- Cek ulang pra-submit (GO/NO-GO) + peracik tiket Asuransi/Utama + laporan lengkap + tanya-jawab + pantauan live + loop belajar.
+- Analisis bola (EPL): sim 100.000x 1X2/O-U/BTTS — tapi semua laga HOLD sampai sumber cedera + persetujuan fit selesai.
+- Menandai DATA_INCOMPLETE / HOLD fail-closed (tidak pernah menebak); ledger tiket + rekap; 1.308 tes lulus; CI hijau.
 
-### Yang BELUM bisa dilakukan (pekerjaan Tahap 3)
+### Yang BELUM bisa / masih hutang
 
-- Model simulasi: proyeksi total NBA, Dixon-Coles sepak bola — parameternya wajib difit dari data historis (football-data.co.uk sudah diizinkan, musim ≤ 2024/25) dan disetujui user.
-- `blend` (gabungan p_model + p_pasar, w = 0,3) + tampilan p_model | p_pasar | p_akhir.
-- Optimizer tiket (Asuransi + Utama) dengan aturan MAHAL.
-- Laporan "Kenapa beda?" dan kalibrasi Brier tiap 50 kaki.
-- `lineup` selalu null (belum ada fetcher lineup); `nba_player_impact` belum ada fetcher.
-- Integrasi Kalshi sebagai sumber pasar (bila user memilih a).
+- Tiket bola (butuh sumber cedera + fit disetujui); recheck bola; narasi bola + ambang "Kenapa beda?" bola; ingest LaLiga; pantauan live saat laga NBA berjalan (belum teruji); kalibrasi ambang live; berita non-cedera belum terdeteksi.
+- Model belum terbukti lebih akurat dari market soal total — aturan condong-ke-market tetap berlaku sampai uji DunkAPI menjawab.
 
 ### Yang berjalan di latar belakang
 
-- Hook cek harian Understat (poll 24 jam; diam kecuali situs kembali). Tidak ada cron aktif lain — 4 cron cek ulang jup.ag sudah selesai tugasnya.
+- Hook cek harian Understat (poll 24 jam; diam kecuali situs kembali). Tidak ada cron aktif lain.
 
 ---
 
-## 8. Yang menunggu keputusan user
+## 9. Yang menunggu keputusan user
 
-1. **Venue Kalshi** — (a) jajaki, (b) tetap jup.ag-only, (c) tidak buru-buru.
-2. **Ratifikasi FPL** sebagai sumber cedera bola tier 1 (masuk sources.yaml atau tidak).
-3. **Sumber cedera bola kedua** — EPL tetap HOLD sampai ada (Tahap 3).
-4. **Mulai Tahap 3?** — termasuk apakah Kalshi masuk sebagai sumber pasar.
+1. **Persetujuan fit bola (D12)** — rho gabungan vs rho = 0.
+2. **Ratifikasi FPL** sebagai sumber cedera bola tier 1 + **sumber cedera bola kedua** (belum ada kandidat).
+3. **Signup DunkAPI** (gratis, tanpa kartu) — membuka uji historis model-vs-market.
+4. **min_leg_prob 0,74: gate keras atau anjuran.**
+5. **Kenaikan w** — kapan pun modul belajar mengusulkan w baru (saat ini belum ada usulan).
+
+Menunggu keberatan reviewer: koreksi rumus defence, perluasan GARIS_TOTAL, BPM_replacement −2,0, shrinkage K=10.
 
 ---
 
-## 9. Peta file penting
+## 10. Peta file penting
 
 | File | Isi |
 |---|---|
 | `DECISIONS.md` | Semua keputusan setelah blueprint (sumber kebenaran kedua setelah blueprint) |
 | `SOP.md` | Alur kerja 10 langkah |
-| `config/playstyle.yaml` v3 | Semua ambang & default strategi |
-| `config/sources.yaml` v3 | Daftar sumber data + aturan pemakaian |
-| `LAPORAN-TAHAP-1.md`, `LAPORAN-TAHAP-2B.md` | Laporan per tahap |
+| `config/playstyle.yaml` v12 | Semua ambang & default strategi |
+| `config/sources.yaml` | Daftar sumber data + aturan pemakaian |
+| `LAPORAN-TAHAP-1.md`, `LAPORAN-TAHAP-2B.md`, `LAPORAN-TAHAP-3-LANGKAH-1/1B/2/3/4/5/6.md` | Laporan per tahap |
+| `LAPORAN-FIT-NBA.md`, `LAPORAN-FIT-BOLA.md` | Laporan fit parameter |
 | `probes/HASIL-PROBE-2A.md`, `probes/HASIL-PROBE-TAMBAHAN.md` | Laporan probe |
-| `ingest/` | 13 fetcher + slate + pencocokan |
-| `engine/` | devig, price_labels, sim (stub Tahap 3) |
+| `ingest/` | Fetcher + slate + pencocokan + otak NBA/bola + live |
+| `engine/` | devig, price_labels, sim NBA/bola, recheck, peracik, QA, pantauan, belajar |
+| `report/` | Laporan laga + laporan belajar |
 | `ledger/` | Penyimpanan tiket SQLite + rekap |
-| `examples/` | Demo slate NBA/EPL + contoh tiket |
-| `out/`, `probes/out/` | Bukti JSON (hasil probe, pemindaian jup.ag, Kalshi) |
+| `examples/` | Demo slate + contoh laporan + contoh tiket |
+| `out/`, `probes/out/` | Bukti JSON (fit, validasi, analisis, recheck, tiket) |
 | `.env` (gitignored, mode 600) | JUPITER_API_KEY + ODDS_API_KEY — tidak pernah di-commit |
 
-## 10. Angka kunci
+## 11. Angka kunci
 
-- 14 commit (20 Nov 21:48 → 21 Nov 05:16), semua sudah push ke GitHub privat.
-- 406 tes, semua lulus, ~6 detik. CI hijau (Python 3.11 + 3.12).
-- ~19.100 baris kode Python (termasuk tes).
-- Odds API: 13/500 kredit terpakai (sisa 487 — konfirmasi dari header pada panggilan berikutnya).
-- 5 pemindaian penuh jup.ag: 0 pasar spread/total NBA. 1 pemindaian Kalshi: 406 pasar total NBA.
+- 27 commit (20 Nov 21:48 → 22 Nov 23:00 WIB), semua sudah push ke GitHub privat.
+- 1.308 tes, semua lulus, ~24 detik. CI hijau (Python 3.11 + 3.12).
+- ~62.300 baris kode Python (termasuk tes).
+- Odds API: 13/500 kredit terpakai (sisa 487 — Tahap 3 langkah 1–6 memakai 0 kredit).
+- jup.ag: total NBA ADA via Polymarket (283 pasar/event, 31 garis total). Kalshi: 406 pasar total NBA (cadangan).
