@@ -297,8 +297,9 @@ class TestRacikStandar(unittest.TestCase):
         self.assertIn("Tidak ada analisis", hasil["insurance_reason"])
 
     def test_config_main_maks_5_target_4(self):
-        # Perubahan config Langkah 3 (profil user 2026-11-22).
-        self.assertEqual(CFG["meta"]["version"], 9)
+        # Perubahan config Langkah 3 (profil user 2026-11-22); versi
+        # config kini 10 (Langkah 4 menambah section live).
+        self.assertEqual(CFG["meta"]["version"], 10)
         self.assertEqual(CFG["tickets"]["main"]["multiplier_max"], 5.0)
         self.assertEqual(CFG["tickets"]["main"]["target_multiplier_max"], 4.0)
 

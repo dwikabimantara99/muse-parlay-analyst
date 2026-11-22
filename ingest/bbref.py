@@ -438,6 +438,229 @@ def parse_player_advanced(html: str) -> list[dict]:
         return _parse_player_table_once(html.replace("<!--", "").replace("-->", ""))
 
 
+TOTALS_TEAM_TABLE_ID = "totals-team"
+
+# Kolom wajib tabel totals-team (tes kesehatan): bila salah satunya
+# hilang, format berubah. "g" = jumlah laga, "fg3a" = total percobaan
+# 3 angka, "fta" = total percobaan free throw (semuanya total musim,
+# bukan per laga — per laga dihitung fg3a/g dan fta/g).
+TOTALS_TEAM_REQUIRED_STATS = ("g", "fg3a", "fta")
+
+
+class _TotalsTeamTableParser(HTMLParser):
+    """Parser tabel totals-team BBRef (hanya <tbody>, per data-stat).
+
+    Cerminan _PlayerAdvancedTableParser untuk tabel id="totals-team"
+    di halaman utama liga (leagues/NBA_YYYY.html). Menangkap href
+    tautan di sel team (/teams/<TRI>/<musim>.html) sebagai kunci
+    "bbref_team_href" di baris — dipakai untuk tricode tim.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.in_table = False
+        self.in_tbody = False
+        self.in_row = False
+        self.in_cell = False
+        self.table_found = False
+        self.current_stat: str | None = None
+        self.current_text: list[str] = []
+        self.current_href: str | None = None
+        self.current_row: dict[str, str] = {}
+        self.rows: list[dict[str, str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attrs_dict = dict(attrs)
+        if tag == "table" and attrs_dict.get("id") == TOTALS_TEAM_TABLE_ID:
+            self.in_table = True
+            self.table_found = True
+        if not self.in_table:
+            return
+        if tag == "tbody":
+            self.in_tbody = True
+        elif tag == "tr" and self.in_tbody:
+            self.in_row = True
+            self.current_row = {}
+        elif tag in ("td", "th") and self.in_row:
+            self.in_cell = True
+            self.current_stat = attrs_dict.get("data-stat")
+            self.current_text = []
+            self.current_href = None
+        elif (
+            tag == "a"
+            and self.in_cell
+            and self.current_stat == "team"
+            and self.current_href is None
+        ):
+            self.current_href = attrs_dict.get("href")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "table" and self.in_table:
+            self.in_table = False
+            self.in_tbody = False
+        if not self.in_table and tag != "table":
+            return
+        if tag == "tbody":
+            self.in_tbody = False
+        elif tag == "tr" and self.in_row:
+            self.in_row = False
+            if self.current_row:
+                self.rows.append(self.current_row)
+            self.current_row = {}
+        elif tag in ("td", "th") and self.in_cell:
+            self.in_cell = False
+            if self.current_stat:
+                self.current_row[self.current_stat] = "".join(self.current_text)
+                if self.current_stat == "team" and self.current_href:
+                    self.current_row["bbref_team_href"] = self.current_href
+            self.current_stat = None
+            self.current_text = []
+            self.current_href = None
+
+    def handle_data(self, data: str) -> None:
+        if self.in_cell:
+            self.current_text.append(data)
+
+
+def _tricode_dari_href_tim(href: str | None) -> str | None:
+    """Ubah href tim BBRef jadi tricode stats.nba.com.
+
+    href = /teams/<TRI>/<musim>.html (misal /teams/BRK/2027.html).
+    Tricode BBRef dipetakan lewat BBREF_TRICODE_MAP (BRK->BKN,
+    CHO->CHA, PHO->PHX). None bila href tidak sesuai pola.
+    """
+    if not href:
+        return None
+    if href.startswith("/teams/") and href.endswith(".html"):
+        bagian = href[len("/teams/") : -len(".html")].split("/")
+        if len(bagian) == 2 and bagian[0]:
+            return BBREF_TRICODE_MAP.get(bagian[0], bagian[0])
+    return None
+
+
+def _parse_totals_team_once(html: str) -> list[dict]:
+    """Satu kali parse tabel totals-team; ValueError bila tabel/kolom hilang."""
+    parser = _TotalsTeamTableParser()
+    parser.feed(html)
+    parser.close()
+    if not parser.table_found:
+        raise ValueError("bbref_format_changed")
+    seen_stats = {stat for row in parser.rows for stat in row}
+    if any(stat not in seen_stats for stat in TOTALS_TEAM_REQUIRED_STATS):
+        raise ValueError("bbref_format_changed")
+    teams = []
+    for row in parser.rows:
+        team_name = row.get("team", "").strip().rstrip("*").strip()
+        if not team_name or team_name == "League Average":
+            continue
+        tricode = _tricode_dari_href_tim(row.get("bbref_team_href"))
+        if tricode is None:
+            # Tanpa href tidak ada tricode yang bisa dicocokkan ke
+            # singkatan live — baris dilewati, bukan ditebak.
+            continue
+        games = _to_number(row.get("g", ""))
+        fg3a = _to_number(row.get("fg3a", ""))
+        fta = _to_number(row.get("fta", ""))
+        fg3a_per_game = None
+        fta_per_game = None
+        if (
+            isinstance(games, (int, float))
+            and games > 0
+            and isinstance(fg3a, (int, float))
+        ):
+            fg3a_per_game = fg3a / games
+        if (
+            isinstance(games, (int, float))
+            and games > 0
+            and isinstance(fta, (int, float))
+        ):
+            fta_per_game = fta / games
+        teams.append(
+            {
+                "tricode": tricode,
+                "team": team_name,
+                "games": games,
+                "fg3a_per_game": fg3a_per_game,
+                "fta_per_game": fta_per_game,
+            }
+        )
+    return teams
+
+
+def parse_team_shooting_totals(html: str) -> list[dict]:
+    """Ubah HTML halaman liga BBRef jadi baseline tembakan per tim.
+
+    Setiap tim: tricode (singkatan stats.nba.com — BRK/CHO/PHO
+    dipetakan ke BKN/CHA/PHX), team (nama lengkap, "*" playoff
+    dibuang), games (jumlah laga musim ini, kolom "g"), fg3a_per_game
+    (total fg3a / games), fta_per_game (total fta / games).
+    fg3a_per_game / fta_per_game None bila games tidak ada/0 atau
+    totalnya tidak ada. Baris "League Average" dan baris tanpa href
+    tim dilewati. ValueError ("bbref_format_changed") bila tabel
+    id="totals-team" tidak ada atau kolom wajib (g/fg3a/fta) hilang
+    — termasuk setelah mencoba membuka komentar HTML (tabel ini
+    DIBUNGKUS komentar pada 2026-11-22, terverifikasi dari HTML asli).
+    """
+    try:
+        return _parse_totals_team_once(html)
+    except ValueError:
+        if "<!--" not in html:
+            raise
+        # Coba lagi dengan komentar dibuka (tabel di dalam komentar).
+        return _parse_totals_team_once(html.replace("<!--", "").replace("-->", ""))
+
+
+def fetch_team_shooting_baselines(
+    season: int = 2027, client: HttpClient | None = None
+) -> FetchResult:
+    """Ambil baseline tembakan tim NBA (3PA & FTA per laga) satu musim.
+
+    KOREKSI SUMBER (terverifikasi dari HTML asli 2026-11-22): halaman
+    totals (leagues/NBA_YYYY_totals.html) TIDAK memuat tabel tim sama
+    sekali — hanya tabel pemain (id="totals_stats"). Tabel totals tim
+    (id="totals-team", dibungkus komentar HTML) ada di halaman UTAMA
+    liga (leagues/NBA_YYYY.html, URL yang sama dengan
+    fetch_team_advanced) — fetcher ini memakai halaman itu.
+
+    season: tahun musim berakhir di konvensi BBRef (2027 = musim
+    2026-27, default = musim berjalan). data: list baseline tim
+    (lihat parse_team_shooting_totals). Fetch/format gagal ->
+    ok=False dengan error (tidak melempar).
+    """
+    fetched_at = now_iso()
+    url = LEAGUE_URL.format(season=season)
+    resp = (client or _default_client()).get(url)
+    if resp.get("status") != 200:
+        return FetchResult(
+            SOURCE,
+            TIER,
+            fetched_at,
+            False,
+            error=f"http_{resp.get('status')}: {resp.get('error') or 'bbref gagal'}",
+        )
+    body = resp.get("body")
+    if not isinstance(body, str):
+        return FetchResult(
+            SOURCE, TIER, fetched_at, False, error="bbref_format_changed"
+        )
+    try:
+        teams = parse_team_shooting_totals(body)
+    except ValueError as exc:
+        return FetchResult(SOURCE, TIER, fetched_at, False, error=str(exc))
+    return FetchResult(
+        SOURCE,
+        TIER,
+        fetched_at,
+        True,
+        data=teams,
+        extra={
+            "season": season,
+            "n_teams": len(teams),
+            "table_id": TOTALS_TEAM_TABLE_ID,
+        },
+    )
+
+
 def fetch_player_advanced(
     season: int = 2027, client: HttpClient | None = None
 ) -> FetchResult:

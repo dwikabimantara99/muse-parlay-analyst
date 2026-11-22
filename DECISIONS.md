@@ -507,3 +507,43 @@ Model yang sama untuk sepak bola: proyeksi gol per tim (Dixon-Coles, §5b), simu
 - **Ditutup langkah ini**: hutang peringatan jendela recheck;
   kendala garis berbeda Asuransi/Utama; condong-ke-market di
   peracik.
+
+## 2026-11-22 — Tahap 3 Langkah 4: pantauan live dalam laga
+
+- **Pantauan live** (`cli.py pantau --ticket <file> [--analysis]
+  [--match] [--date] [--output]`, on-demand — tidak ada loop
+  terjadwal): scoreboard + summary ESPN (`ingest/live_nba.py`),
+  proyeksi total akhir pace-based blend
+  (`engine/live_status.py`), deteksi anomali 3 jenis
+  (`engine/live_anomaly.py`, baseline BBRef). Config v10,
+  section `live:` (8 kunci, nilai awal belum dikalibrasi).
+- **Proyeksi blend**: `w_live = menit_lalu/48`; tanpa median
+  pra-laga → `live_rate_only` + catatan; flag risiko OT bila
+  selisih ≤ 3 poin dan sisa ≤ 2,0 menit (proyeksi tidak
+  menambah menit OT). Status kaki AMAN ≥ 6,0 / WASPADA ≥ 2,0 /
+  TERANCAM; selesai MENANG/KALAH/PUSH (== garis → PUSH).
+  Status tiket = kaki terburuk (KALAH > TERANCAM > WASPADA >
+  DATA_INCOMPLETE > AMAN > BELUM_MULAI).
+- **Pemetaan singkatan ESPN → tricode (6 tim, koordinator)**:
+  GS→GSW, NY→NYK, NO→NOP, SA→SAS, UTAH→UTA, WSH→WAS —
+  terverifikasi terhadap ke-30 tim (scoreboard 21–23 Nov);
+  UTAH ditemukan lewat pantau live DAL@UTA. Diterapkan di
+  scoreboard + summary.
+- **Exit code pantau (koordinator, fail-closed)**:
+  0 = tidak ada kaki TERANCAM/KALAH/DATA_INCOMPLETE dan tidak
+  ada anomali; 1 = ada kaki TERANCAM/KALAH/DATA_INCOMPLETE atau
+  anomali; 2 = tidak bisa berjalan. WASPADA/PUSH tetap 0.
+  DATA_INCOMPLETE ikut menaikkan exit code karena tidak
+  diketahui ≠ aman.
+- **Koreksi sumber BBRef**: tabel totals tim (`totals-team`)
+  ada di halaman utama liga, bukan `leagues/NBA_YYYY_totals.html`
+  (hanya tabel pemain) — terverifikasi dari HTML asli.
+- **Verifikasi**: replay laga selesai 21 Nov (5 kaki: 1 KALAH
+  261 vs 237,5 + 4 MENANG; exit 1); tiket asli 22 Nov 4 kaki
+  BELUM_MULAI (exit 0); hitungan tangan proyeksi blend cocok
+  persis (247,1004). **Belum ada verifikasi laga live
+  sungguhan** — perilaku tengah laga + OT perlu satu
+  pengecekan ulang saat ada laga berjalan. stats.nba.com
+  cadangan tidak dibangun. Laporan:
+  LAPORAN-TAHAP-3-LANGKAH-4.md. Tes 1088, config v10, 0 kredit
+  Odds API.

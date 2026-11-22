@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 9
+  version: 10
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22"
   last_reviewed: "2026-11-22"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -319,6 +319,28 @@ recheck:
   # angka: perubahan status apa pun memicu hitung ulang). Data cedera
   # basi: data.stale_hours_injury_lineup (3 jam). Jendela recheck:
   # data.recheck_window_minutes ([30, 60]).
+
+# ── Pantauan live (Tahap 3 Langkah 4) ─────────────────────────────────────
+live:
+  # NILAI AWAL — BELUM DIKALIBRASI. Ambang status kaki Under dari
+  # margin = garis − proyeksi total akhir (poin). Menunggu validasi
+  # atas data PAPER + persetujuan user; jangan dipakai untuk keputusan
+  # tiket nyata sebelum divalidasi.
+  status_margin_aman_points: 6.0
+  status_margin_waspada_points: 2.0
+  # Risiko OT: laga bisa masuk babak tambahan bila selisih skor ≤
+  # ot_risk_margin_points DAN sisa waktu ≤ ot_risk_minutes_remaining.
+  # Total bertambah bila OT terjadi — penting untuk kaki Under.
+  ot_risk_margin_points: 3
+  ot_risk_minutes_remaining: 2.0
+  # Ambang anomali live (dipakai pendeteksi anomali live): laga baru
+  # dinilai anomalinya setelah menit ke-12; laju tembakan tiga angka /
+  # lemparan bebas / skor melebihi pengali ini dari laju pra-laga
+  # -> anomali. NILAI AWAL — BELUM DIKALIBRASI.
+  anomaly_min_minutes_elapsed: 12
+  anomaly_fg3_rate_multiplier: 1.5
+  anomaly_ft_rate_multiplier: 1.5
+  anomaly_scoring_rate_multiplier: 1.15
 
 # ── §9. Ledger & kalibrasi ──────────────────────────────────────────────────
 calibration:

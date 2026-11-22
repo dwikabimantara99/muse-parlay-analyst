@@ -40,6 +40,7 @@ REQUIRED_PLAYSTYLE_SECTIONS = (
     "fees",
     "data",
     "recheck",
+    "live",
     "calibration",
 )
 

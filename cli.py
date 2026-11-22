@@ -18,6 +18,12 @@
         # Tahap 3 Langkah 3 ✓ — racik Tiket Asuransi + Utama.
         # Exit 0 = minimal satu tiket terracik, 1 = tidak ada tiket,
         # 2 = tidak bisa jalan.
+    python cli.py pantau --ticket out/tickets_<tanggal>.json
+        [--analysis out/analysis_<id>.json] [--match DET@ATL_2026-11-22]
+        [--date YYYY-MM-DD] [--output out/pantau_<tanggal>.json]
+        # Tahap 3 Langkah 4 — pantau tiket live + deteksi anomali.
+        # Exit 0 = aman, 1 = ada kaki TERANCAM/KALAH/anomali atau kaki
+        # yang tidak bisa dinilai (DATA_INCOMPLETE), 2 = tidak bisa jalan.
     python cli.py log --file ticket.json       # Tahap 1  ✓
     python cli.py log --settle <id> --result WIN|LOSS|PUSH|VOID|CASHOUT
         [--cashout-amount <usd>] [--leg-result <leg_id>=<hasil> ...]
@@ -27,7 +33,9 @@ Exit code: 0 sukses, 1 error (input tidak valid / ledger gagal) —
 recheck: 0 = GO, 1 = NO-GO (laporan tetap ditulis), 2 = recheck tidak
 bisa berjalan (tidak ada laporan). laporan/tanya: 0 sukses, 2 = tidak
 bisa jalan. racik: 0 = minimal satu tiket terracik, 1 = tidak ada
-tiket yang bisa diracik, 2 = tidak bisa jalan.
+tiket yang bisa diracik, 2 = tidak bisa jalan. pantau: 0 = aman,
+1 = ada kaki TERANCAM/KALAH/anomali atau DATA_INCOMPLETE,
+2 = tidak bisa jalan.
 """
 
 from __future__ import annotations
@@ -658,6 +666,468 @@ def cmd_racik(args: argparse.Namespace) -> int:
     return 0 if (hasil.get("insurance") or hasil.get("main")) else 1
 
 
+def _normalisasi_match_id(match_id: str) -> str:
+    """Normalisasi match_id ke bentuk artefak "AWAY@HOME_YYYY-MM-DD".
+
+    Menerima bentuk artefak (dipakai apa adanya, huruf besar) dan
+    bentuk slate ("nba-2026-11-22-det-atl" -> "DET@ATL_2026-11-22",
+    urutan away-home sama seperti perbaikan --match langkah 3).
+    Bentuk lain dikembalikan apa adanya (huruf besar).
+    """
+    import re
+
+    teks = str(match_id or "").strip()
+    cocok = re.match(
+        r"^[A-Za-z]+-(\d{4}-\d{2}-\d{2})-([A-Za-z]{3})-([A-Za-z]{3})$",
+        teks,
+    )
+    if cocok:
+        tanggal, away, home = cocok.groups()
+        return f"{away.upper()}@{home.upper()}_{tanggal}"
+    return teks.upper()
+
+
+def _baca_tiket_pantau(data: object) -> tuple[list[dict] | None, str | None]:
+    """Kumpulkan tiket dari file racik (3 bentuk yang didukung).
+
+    (a) objek tiket tunggal (ada kunci "legs"); (b) output racik
+    {"insurance": {...}|null, "main": {...}|null}; (c)
+    {"tickets": [...]}. Mengembalikan (daftar tiket, None) atau
+    (None, pesan error). Tiket tanpa "legs" list -> error.
+    """
+    if not isinstance(data, dict):
+        return None, "file tiket harus berupa objek JSON"
+    if isinstance(data.get("legs"), list):
+        tiket = [data]
+    elif isinstance(data.get("tickets"), list):
+        tiket = data["tickets"]
+    elif "insurance" in data or "main" in data:
+        tiket = [t for t in (data.get("insurance"), data.get("main")) if t]
+    else:
+        return None, (
+            "file tiket tidak dikenali: butuh objek tiket tunggal "
+            "(kunci 'legs'), pasangan {'insurance','main'}, atau "
+            "{'tickets': [...]}"
+        )
+    if not tiket:
+        return None, "file tiket tidak berisi tiket apa pun"
+    for t in tiket:
+        if not isinstance(t, dict) or not isinstance(t.get("legs"), list):
+            return None, "tiket tidak valid: tiap tiket butuh kunci 'legs'"
+        if not t["legs"]:
+            return None, "tiket tidak valid: ada tiket tanpa kaki"
+    return tiket, None
+
+
+def _tanggal_dari_match_id(match_id: str) -> str | None:
+    """Tanggal (YYYY-MM-DD) dari akhir match_id artefak; None bila tidak ada."""
+    import re
+
+    cocok = re.search(r"_(\d{4}-\d{2}-\d{2})$", str(match_id or ""))
+    if not cocok:
+        return None
+    try:
+        datetime.date.fromisoformat(cocok.group(1))
+    except ValueError:
+        return None
+    return cocok.group(1)
+
+
+def _musim_bbref(tanggal: str) -> int:
+    """Tahun musim-berakhir BBRef dari tanggal laga (YYYY-MM-DD).
+
+    Musim NBA berjalan Okt–Jun: laga Jul–Des -> tahun+1 (misal
+    2026-11-22 -> 2027), laga Jan–Jun -> tahun itu (2027-03-01 ->
+    2027). Bulan Jul–Sep tidak ada laga; dipakai tahun+1 (musim
+    berikutnya).
+    """
+    tahun = int(tanggal[:4])
+    bulan = int(tanggal[5:7])
+    return tahun + 1 if bulan >= 7 else tahun
+
+
+def _median_pra_laga(data: dict) -> tuple[dict[str, float], list[str]]:
+    """Median total pra-laga per match_id dari file analisis.
+
+    Median = simulation.score_distribution.total.median tiap artefak
+    nba_analysis (dikumpulkan lewat _kumpulkan_nba_analysis).
+    Artefak tanpa median dilewati + dicatat; tidak ditebak.
+    """
+    catatan: list[str] = []
+    median: dict[str, float] = {}
+    artefak, error = _kumpulkan_nba_analysis(data)
+    if error is not None:
+        catatan.append(f"file analisis tidak bisa dipakai: {error}")
+        return median, catatan
+    for art in artefak or []:
+        mid = art.get("match_id")
+        sim = art.get("simulation") or {}
+        total = (sim.get("score_distribution") or {}).get("total") or {}
+        nilai = total.get("median")
+        if isinstance(mid, str) and isinstance(nilai, (int, float)):
+            median[mid] = float(nilai)
+        elif isinstance(mid, str):
+            catatan.append(f"{mid}: median pra-laga tidak ada di analisis")
+    return median, catatan
+
+
+def cmd_pantau(args: argparse.Namespace) -> int:
+    """Pantau tiket yang sedang berjalan (Tahap 3 Langkah 4).
+
+    Input: file tiket (--ticket) — objek tiket tunggal, pasangan
+    {"insurance","main"} output racik, atau {"tickets": [...]}.
+    File analisis (--analysis) opsional: median total pra-laga
+    dipakai sebagai pembanding laju skor; tanpa median, proyeksi
+    berjalan tanpa pembanding pra-laga + dicatat.
+    Alur: baca tiket -> tentukan tanggal dari match_id kaki (atau
+    --date) -> fetch scoreboard per tanggal (ingest/live_nba.py,
+    pekerja A) -> fetch stats per laga berjalan/selesai ->
+    fetch baseline tembakan BBRef -> evaluasi tiap tiket
+    (engine/live_status.py, pekerja B) + deteksi anomali per laga
+    (engine/live_anomaly.py) -> cetak teks Indonesia ke stdout,
+    tulis JSON lengkap bila --output diberi.
+    Exit code: 0 = pantauan berhasil, tidak ada kaki TERANCAM/KALAH/
+    DATA_INCOMPLETE dan tidak ada anomali; 1 = ada kaki TERANCAM/
+    KALAH/DATA_INCOMPLETE atau anomali (laporan tetap tampil);
+    2 = pantauan tidak bisa berjalan (file tiket tidak ada/tidak
+    valid, semua feed gagal, atau modul pekerja A/B belum ada).
+    DATA_INCOMPLETE ikut menaikkan exit code (keputusan koordinator
+    langkah 4): kaki yang tidak bisa dinilai bukan berarti aman —
+    fail-closed. WASPADA/PUSH tidak menaikkan exit code (WASPADA
+    masih diproyeksikan menang; keduanya terlihat jelas di teks).
+
+    KONTRAK INTEGRASI (terverifikasi dari modul pekerja A/B):
+    - ingest.live_nba.fetch_live_games(tanggal) -> FetchResult,
+      data = list LiveGame.
+    - ingest.live_nba.fetch_game_stats(espn_game_id) -> FetchResult,
+      data = {abbr: {fg3_made, fg3_attempted, ft_made, ft_attempted}}
+      (ditulis ke game["stats"]).
+    - engine.live_status.project_final_total(live_game,
+      pregame_median_total, cfg) -> dict.
+    - engine.live_status.evaluate_ticket(tiket, live_games_by_match,
+      pregame_medians, cfg) -> dict {ticket_id, type, status, legs,
+      notes}; kaki yang laganya tidak ada di scoreboard dinilai
+      DATA_INCOMPLETE oleh modul itu (tiket penuh diteruskan).
+    - engine.live_status.render_live_status(hasil_tiket,
+      anomalies_by_match) -> str (per tiket; anomali ikut tampil).
+    Status kaki yang memicu exit 1: TERANCAM, KALAH, atau
+    DATA_INCOMPLETE (tidak diketahui ≠ aman — fail-closed).
+    """
+    try:
+        data = json.loads(Path(args.ticket).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"error: tidak bisa membaca {args.ticket}: {exc}", file=sys.stderr)
+        return 2
+    tiket, error = _baca_tiket_pantau(data)
+    if error is not None:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    assert tiket is not None
+
+    # -- Filter --match (bentuk artefak maupun slate). --
+    if args.match:
+        target = _normalisasi_match_id(args.match)
+        tiket_terfilter: list[dict] = []
+        for t in tiket:
+            kaki = [
+                k
+                for k in t["legs"]
+                if _normalisasi_match_id(k.get("match_id", "")) == target
+            ]
+            if kaki:
+                salinan = dict(t)
+                salinan["legs"] = kaki
+                tiket_terfilter.append(salinan)
+        if not tiket_terfilter:
+            print(
+                f"error: laga {target} tidak ada di file tiket",
+                file=sys.stderr,
+            )
+            return 2
+        tiket = tiket_terfilter
+
+    # -- Tanggal: --date menang; kalau tidak, dari match_id kaki. --
+    catatan: list[str] = []
+    if args.date:
+        try:
+            datetime.date.fromisoformat(args.date)
+        except ValueError:
+            print(
+                f"error: --date harus YYYY-MM-DD: {args.date!r}",
+                file=sys.stderr,
+            )
+            return 2
+        tanggal_list = [args.date]
+    else:
+        tanggal_set: set[str] = set()
+        for t in tiket:
+            for k in t["legs"]:
+                tgl = _tanggal_dari_match_id(k.get("match_id", ""))
+                if tgl:
+                    tanggal_set.add(tgl)
+        if not tanggal_set:
+            print(
+                "error: tidak ada tanggal yang bisa diambil dari "
+                "match_id kaki — pakai --date YYYY-MM-DD",
+                file=sys.stderr,
+            )
+            return 2
+        tanggal_list = sorted(tanggal_set)
+
+    # -- Median pra-laga (opsional; file rusak -> lanjut tanpa median). --
+    median: dict[str, float] = {}
+    if args.analysis:
+        try:
+            data_an = json.loads(Path(args.analysis).read_text(encoding="utf-8"))
+            median, cat_an = _median_pra_laga(data_an)
+            catatan.extend(cat_an)
+        except (OSError, json.JSONDecodeError) as exc:
+            catatan.append(
+                f"file analisis tidak bisa dibaca ({exc}) — lanjut "
+                "tanpa median pra-laga"
+            )
+    else:
+        catatan.append("tanpa file analisis — tanpa median pra-laga")
+
+    # -- Modul pekerja A/B (lazy import; belum ada -> exit 2). --
+    try:
+        from ingest import live_nba as live_nba_mod
+    except ImportError:
+        print(
+            "error: modul ingest/live_nba.py belum ada (pekerja A) — "
+            "pantauan tidak bisa berjalan",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        from engine import live_status as live_status_mod
+    except ImportError:
+        print(
+            "error: modul engine/live_status.py belum ada (pekerja B) — "
+            "pantauan tidak bisa berjalan",
+            file=sys.stderr,
+        )
+        return 2
+    from engine import live_anomaly as anomaly_mod
+    from ingest import bbref as bbref_mod
+
+    try:
+        from config import ConfigError, load_playstyle
+
+        cfg = load_playstyle()
+    except ConfigError as exc:
+        print(f"error: config tidak bisa dibaca: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(cfg.get("live"), dict):
+        print(
+            "error: section 'live:' belum ada di config/playstyle.yaml "
+            "(pekerja B) — pantauan tidak bisa berjalan",
+            file=sys.stderr,
+        )
+        return 2
+
+    # -- Scoreboard per tanggal. --
+    live: dict[str, dict] = {}
+    feed_gagal = 0
+    for tanggal in tanggal_list:
+        try:
+            hasil = live_nba_mod.fetch_live_games(tanggal)
+        except Exception as exc:  # noqa: BLE001 - feed gagal != crash
+            catatan.append(f"scoreboard {tanggal} gagal: {exc}")
+            feed_gagal += 1
+            continue
+        if not hasil.ok:
+            catatan.append(
+                f"scoreboard {tanggal} gagal: {hasil.error or 'tanpa alasan'}"
+            )
+            feed_gagal += 1
+            continue
+        for game in hasil.data or []:
+            if isinstance(game, dict) and isinstance(game.get("match_id"), str):
+                live[game["match_id"]] = game
+    if feed_gagal == len(tanggal_list):
+        print(
+            "error: semua feed scoreboard gagal — pantauan tidak bisa " "berjalan",
+            file=sys.stderr,
+        )
+        return 2
+
+    # -- Stats per laga berjalan/selesai (ditulis ke game["stats"]). --
+    for mid, game in list(live.items()):
+        if game.get("status") not in ("berjalan", "selesai"):
+            continue
+        espn_id = game.get("espn_game_id")
+        if not espn_id:
+            catatan.append(f"{mid}: tanpa espn_game_id — stats tidak diambil")
+            continue
+        try:
+            ringkas = live_nba_mod.fetch_game_stats(espn_id)
+        except Exception as exc:  # noqa: BLE001 - stats gagal != fatal
+            catatan.append(f"{mid}: stats gagal ({exc}) — stats tidak ada")
+            continue
+        if not ringkas.ok or not isinstance(ringkas.data, dict):
+            catatan.append(
+                f"{mid}: stats gagal "
+                f"({ringkas.error or 'tanpa alasan'}) — stats tidak ada"
+            )
+            continue
+        game["stats"] = ringkas.data
+
+    # -- Baseline tembakan BBRef (gagal -> anomali 3PT/FT dilewati). --
+    baselines: dict = {}
+    try:
+        musim = _musim_bbref(min(tanggal_list))
+        dasar = bbref_mod.fetch_team_shooting_baselines(season=musim)
+        if dasar.ok:
+            baselines = anomaly_mod.index_baselines(dasar.data)
+        else:
+            catatan.append(
+                f"baseline BBRef gagal ({dasar.error or 'tanpa alasan'}) "
+                "— anomali 3PT/FT dilewati"
+            )
+    except Exception as exc:  # noqa: BLE001 - baseline gagal != fatal
+        catatan.append(f"baseline BBRef gagal ({exc}) — anomali dilewati")
+
+    # -- Proyeksi + anomali per laga yang ada di tiket. --
+    match_dipantau: list[str] = []
+    for t in tiket:
+        for k in t["legs"]:
+            mid = k.get("match_id")
+            if isinstance(mid, str) and mid not in match_dipantau:
+                match_dipantau.append(mid)
+    hilang: list[str] = [m for m in match_dipantau if m not in live]
+    for m in hilang:
+        catatan.append(f"{m}: tidak ada di scoreboard — kakinya DATA_INCOMPLETE")
+
+    proyeksi: dict[str, dict] = {}
+    anomali: dict[str, list[dict]] = {}
+    dilewati: dict[str, list[dict]] = {}
+    for mid in match_dipantau:
+        game = live.get(mid)
+        if game is None:
+            continue
+        try:
+            proyeksi[mid] = live_status_mod.project_final_total(
+                game, median.get(mid), cfg
+            )
+        except Exception as exc:  # noqa: BLE001 - proyeksi gagal != fatal
+            catatan.append(f"{mid}: proyeksi gagal ({exc})")
+            proyeksi[mid] = {}
+        try:
+            anoms, skip = anomaly_mod.detect_anomalies(
+                game, baselines, proyeksi[mid], cfg
+            )
+        except ValueError as exc:
+            catatan.append(f"{mid}: deteksi anomali gagal ({exc})")
+            anoms, skip = [], []
+        anomali[mid] = anoms
+        dilewati[mid] = skip
+
+    # -- Evaluasi tiap tiket (tiket penuh; kaki tanpa laga dinilai
+    # DATA_INCOMPLETE oleh evaluate_ticket). --
+    evaluasi: list[dict] = []
+    for t in tiket:
+        try:
+            ev = live_status_mod.evaluate_ticket(t, live, median, cfg)
+        except Exception as exc:  # noqa: BLE001 - evaluasi gagal
+            print(
+                f"error: evaluasi tiket {t.get('ticket_id')} gagal: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        if not isinstance(ev, dict):
+            print(
+                f"error: evaluate_ticket mengembalikan {type(ev).__name__}, "
+                "bukan dict",
+                file=sys.stderr,
+            )
+            return 2
+        evaluasi.append(ev)
+
+    ada_terancam = any(
+        leg.get("status") in ("TERANCAM", "KALAH")
+        for ev in evaluasi
+        for leg in ev.get("legs", []) or []
+    ) or any(ev.get("status") in ("TERANCAM", "KALAH") for ev in evaluasi)
+    ada_tidak_dinilai = any(
+        leg.get("status") == "DATA_INCOMPLETE"
+        for ev in evaluasi
+        for leg in ev.get("legs", []) or []
+    )
+    ada_anomali = any(anomali.get(m) for m in match_dipantau)
+
+    # -- Teks ke stdout: render_live_status per tiket (anomali ikut
+    # tampil di dalamnya) + pemeriksaan anomali yang dilewati. --
+    for ev in evaluasi:
+        print(live_status_mod.render_live_status(ev, anomali))
+    for mid in match_dipantau:
+        # Laga belum mulai: semua pemeriksaan trivially dilewati (0 menit
+        # berjalan) — tidak usah dicetak; render sudah menulis
+        # "belum mulai". Laga berjalan/selesai: yang dilewati dicetak
+        # agar user tahu pemeriksaan apa yang tidak bisa dilakukan.
+        if (
+            mid in live
+            and live[mid].get("status") in ("berjalan", "selesai")
+            and dilewati.get(mid)
+        ):
+            print(anomaly_mod.format_anomalies([], dilewati.get(mid, []), mid))
+    for cat in catatan:
+        print(f"catatan: {cat}")
+    if ada_terancam or ada_anomali or ada_tidak_dinilai:
+        print(
+            "PERINGATAN: ada kaki TERANCAM/KALAH, anomali, atau kaki "
+            "yang tidak bisa dinilai — cek di atas"
+        )
+
+    # -- JSON lengkap bila --output diberi. --
+    if args.output:
+        laporan = {
+            "format": "live_monitor",
+            "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "ticket_file": args.ticket,
+            "dates": tanggal_list,
+            "match_filter": (_normalisasi_match_id(args.match) if args.match else None),
+            "tickets": evaluasi,
+            "matches": {
+                mid: {
+                    "status": live[mid].get("status"),
+                    "home_abbr": live[mid].get("home_abbr"),
+                    "away_abbr": live[mid].get("away_abbr"),
+                    "home_score": live[mid].get("home_score"),
+                    "away_score": live[mid].get("away_score"),
+                    "period": live[mid].get("period"),
+                    "clock_display": live[mid].get("clock_display"),
+                    "projected_total": proyeksi.get(mid, {}).get("projected_total"),
+                    "pregame_median_total": median.get(mid),
+                }
+                for mid in match_dipantau
+                if mid in live
+            },
+            "anomalies": {mid: anomali.get(mid, []) for mid in match_dipantau},
+            "skipped": {mid: dilewati.get(mid, []) for mid in match_dipantau},
+            "missing_matches": hilang,
+            "notes": catatan,
+            "has_threatened_leg": ada_terancam,
+            "has_anomaly": ada_anomali,
+            "has_data_incomplete": ada_tidak_dinilai,
+        }
+        try:
+            out_path = Path(args.output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(
+                json.dumps(laporan, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            print(
+                f"error: tidak bisa menulis {args.output}: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        print(f"output: {args.output}")
+    return 1 if (ada_terancam or ada_anomali or ada_tidak_dinilai) else 0
+
+
 def _parse_leg_results(raw: list[str] | None) -> dict[str, str]:
     """Ubah ['leg-01=WIN', ...] menjadi {leg_id: hasil}. Format salah -> error."""
     parsed: dict[str, str] = {}
@@ -747,7 +1217,7 @@ def cmd_recap(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Bangun parser argumen CLI (analyze / recheck / laporan / tanya / racik / log / recap)."""
+    """Bangun parser argumen CLI (analyze / recheck / laporan / tanya / racik / pantau / log / recap)."""
     parser = argparse.ArgumentParser(
         prog="cli.py",
         description="muse-parlay-analyst — satu pintu masuk (Blueprint §10).",
@@ -871,6 +1341,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="file output JSON (default: out/tickets_<tanggal>.json)",
     )
     p_racik.set_defaults(func=cmd_racik)
+
+    p_pantau = sub.add_parser(
+        "pantau",
+        help="pantau tiket yang sedang berjalan (Tahap 3 Langkah 4)",
+    )
+    p_pantau.add_argument(
+        "--ticket",
+        required=True,
+        help="file tiket: objek tiket tunggal, pasangan "
+        "{'insurance','main'} output racik, atau {'tickets': [...]}",
+    )
+    p_pantau.add_argument(
+        "--analysis",
+        default=None,
+        help="file JSON analisis (artefak nba_analysis atau output "
+        "analyze) untuk median total pra-laga (opsional)",
+    )
+    p_pantau.add_argument(
+        "--match",
+        default=None,
+        help="hanya pantau satu laga (match_id artefak "
+        "'DET@ATL_2026-11-22' atau slate 'nba-2026-11-22-det-atl')",
+    )
+    p_pantau.add_argument(
+        "--date",
+        default=None,
+        help="tanggal scoreboard YYYY-MM-DD (default: dari match_id kaki)",
+    )
+    p_pantau.add_argument(
+        "--output",
+        default=None,
+        help="file output JSON laporan lengkap (opsional)",
+    )
+    p_pantau.set_defaults(func=cmd_pantau)
 
     p_log = sub.add_parser("log", help="catat / selesaikan tiket (Tahap 1)")
     p_log.add_argument("--file", help="file ticket.json (sesuai skema)")

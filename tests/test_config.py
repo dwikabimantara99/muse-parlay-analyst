@@ -228,13 +228,26 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_9(self):
-        # Versi 9: Langkah 3 (2026-11-22) — peracik tiket
-        # (Utama x3–x5 + target lunak 4,0x, profil user 2026-11-22;
-        # di atas versi 8: Langkah 2, kunci shrinkage_k_games).
+    def test_meta_versi_10(self):
+        # Versi 10: Langkah 4 (2026-11-22) — pantauan live (section live:
+        # ambang status + risiko OT + anomali live; di atas versi 9:
+        # Langkah 3, peracik tiket).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 9)
+        self.assertEqual(meta["version"], 10)
         self.assertEqual(meta["last_reviewed"], "2026-11-22")
+
+    def test_live_section(self):
+        # Ambang pantauan live (Langkah 4) — NILAI AWAL, BELUM
+        # DIKALIBRASI, lihat komentar di yaml.
+        live = self.cfg["live"]
+        self.assertEqual(live["status_margin_aman_points"], 6.0)
+        self.assertEqual(live["status_margin_waspada_points"], 2.0)
+        self.assertEqual(live["ot_risk_margin_points"], 3)
+        self.assertEqual(live["ot_risk_minutes_remaining"], 2.0)
+        self.assertEqual(live["anomaly_min_minutes_elapsed"], 12)
+        self.assertEqual(live["anomaly_fg3_rate_multiplier"], 1.5)
+        self.assertEqual(live["anomaly_ft_rate_multiplier"], 1.5)
+        self.assertEqual(live["anomaly_scoring_rate_multiplier"], 1.15)
 
     def test_shrinkage_k_games(self):
         # Shrinkage menit+BPM ke musim lalu (temuan auditor 2):
