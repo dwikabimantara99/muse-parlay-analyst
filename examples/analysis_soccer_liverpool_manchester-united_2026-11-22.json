@@ -1,0 +1,1041 @@
+{
+  "format": "soccer_analysis",
+  "format_version": 1,
+  "match_id": "manchester-united@liverpool_2026-11-22",
+  "home_team": "Liverpool",
+  "away_team": "Manchester United",
+  "league": "EPL",
+  "match_date": "2026-11-22",
+  "start_time": "2026-11-22T16:30:00+00:00",
+  "generated_at": "2026-11-22T15:41:55.112115+00:00",
+  "status": "HOLD",
+  "missing": [
+    "injuries_tidak_terkonfirmasi",
+    "cedera_kurang_dari_2_sumber",
+    "fit_belum_disetujui"
+  ],
+  "sources": [
+    {
+      "kind": "football_results",
+      "source": "Premier League (JSON resmi)",
+      "tier": 1,
+      "time": "2026-11-22T15:41:55.151451+00:00"
+    },
+    {
+      "kind": "football_injuries_espn",
+      "source": "ESPN",
+      "tier": 2,
+      "time": "2026-11-22T15:41:55.266083+00:00"
+    },
+    {
+      "kind": "jup_prices",
+      "source": "Jupiter Prediction API",
+      "tier": 1,
+      "time": "2026-11-22T15:41:55.020932+00:00"
+    }
+  ],
+  "inputs": {
+    "match": {
+      "home_team": "Liverpool",
+      "away_team": "Manchester United",
+      "match_date": "2026-11-22",
+      "season": "2026-27",
+      "league": "EPL",
+      "matchweek": 11,
+      "kickoff": "2026-11-22T16:30:00+00:00"
+    },
+    "home": {
+      "team": "Liverpool",
+      "stats_season": {
+        "played": 10,
+        "w": 5,
+        "d": 3,
+        "l": 2,
+        "goals_for_per_match": 1.4,
+        "goals_against_per_match": 1.0
+      },
+      "stats_last6": {
+        "played": 6,
+        "w": 4,
+        "d": 0,
+        "l": 2,
+        "goals_for_per_match": 1.3333333333333333,
+        "goals_against_per_match": 1.0
+      },
+      "form5": [
+        {
+          "match_date": "2026-11-08",
+          "opponent": "Crystal Palace",
+          "home": false,
+          "result": "W",
+          "goals_for": 3.0,
+          "goals_against": 1.0
+        },
+        {
+          "match_date": "2026-11-01",
+          "opponent": "Arsenal",
+          "home": true,
+          "result": "L",
+          "goals_for": 0.0,
+          "goals_against": 1.0
+        },
+        {
+          "match_date": "2026-10-25",
+          "opponent": "Brighton & Hove Albion",
+          "home": true,
+          "result": "W",
+          "goals_for": 2.0,
+          "goals_against": 0.0
+        },
+        {
+          "match_date": "2026-10-17",
+          "opponent": "Brentford",
+          "home": false,
+          "result": "W",
+          "goals_for": 2.0,
+          "goals_against": 1.0
+        },
+        {
+          "match_date": "2026-10-11",
+          "opponent": "Manchester City",
+          "home": true,
+          "result": "L",
+          "goals_for": 0.0,
+          "goals_against": 3.0
+        }
+      ],
+      "home_record": {
+        "played": 5,
+        "w": 1,
+        "d": 2,
+        "l": 2,
+        "gf_per_match": 0.8,
+        "ga_per_match": 1.2
+      },
+      "away_record": {
+        "played": 5,
+        "w": 4,
+        "d": 1,
+        "l": 0,
+        "gf_per_match": 2.0,
+        "ga_per_match": 0.8
+      },
+      "attack": 1.0065072067870389,
+      "defence": 0.7494549418604651,
+      "injuries": []
+    },
+    "away": {
+      "team": "Manchester United",
+      "stats_season": {
+        "played": 10,
+        "w": 1,
+        "d": 5,
+        "l": 4,
+        "goals_for_per_match": 1.4,
+        "goals_against_per_match": 1.9
+      },
+      "stats_last6": {
+        "played": 6,
+        "w": 0,
+        "d": 4,
+        "l": 2,
+        "goals_for_per_match": 1.1666666666666667,
+        "goals_against_per_match": 2.0
+      },
+      "form5": [
+        {
+          "match_date": "2026-11-08",
+          "opponent": "Aston Villa",
+          "home": true,
+          "result": "D",
+          "goals_for": 4.0,
+          "goals_against": 4.0
+        },
+        {
+          "match_date": "2026-10-31",
+          "opponent": "Chelsea",
+          "home": false,
+          "result": "L",
+          "goals_for": 0.0,
+          "goals_against": 2.0
+        },
+        {
+          "match_date": "2026-10-25",
+          "opponent": "Bournemouth",
+          "home": true,
+          "result": "L",
+          "goals_for": 0.0,
+          "goals_against": 3.0
+        },
+        {
+          "match_date": "2026-10-18",
+          "opponent": "Leeds United",
+          "home": false,
+          "result": "D",
+          "goals_for": 1.0,
+          "goals_against": 1.0
+        },
+        {
+          "match_date": "2026-10-10",
+          "opponent": "Tottenham Hotspur",
+          "home": true,
+          "result": "D",
+          "goals_for": 1.0,
+          "goals_against": 1.0
+        }
+      ],
+      "home_record": {
+        "played": 5,
+        "w": 1,
+        "d": 2,
+        "l": 2,
+        "gf_per_match": 2.0,
+        "ga_per_match": 2.2
+      },
+      "away_record": {
+        "played": 5,
+        "w": 0,
+        "d": 3,
+        "l": 2,
+        "gf_per_match": 0.8,
+        "ga_per_match": 1.6
+      },
+      "attack": 0.9576476336420371,
+      "defence": 1.4539425872093024,
+      "injuries": []
+    },
+    "h2h_last5": [],
+    "league": {
+      "avg_goals_per_team_match": 1.3691588785046729,
+      "n_matches": 107,
+      "n_teams": 20
+    },
+    "weights": {
+      "season": 0.6,
+      "recent": 0.4,
+      "recent_matches": 6,
+      "source": "config"
+    },
+    "injuries_status": {
+      "n_sources": 0,
+      "confirmed": false,
+      "note": "cedera tidak terkonfirmasi: tidak ada sumber cedera bola yang bisa dipakai (ESPN kosong; FPL belum diratifikasi) — B2 butuh 2 sumber"
+    },
+    "injury_sources_checked": [
+      {
+        "source": "ESPN injuries (eng.1)",
+        "result": "hidup, kosong (0 entri)"
+      },
+      {
+        "source": "Premier League official",
+        "result": "tidak ada endpoint/halaman cedera (404)"
+      },
+      {
+        "source": "Fantasy Premier League API",
+        "result": "tidak dipakai — belum diratifikasi user"
+      }
+    ],
+    "missing": [
+      "injuries_tidak_terkonfirmasi"
+    ],
+    "sources": [
+      {
+        "data_kind": "football_results",
+        "source": "Premier League (JSON resmi)",
+        "tier": 1,
+        "fetched_at": "2026-11-22T15:41:55.151451+00:00"
+      },
+      {
+        "data_kind": "football_injuries_espn",
+        "source": "ESPN",
+        "tier": 2,
+        "fetched_at": "2026-11-22T15:41:55.266083+00:00"
+      }
+    ],
+    "fetched_at": "2026-11-22T15:41:55.151323+00:00"
+  },
+  "simulation": {
+    "match_id": "manchester-united@liverpool_2026-11-22",
+    "sport": "football",
+    "iterations": 100000,
+    "generated_at": "2026-11-22T15:41:55.555211+00:00",
+    "engine": {
+      "name": "football_sim",
+      "version": "1.0.0",
+      "seed": 7
+    },
+    "markets": {
+      "home_win": 0.69238,
+      "draw": 0.17291,
+      "away_win": 0.13471,
+      "btts_yes": 0.58177,
+      "btts_no": 0.41823,
+      "total_over_0_5": 0.96872,
+      "total_under_0_5": 0.03128,
+      "total_over_1_5": 0.86153,
+      "total_under_1_5": 0.13847,
+      "total_over_2_5": 0.67353,
+      "total_under_2_5": 0.32647,
+      "total_over_3_5": 0.45971,
+      "total_under_3_5": 0.54029,
+      "total_over_4_5": 0.2701,
+      "total_under_4_5": 0.7299,
+      "total_over_5_5": 0.13897,
+      "total_under_5_5": 0.86103,
+      "total_over_6_5": 0.06376,
+      "total_under_6_5": 0.93624,
+      "total_over_7_5": 0.02604,
+      "total_under_7_5": 0.97396,
+      "total_over_8_5": 0.00932,
+      "total_under_8_5": 0.99068
+    },
+    "inputs_summary": {
+      "home_team": "Liverpool",
+      "away_team": "Manchester United",
+      "match_date": "2026-11-22",
+      "league": "EPL",
+      "fit_version": "pooled EPL 2022/23–2024/25 (fit 2026-11-22)",
+      "home_attack": 1.0065072067870389,
+      "home_defence": 0.7494549418604651,
+      "away_attack": 0.9576476336420371,
+      "away_defence": 1.4539425872093024,
+      "avg_home_goals": 1.6892,
+      "avg_away_goals": 1.4062,
+      "rho": -0.003,
+      "lambda_home": 2.472,
+      "lambda_away": 1.0092,
+      "max_goals_per_team": 10,
+      "elapsed_seconds": 0.267,
+      "notes": [
+        "parameter fit (rho, avg goals, kekuatan tim) dilewat eksplisit oleh pemanggil — berlaku setelah user menyetujui fit (D12); modul TIDAK membaca simulation.football dari playstyle.yaml",
+        "gol dibatasi 0..10 per tim; PMF dinormalisasi setelah pemotongan (lihat docstring modul)",
+        "squad_scenarios kosong: pemodelan absensi pemain bola belum ada (absence_penalty masih null)"
+      ]
+    },
+    "score_distribution": {
+      "home_points": {
+        "mean": 2.47,
+        "median": 2.0
+      },
+      "away_points": {
+        "mean": 1.01,
+        "median": 1.0
+      },
+      "total": {
+        "mean": 3.48,
+        "std": 1.86,
+        "median": 3.0,
+        "p5": 1.0,
+        "p25": 2.0,
+        "p74": 5.0,
+        "p75": 5.0,
+        "p95": 7.0
+      },
+      "scorelines": [
+        {
+          "home_goals": 2,
+          "away_goals": 0,
+          "probability": 0.09432
+        },
+        {
+          "home_goals": 2,
+          "away_goals": 1,
+          "probability": 0.09343
+        },
+        {
+          "home_goals": 3,
+          "away_goals": 1,
+          "probability": 0.07808
+        },
+        {
+          "home_goals": 1,
+          "away_goals": 1,
+          "probability": 0.07795
+        },
+        {
+          "home_goals": 3,
+          "away_goals": 0,
+          "probability": 0.07692
+        },
+        {
+          "home_goals": 1,
+          "away_goals": 0,
+          "probability": 0.07688
+        },
+        {
+          "home_goals": 2,
+          "away_goals": 2,
+          "probability": 0.04897
+        },
+        {
+          "home_goals": 4,
+          "away_goals": 0,
+          "probability": 0.0483
+        },
+        {
+          "home_goals": 4,
+          "away_goals": 1,
+          "probability": 0.04806
+        },
+        {
+          "home_goals": 3,
+          "away_goals": 2,
+          "probability": 0.03975
+        }
+      ]
+    },
+    "squad_scenarios": []
+  },
+  "market": {
+    "source": "jup_ag_via_slate",
+    "fetched_at": "2026-11-22T15:41:55.020932+00:00",
+    "n_markets": 42,
+    "moneyline": {
+      "home_cents": 55.0,
+      "draw_cents": 23.0,
+      "away_cents": 23.0
+    },
+    "totals": [
+      {
+        "line": 0.5,
+        "over_cents": 96.4,
+        "under_cents": 3.9
+      },
+      {
+        "line": 1.5,
+        "over_cents": 85.0,
+        "under_cents": 16.0
+      },
+      {
+        "line": 2.5,
+        "over_cents": 65.0,
+        "under_cents": 36.0
+      },
+      {
+        "line": 3.5,
+        "over_cents": 42.0,
+        "under_cents": 59.0
+      },
+      {
+        "line": 4.5,
+        "over_cents": 24.0,
+        "under_cents": 77.0
+      },
+      {
+        "line": 5.5,
+        "over_cents": 12.0,
+        "under_cents": 89.0
+      },
+      {
+        "line": 6.5,
+        "over_cents": 5.3,
+        "under_cents": 95.0
+      },
+      {
+        "line": 7.5,
+        "over_cents": 1.7,
+        "under_cents": 98.4
+      },
+      {
+        "line": 8.5,
+        "over_cents": 0.9,
+        "under_cents": 99.3
+      }
+    ],
+    "btts_cents": 65.0
+  },
+  "legs": [
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:moneyline_home_home:main",
+      "market_type": "moneyline_home",
+      "selection": "home",
+      "line": null,
+      "ticket": "main",
+      "p_model": 0.69238,
+      "p_market": 0.5397338219693316,
+      "comparison_source": "espn_odds_devig",
+      "p_final": 0.5855276753785321,
+      "price_cents": 55.0,
+      "jup_estimated_cents": 55.0,
+      "ev_pct": 6.4595773415512925,
+      "price_label": "DISKON",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:moneyline_draw_draw:main",
+      "market_type": "moneyline_draw",
+      "selection": "draw",
+      "line": null,
+      "ticket": "main",
+      "p_model": 0.17291,
+      "p_market": 0.23290577683479602,
+      "comparison_source": "espn_odds_devig",
+      "p_final": 0.2149070437843572,
+      "price_cents": 23.0,
+      "jup_estimated_cents": 23.0,
+      "ev_pct": -6.562154876366433,
+      "price_label": "MAHAL",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:moneyline_away_away:main",
+      "market_type": "moneyline_away",
+      "selection": "away",
+      "line": null,
+      "ticket": "main",
+      "p_model": 0.13471,
+      "p_market": 0.22736040119587228,
+      "comparison_source": "espn_odds_devig",
+      "p_final": 0.1995652808371106,
+      "price_cents": 23.0,
+      "jup_estimated_cents": 23.0,
+      "ev_pct": -13.232486592560623,
+      "price_label": "MAHAL",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_over_0.5:main",
+      "market_type": "total_over",
+      "selection": "over",
+      "line": 0.5,
+      "ticket": "main",
+      "p_model": 0.96872,
+      "p_market": 0.965,
+      "comparison_source": "kalshi",
+      "p_final": 0.966116,
+      "price_cents": 96.4,
+      "jup_estimated_cents": 96.4,
+      "ev_pct": 0.21950207468877103,
+      "price_label": "WAJAR",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_under_0.5:main",
+      "market_type": "total_under",
+      "selection": "under",
+      "line": 0.5,
+      "ticket": "main",
+      "p_model": 0.03128,
+      "p_market": 0.03500000000000003,
+      "comparison_source": "kalshi",
+      "p_final": 0.033884000000000025,
+      "price_cents": 3.9,
+      "jup_estimated_cents": 3.9,
+      "ev_pct": -13.117948717948646,
+      "price_label": "MAHAL",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_over_1.5:main",
+      "market_type": "total_over",
+      "selection": "over",
+      "line": 1.5,
+      "ticket": "main",
+      "p_model": 0.86153,
+      "p_market": 0.845,
+      "comparison_source": "kalshi",
+      "p_final": 0.8499589999999999,
+      "price_cents": 85.0,
+      "jup_estimated_cents": 85.0,
+      "ev_pct": -0.004823529411768224,
+      "price_label": "WAJAR",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_under_1.5:main",
+      "market_type": "total_under",
+      "selection": "under",
+      "line": 1.5,
+      "ticket": "main",
+      "p_model": 0.13847,
+      "p_market": 0.15500000000000003,
+      "comparison_source": "kalshi",
+      "p_final": 0.150041,
+      "price_cents": 16.0,
+      "jup_estimated_cents": 16.0,
+      "ev_pct": -6.224374999999993,
+      "price_label": "MAHAL",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_over_2.5:main",
+      "market_type": "total_over",
+      "selection": "over",
+      "line": 2.5,
+      "ticket": "main",
+      "p_model": 0.67353,
+      "p_market": 0.645,
+      "comparison_source": "kalshi",
+      "p_final": 0.653559,
+      "price_cents": 65.0,
+      "jup_estimated_cents": 65.0,
+      "ev_pct": 0.5475384615384771,
+      "price_label": "WAJAR",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_under_2.5:main",
+      "market_type": "total_under",
+      "selection": "under",
+      "line": 2.5,
+      "ticket": "main",
+      "p_model": 0.32647,
+      "p_market": 0.355,
+      "comparison_source": "kalshi",
+      "p_final": 0.34644099999999994,
+      "price_cents": 36.0,
+      "jup_estimated_cents": 36.0,
+      "ev_pct": -3.766388888888905,
+      "price_label": "MAHAL",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_over_3.5:main",
+      "market_type": "total_over",
+      "selection": "over",
+      "line": 3.5,
+      "ticket": "main",
+      "p_model": 0.45971,
+      "p_market": 0.42236024844720493,
+      "comparison_source": "espn_odds_devig",
+      "p_final": 0.43356517391304344,
+      "price_cents": 42.0,
+      "jup_estimated_cents": 42.0,
+      "ev_pct": 3.229803312629387,
+      "price_label": "DISKON",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_under_3.5:main",
+      "market_type": "total_under",
+      "selection": "under",
+      "line": 3.5,
+      "ticket": "main",
+      "p_model": 0.54029,
+      "p_market": 0.5776397515527951,
+      "comparison_source": "espn_odds_devig",
+      "p_final": 0.5664348260869566,
+      "price_cents": 59.0,
+      "jup_estimated_cents": 59.0,
+      "ev_pct": -3.9940972733971902,
+      "price_label": "MAHAL",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_over_4.5:main",
+      "market_type": "total_over",
+      "selection": "over",
+      "line": 4.5,
+      "ticket": "main",
+      "p_model": 0.2701,
+      "p_market": 0.235,
+      "comparison_source": "kalshi",
+      "p_final": 0.24552999999999997,
+      "price_cents": 24.0,
+      "jup_estimated_cents": 24.0,
+      "ev_pct": 2.3041666666666627,
+      "price_label": "DISKON",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_under_4.5:main",
+      "market_type": "total_under",
+      "selection": "under",
+      "line": 4.5,
+      "ticket": "main",
+      "p_model": 0.7299,
+      "p_market": 0.765,
+      "comparison_source": "kalshi",
+      "p_final": 0.75447,
+      "price_cents": 77.0,
+      "jup_estimated_cents": 77.0,
+      "ev_pct": -2.016883116883117,
+      "price_label": "MAHAL",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_over_5.5:main",
+      "market_type": "total_over",
+      "selection": "over",
+      "line": 5.5,
+      "ticket": "main",
+      "p_model": 0.13897,
+      "p_market": 0.11499999999999999,
+      "comparison_source": "kalshi",
+      "p_final": 0.122191,
+      "price_cents": 12.0,
+      "jup_estimated_cents": 12.0,
+      "ev_pct": 1.8258333333333265,
+      "price_label": "WAJAR",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_under_5.5:main",
+      "market_type": "total_under",
+      "selection": "under",
+      "line": 5.5,
+      "ticket": "main",
+      "p_model": 0.86103,
+      "p_market": 0.885,
+      "comparison_source": "kalshi",
+      "p_final": 0.8778089999999998,
+      "price_cents": 89.0,
+      "jup_estimated_cents": 89.0,
+      "ev_pct": -1.3697752808988883,
+      "price_label": "WAJAR",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": false
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_over_6.5:main",
+      "market_type": "total_over",
+      "selection": "over",
+      "line": 6.5,
+      "ticket": "main",
+      "p_model": 0.06376,
+      "p_market": null,
+      "comparison_source": null,
+      "p_final": 0.06376,
+      "price_cents": 5.3,
+      "jup_estimated_cents": 5.3,
+      "ev_pct": 20.30188679245284,
+      "price_label": "DISKON",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": true
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_under_6.5:main",
+      "market_type": "total_under",
+      "selection": "under",
+      "line": 6.5,
+      "ticket": "main",
+      "p_model": 0.93624,
+      "p_market": null,
+      "comparison_source": null,
+      "p_final": 0.93624,
+      "price_cents": 95.0,
+      "jup_estimated_cents": 95.0,
+      "ev_pct": -1.4484210526315877,
+      "price_label": "WAJAR",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": true
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_over_7.5:main",
+      "market_type": "total_over",
+      "selection": "over",
+      "line": 7.5,
+      "ticket": "main",
+      "p_model": 0.02604,
+      "p_market": null,
+      "comparison_source": null,
+      "p_final": 0.02604,
+      "price_cents": 1.7,
+      "jup_estimated_cents": 1.7,
+      "ev_pct": 53.17647058823531,
+      "price_label": "DISKON",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": true
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_under_7.5:main",
+      "market_type": "total_under",
+      "selection": "under",
+      "line": 7.5,
+      "ticket": "main",
+      "p_model": 0.97396,
+      "p_market": null,
+      "comparison_source": null,
+      "p_final": 0.97396,
+      "price_cents": 98.4,
+      "jup_estimated_cents": 98.4,
+      "ev_pct": -1.0203252032520371,
+      "price_label": "WAJAR",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": true
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_over_8.5:main",
+      "market_type": "total_over",
+      "selection": "over",
+      "line": 8.5,
+      "ticket": "main",
+      "p_model": 0.00932,
+      "p_market": null,
+      "comparison_source": null,
+      "p_final": 0.00932,
+      "price_cents": 0.9,
+      "jup_estimated_cents": 0.9,
+      "ev_pct": 3.5555555555555562,
+      "price_label": "DISKON",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": true
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:total_under_8.5:main",
+      "market_type": "total_under",
+      "selection": "under",
+      "line": 8.5,
+      "ticket": "main",
+      "p_model": 0.99068,
+      "p_market": null,
+      "comparison_source": null,
+      "p_final": 0.99068,
+      "price_cents": 99.3,
+      "jup_estimated_cents": 99.3,
+      "ev_pct": -0.23363544813695958,
+      "price_label": "WAJAR",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": true
+    },
+    {
+      "leg_id": "manchester-united@liverpool_2026-11-22:btts_yes_yes:main",
+      "market_type": "btts_yes",
+      "selection": "yes",
+      "line": null,
+      "ticket": "main",
+      "p_model": 0.58177,
+      "p_market": null,
+      "comparison_source": null,
+      "p_final": 0.58177,
+      "price_cents": 65.0,
+      "jup_estimated_cents": 65.0,
+      "ev_pct": -10.496923076923071,
+      "price_label": "MAHAL",
+      "meets": true,
+      "reason": null,
+      "fetched_at": "2026-11-22T15:41:55.112115+00:00",
+      "no_xg": true,
+      "banned_from_insurance": true,
+      "threshold_penalty_points": 5.0,
+      "model_only": true
+    }
+  ],
+  "injuries": {
+    "sources": [],
+    "n_sources": 0,
+    "confirmed_both": [],
+    "entries": [],
+    "conflicts": [],
+    "fetched_at": "2026-11-22T15:41:55.151323+00:00"
+  },
+  "labels": [
+    "TANPA_XG"
+  ],
+  "fit_status": {
+    "source": "out/fit_soccer_params.json",
+    "fit_version": "pooled EPL 2022/23–2024/25 (fit 2026-11-22)",
+    "approved": false,
+    "status": "menunggu_persetujuan"
+  },
+  "anomalies": [],
+  "price_snapshots": {
+    "moneyline_home_home": {
+      "cents": 55.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "moneyline_draw_draw": {
+      "cents": 23.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "moneyline_away_away": {
+      "cents": 23.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_over_0.5": {
+      "cents": 96.4,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_under_0.5": {
+      "cents": 3.9,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_over_1.5": {
+      "cents": 85.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_under_1.5": {
+      "cents": 16.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_over_2.5": {
+      "cents": 65.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_under_2.5": {
+      "cents": 36.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_over_3.5": {
+      "cents": 42.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_under_3.5": {
+      "cents": 59.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_over_4.5": {
+      "cents": 24.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_under_4.5": {
+      "cents": 77.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_over_5.5": {
+      "cents": 12.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_under_5.5": {
+      "cents": 89.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_over_6.5": {
+      "cents": 5.3,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_under_6.5": {
+      "cents": 95.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_over_7.5": {
+      "cents": 1.7,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_under_7.5": {
+      "cents": 98.4,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_over_8.5": {
+      "cents": 0.9,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "total_under_8.5": {
+      "cents": 99.3,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    },
+    "btts_yes_yes": {
+      "cents": 65.0,
+      "at": "2026-11-22T15:41:55.112115+00:00"
+    }
+  }
+}

@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 10
+  version: 11
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22"
   last_reviewed: "2026-11-22"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -280,12 +280,36 @@ simulation:
     ot_max_periods: 5
   football:
     model: dixon-coles          # §5b
+    # TANPA_XG (B4, Langkah 5): rantai xG putus (Understat maintenance),
+    # jadi bobot di bawah ini dipakai ulang untuk LAJU GOL (bukan xG):
+    # laju = 60% musim + 40% 6 laga terakhir — rumus BERSAMA soccer_brain
+    # + fit + sim (lihat ingest/soccer_brain.py). Bila xG kembali, bobot
+    # ini kembali berarti bobot xG seperti §5b.
     xg_weight_season: 0.60      # §5b: 60% musim
     xg_weight_recent: 0.40      # §5b: 40% 5-6 laga terakhir
     recent_matches: 6           # §5b: 5-6 laga terakhir (pakai 6, batas atas)
+    # Jendela tarik hasil musim berjalan (hari ke belakang dari tanggal
+    # laga) untuk soccer_brain: 150 hari mencakup awal musim EPL
+    # (pertengahan Agustus) sampai akhir November. PILIHAN DESAIN
+    # Langkah 5 (bukan hasil fit) — musim EPL berjalan Agu–Mei.
+    results_window_days: 150
     dixon_coles_rho: null       # TBD — MLE per liga, Tahap 3 (D12)
     home_advantage_by_league: null  # TBD — fit Tahap 3 (D12)
     absence_penalty: null       # TBD — bek tengah/kiper/striker absen (D12)
+
+# ── Wiring otak bola (Tahap 3 Langkah 5) ───────────────────────────────────
+soccer:
+  # Liga yang didukung soccer_brain (hanya EPL: satu-satunya liga dengan
+  # fetcher JSON resmi + ESPN di repo ini; LaLiga belum — lihat
+  # ingest/soccer_brain.py soal apa yang bisa dan tidak bisa).
+  leagues_supported: ["EPL"]
+  # Path parameter fit Dixon-Coles pekerja A (relatif terhadap root repo).
+  # File belum ada = fit menunggu persetujuan = analisis bola
+  # DATA_INCOMPLETE (tidak ada parameter contoh sebagai default berjalan).
+  fit_params_path: "out/fit_soccer_params.json"
+  # D12: parameter fit hanya berlaku setelah user setujui ("approved"
+  # true di file fit); sebelum itu artefak bola maksimal HOLD.
+  fit_requires_approval: true
 
 # ── Biaya venue ─────────────────────────────────────────────────────────
 fees:

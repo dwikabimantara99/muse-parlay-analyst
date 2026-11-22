@@ -195,6 +195,69 @@ def _lampirkan_nba_analysis(
             )
 
 
+def _lampirkan_soccer_analysis(
+    matches_2b: list[dict], entries_slate: list[dict], tanggal: str
+) -> None:
+    """Lampirkan artefak soccer_analysis ke tiap laga bola hasil build_slate.
+
+    Tahap 3 Langkah 5: untuk tiap laga bola, nama tim diambil dari entri
+    slate asal (dicocokkan lewat match_id), lalu
+    engine.soccer_analysis.build_soccer_analysis dipanggil dan hasilnya
+    dilampirkan sebagai kunci "soccer_analysis" pada entri MatchData 2b.
+    Bila builder gagal total, dilampirkan artefak minimal
+    DATA_INCOMPLETE — analyze TIDAK gagal hanya karena satu laga bola.
+    Laga tanpa entri slate asal (mis. slate hasil mock di tes) dilewati:
+    timnya tidak diketahui, tidak bisa dianalisis. Liga diambil dari
+    entri slate (default EPL); liga yang tidak didukung soccer_brain
+    menghasilkan artefak DATA_INCOMPLETE dari builder sendiri.
+    """
+    from engine import soccer_analysis as soccer_analysis_mod
+
+    per_match_id = {
+        entry.get("match_id"): entry
+        for entry in entries_slate
+        if isinstance(entry, dict)
+    }
+    for match_2b in matches_2b:
+        entri = per_match_id.get(match_2b.get("match_id"))
+        if entri is None:
+            continue
+        start_time = entri.get("start_time")
+        home = entri.get("home") or ""
+        away = entri.get("away") or ""
+        liga = _league_code(entri.get("league"))
+        if not str(home).strip() or not str(away).strip():
+            match_2b["soccer_analysis"] = soccer_analysis_mod.minimal_soccer_analysis(
+                entri.get("match_id") or match_2b.get("match_id"),
+                str(home) or "UNK",
+                str(away) or "UNK",
+                tanggal,
+                ["nama_tim_kosong: " f"{entri.get('home')!r} vs {entri.get('away')!r}"],
+                league=liga,
+                start_time=start_time,
+            )
+            continue
+        try:
+            match_2b["soccer_analysis"] = soccer_analysis_mod.build_soccer_analysis(
+                str(home),
+                str(away),
+                tanggal,
+                league=liga,
+                slate_match=match_2b,
+                start_time=start_time,
+            )
+        except Exception as exc:  # noqa: BLE001 - builder gagal != analyze gagal
+            match_2b["soccer_analysis"] = soccer_analysis_mod.minimal_soccer_analysis(
+                f"{away}@{home}_{tanggal}",
+                str(home),
+                str(away),
+                tanggal,
+                [f"builder_gagal: {type(exc).__name__}: {exc}"],
+                league=liga,
+                start_time=start_time,
+            )
+
+
 def cmd_analyze(args: argparse.Namespace) -> int:
     """Jalankan analisis slate Tahap 2b+3: tarik data + validasi (SOP langkah 2-3).
 
@@ -206,8 +269,10 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     tapi pencarian jadwal memakai tanggal sport itu. Untuk laga NBA,
     setelah build_slate, dilampirkan artefak "nba_analysis" per laga
     (Tahap 3 Langkah 2; gagal total -> artefak minimal DATA_INCOMPLETE,
-    slate tetap jalan). Satu file output JSON ditulis (default
-    ``out/analysis_<slate_id>.json``) + ringkasan tercetak.
+    slate tetap jalan). Untuk laga bola, dilampirkan artefak
+    "soccer_analysis" per laga (Tahap 3 Langkah 5; gagal total ->
+    artefak minimal DATA_INCOMPLETE). Satu file output JSON ditulis
+    (default ``out/analysis_<slate_id>.json``) + ringkasan tercetak.
     """
     try:
         slate = json.loads(Path(args.input).read_text(encoding="utf-8"))
@@ -275,6 +340,8 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             return 1
         if sport == "nba":
             _lampirkan_nba_analysis(result["matches"], entries, date)
+        if sport == "football":
+            _lampirkan_soccer_analysis(result["matches"], entries, date)
         all_matches.extend(result["matches"])
         for key in summary:
             summary[key] += result["summary"][key]
@@ -323,7 +390,16 @@ def cmd_analyze(args: argparse.Namespace) -> int:
             if isinstance(nba, dict) and isinstance(nba.get("status"), str)
             else ""
         )
-        print(f"  {entry['match_id']}: {entry['status']}{label_text}{nba_text}")
+        bola = entry.get("soccer_analysis")
+        bola_text = (
+            f" | soccer_analysis: {bola['status']}"
+            if isinstance(bola, dict) and isinstance(bola.get("status"), str)
+            else ""
+        )
+        print(
+            f"  {entry['match_id']}: {entry['status']}{label_text}"
+            f"{nba_text}{bola_text}"
+        )
     print(f"output: {out_path}")
     return 0
 

@@ -298,8 +298,9 @@ class TestRacikStandar(unittest.TestCase):
 
     def test_config_main_maks_5_target_4(self):
         # Perubahan config Langkah 3 (profil user 2026-11-22); versi
-        # config kini 10 (Langkah 4 menambah section live).
-        self.assertEqual(CFG["meta"]["version"], 10)
+        # config kini 11 (Langkah 4 menambah section live, Langkah 5
+        # menambah section soccer).
+        self.assertEqual(CFG["meta"]["version"], 11)
         self.assertEqual(CFG["tickets"]["main"]["multiplier_max"], 5.0)
         self.assertEqual(CFG["tickets"]["main"]["target_multiplier_max"], 4.0)
 
@@ -926,6 +927,209 @@ class TestFilterLain(unittest.TestCase):
             self.assertEqual(kaki[0]["jup_price_cents"], 70.0)
         # Main tetap 4 kaki (dedupe tidak menggandakan laga).
         self.assertEqual(len(hasil["main"]["legs"]), 4)
+
+
+def buat_kaki_bola(
+    match_id,
+    market_type,
+    selection,
+    p_model,
+    p_market,
+    harga,
+    line=None,
+    ticket="main",
+    no_xg=True,
+    penalti=5,
+):
+    """Satu kaki artefak soccer_analysis (bentuk _rakit_kaki)."""
+    p_final = None
+    ev_pct = None
+    if p_model is not None:
+        p_final = (
+            round(0.3 * p_model + 0.7 * p_market, 3)
+            if p_market is not None
+            else p_model
+        )
+        ev_pct = round((p_final * (100.0 / harga) - 1.0) * 100.0, 2)
+    leg_id = f"{match_id}:{market_type}_{selection}:{ticket}"
+    if line is not None:
+        leg_id = f"{match_id}:{market_type}_{line:g}:{ticket}"
+    kaki = {
+        "leg_id": leg_id,
+        "market_type": market_type,
+        "selection": selection,
+        "line": line,
+        "ticket": ticket,
+        "p_model": p_model,
+        "p_market": p_market,
+        "comparison_source": "kalshi" if p_market is not None else None,
+        "p_final": p_final,
+        "price_cents": harga,
+        "jup_estimated_cents": harga,
+        "ev_pct": ev_pct,
+        "price_label": (label_dari_ev(ev_pct) if ev_pct is not None else None),
+        "meets": True,
+        "reason": None,
+        "fetched_at": "2026-11-22T10:00:00+00:00",
+        "no_xg": no_xg,
+        "banned_from_insurance": no_xg,
+        "model_only": p_market is None,
+    }
+    if penalti is not None:
+        kaki["threshold_penalty_points"] = penalti
+    return kaki
+
+
+def buat_analisis_bola(match_id, home, away, legs, status="OK"):
+    """Satu artefak soccer_analysis minimal."""
+    return {
+        "format": "soccer_analysis",
+        "format_version": 1,
+        "match_id": match_id,
+        "home_team": home,
+        "away_team": away,
+        "league": "EPL",
+        "match_date": "2026-11-22",
+        "generated_at": "2026-11-22T10:00:00+00:00",
+        "status": status,
+        "legs": legs,
+        "simulation": {
+            "score_distribution": {"total": {"median": 2.7}},
+            "markets": {},
+        },
+        "market": {"main_total_line": None},
+        "labels": ["TANPA_XG"],
+    }
+
+
+LAGA_BOLA = [
+    ("manchester-united@liverpool_2026-11-22", "Liverpool", "Manchester United"),
+    ("chelsea@arsenal_2026-11-22", "Arsenal", "Chelsea"),
+]
+
+
+class TestTanpaXg(unittest.TestCase):
+    def test_tanpa_xg_dilarang_masuk_asuransi(self):
+        # Kaki TANPA_XG dengan tiket "insurance" (seolah builder salah)
+        # tetap TIDAK BOLEH masuk Asuransi — penegakan memakai flag.
+        kaki = buat_kaki_bola(
+            LAGA_BOLA[0][0],
+            "moneyline_home",
+            "home",
+            0.86,
+            0.84,
+            75.0,
+            ticket="insurance",
+        )
+        analisis = buat_analisis_bola(
+            LAGA_BOLA[0][0], LAGA_BOLA[0][1], LAGA_BOLA[0][2], [kaki]
+        )
+        kandidat, coret = ticket_composer._kumpulkan_kandidat(
+            {LAGA_BOLA[0][0]: analisis}, {}, CFG
+        )
+        self.assertEqual(kandidat["insurance"], [])
+        self.assertTrue(
+            any("TANPA_XG" in c for c in coret["insurance"]),
+            coret["insurance"],
+        )
+
+    def test_penalti_ambang_utama_lima_poin(self):
+        # Ambang Utama 65% + 5 poin TANPA_XG = 70%.
+        kaki_rendah = buat_kaki_bola(
+            LAGA_BOLA[0][0], "moneyline_home", "home", 0.70, 0.67, 55.0
+        )  # p_final = 0,679 < 0,70
+        kaki_lolos = buat_kaki_bola(
+            LAGA_BOLA[1][0], "moneyline_home", "home", 0.75, 0.71, 55.0
+        )  # p_final = 0,722 >= 0,70
+        analyses = {
+            LAGA_BOLA[0][0]: buat_analisis_bola(
+                LAGA_BOLA[0][0], LAGA_BOLA[0][1], LAGA_BOLA[0][2], [kaki_rendah]
+            ),
+            LAGA_BOLA[1][0]: buat_analisis_bola(
+                LAGA_BOLA[1][0], LAGA_BOLA[1][1], LAGA_BOLA[1][2], [kaki_lolos]
+            ),
+        }
+        kandidat, coret = ticket_composer._kumpulkan_kandidat(analyses, {}, CFG)
+        self.assertEqual(len(kandidat["main"]), 1)
+        self.assertEqual(kandidat["main"][0]["match_id"], LAGA_BOLA[1][0])
+        self.assertTrue(
+            any("TANPA_XG" in c and "70%" in c for c in coret["main"]),
+            coret["main"],
+        )
+
+    def test_penalti_dibaca_dari_config_bila_kaki_tanpa_field(self):
+        self.assertAlmostEqual(
+            ticket_composer._penalti_no_xg({"no_xg": True}, CFG), 0.05
+        )
+        self.assertAlmostEqual(
+            ticket_composer._penalti_no_xg({"threshold_penalty_points": 3}, CFG),
+            0.03,
+        )
+
+    def test_utama_dengan_kaki_bola(self):
+        # 2 kaki @ 55¢ -> pengali (100/55)^2 x 0,945 = 3,12 (target 3-5).
+        analyses = []
+        for match_id, home, away in LAGA_BOLA:
+            kaki = buat_kaki_bola(match_id, "moneyline_home", "home", 0.75, 0.71, 55.0)
+            analyses.append(buat_analisis_bola(match_id, home, away, [kaki]))
+        hasil = ticket_composer.compose_tickets(
+            analyses, None, CFG, stake_total=20, now=SEKARANG
+        )
+        self.assertIsNone(hasil["insurance"])
+        self.assertIsNotNone(hasil["main"])
+        main = hasil["main"]
+        self.assertEqual(len(main["legs"]), 2)
+        for kaki in main["legs"]:
+            self.assertEqual(kaki["sport"], "football")
+            self.assertEqual(kaki["market"], "moneyline_home")
+            self.assertIn("TANPA_XG", kaki["flags"])
+        self.assertEqual(main["legs"][0]["selection"], "Arsenal menang")
+        self.assertIn("TANPA_XG", hasil["summary"])
+        jsonschema.validate(instance=main, schema=SKEMA_TIKET)
+
+    def test_korelasi_kaki_bola_fallback_dengan_catatan(self):
+        kaki = [
+            {
+                "match_id": LAGA_BOLA[0][0],
+                "line": None,
+                "decision_prob": 0.72,
+                "leg": {"market_type": "moneyline_home"},
+                "sim_markets": {},
+            },
+            {
+                "match_id": LAGA_BOLA[0][0],
+                "line": 2.5,
+                "decision_prob": 0.60,
+                "leg": {"market_type": "total_under"},
+                "sim_markets": {},
+            },
+        ]
+        peluang, catatan = ticket_composer.ticket_win_probability(kaki)
+        self.assertAlmostEqual(peluang, 0.72 * 0.60)
+        self.assertTrue(any("tidak dihitung" in c for c in catatan))
+
+    def test_seleksi_kaki_bola(self):
+        analisis = buat_analisis_bola(
+            LAGA_BOLA[0][0], LAGA_BOLA[0][1], LAGA_BOLA[0][2], []
+        )
+        self.assertEqual(
+            ticket_composer._seleksi_kaki({"market_type": "moneyline_home"}, analisis),
+            "Liverpool menang",
+        )
+        self.assertEqual(
+            ticket_composer._seleksi_kaki({"market_type": "moneyline_draw"}, analisis),
+            "Seri",
+        )
+        self.assertEqual(
+            ticket_composer._seleksi_kaki(
+                {"market_type": "total_over", "line": 2.5}, analisis
+            ),
+            "Over 2,5 gol",
+        )
+        self.assertEqual(
+            ticket_composer._seleksi_kaki({"market_type": "btts_yes"}, analisis),
+            "Kedua tim mencetak gol",
+        )
 
 
 if __name__ == "__main__":

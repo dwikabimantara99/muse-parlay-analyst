@@ -16,6 +16,17 @@ playstyle.yaml lewat engine/anomaly.py — atau artefak menandai
 kenapa_beda_required), cek ulang (bila recheck diberikan), sumber
 data, dan daftar yang belum bisa dipastikan.
 
+BOLA (Tahap 3 Langkah 5): modul ini juga merender laporan RINGKAS
+untuk artefak ``soccer_analysis`` (``render_soccer_report`` /
+``build_soccer_report``): judul + status TANPA_XG, ringkasan, data
+tim (gol/kebobolan, attack/defence), proyeksi gol, kabar pemain,
+kaki 1X2/O-U/BTTS, form 5, H2H, kandang vs tandang, sumber, dan yang
+belum bisa dipastikan. HUTANG yang didokumentasikan: narasi bola
+lengkap (analisis taktik, pemain kunci, "Kenapa beda?" versi bola,
+anomali bola) belum dibangun — laporan bola saat ini menyajikan
+angka + label dengan jujur tanpa narasi taktik. Recheck bola belum
+ada, jadi ``build_soccer_report`` menolak argumen recheck.
+
 SPESIFIKASI WIRING (untuk koordinator — subcommand ``cli.py laporan``):
   from report import nba_report as nba_report_mod
 
@@ -1636,3 +1647,518 @@ def render_nba_report_json(analysis: dict, recheck: dict | None = None) -> dict:
     "sections", "tidak_terverifikasi", "text"}.
     """
     return build_nba_report(analysis, recheck)
+
+
+# ---------------------------------------------------------------------------
+# Laporan bola (Tahap 3 Langkah 5) — ringkas, jujur, tanpa narasi taktik.
+# ---------------------------------------------------------------------------
+
+FORMAT_SOCCER = "soccer_report"
+FORMAT_VERSION_SOCCER = 1
+
+_KAKI_BOLA_JUDUL = {
+    "moneyline_home": "Menang kandang (1)",
+    "moneyline_draw": "Seri (X)",
+    "moneyline_away": "Menang tandang (2)",
+    "total_over": "Over gol",
+    "total_under": "Under gol",
+    "btts_yes": "Kedua tim mencetak gol (BTTS Ya)",
+}
+
+
+class _LaporanBola:
+    """Perakit laporan ringkas satu laga bola dari artefak soccer_analysis.
+
+    HUTANG (didokumentasikan, bukan disembunyikan): narasi bola lengkap
+    — analisis taktik, pemain kunci, anomali bola, "Kenapa beda?" versi
+    bola — belum dibangun. Laporan ini menyajikan angka + label dengan
+    jujur: datum yang tidak ada ditulis "tidak terverifikasi".
+    """
+
+    def __init__(self, analysis: dict):
+        """Simpan artefak + siapkan penampung bagian dan kekurangan."""
+        self.a = analysis
+        self.bagian: list[dict] = []
+        self.celah: list[str] = []
+        inputs = analysis.get("inputs")
+        self.inputs = inputs if isinstance(inputs, dict) else None
+        sim = analysis.get("simulation")
+        self.sim = sim if isinstance(sim, dict) else None
+        legs = analysis.get("legs")
+        self.legs = legs if isinstance(legs, list) else []
+        injuries = analysis.get("injuries")
+        self.injuries = injuries if isinstance(injuries, dict) else {}
+
+    # -- utilitas -----------------------------------------------------
+
+    def _tambah(self, judul: str, baris: list[str]) -> None:
+        """Tambah satu bagian (judul + daftar baris teks)."""
+        self.bagian.append({"heading": judul, "lines": list(baris)})
+
+    def _celah(self, teks: str) -> None:
+        """Catat satu kekurangan (dedup, urutan kemunculan dipertahankan)."""
+        if teks not in self.celah:
+            self.celah.append(teks)
+
+    def _blok_tim(self, sisi: str) -> dict | None:
+        """Blok tim "home"/"away" dari inputs; None bila tidak ada."""
+        if self.inputs is None:
+            return None
+        blok = self.inputs.get(sisi)
+        return blok if isinstance(blok, dict) else None
+
+    def _nama_tim(self, sisi: str) -> str:
+        """Nama tim; fallback ke nama artefak, lalu nama sisi."""
+        blok = self._blok_tim(sisi)
+        if blok is not None and isinstance(blok.get("team"), str) and blok["team"]:
+            return blok["team"]
+        nama = self.a.get(f"{sisi}_team")
+        return str(nama) if nama else sisi
+
+    def _dist_gol(self, kunci: str) -> dict:
+        """Distribusi sim untuk satu kunci score_distribution ({} bila tak ada)."""
+        if self.sim is None:
+            return {}
+        dist = self.sim.get("score_distribution") or {}
+        if not isinstance(dist, dict):
+            return {}
+        nilai = dist.get(kunci) or {}
+        return nilai if isinstance(nilai, dict) else {}
+
+    # -- perakitan ----------------------------------------------------
+
+    def bangun(self) -> dict:
+        """Rakit semua bagian; kembalikan dict laporan terstruktur + teks."""
+        self._bagian_judul()
+        self._bagian_ringkasan()
+        self._bagian_data_tim()
+        self._bagian_proyeksi()
+        self._bagian_cedera()
+        self._bagian_kaki()
+        self._bagian_form5()
+        self._bagian_h2h()
+        self._bagian_kandang_tandang()
+        self._bagian_sumber()
+        self._celah(
+            "Narasi bola lengkap (analisis taktik, pemain kunci, anomali "
+            "bola, 'Kenapa beda?' versi bola) belum dibangun — hutang "
+            "Langkah 5."
+        )
+        if self.celah:
+            self._tambah(
+                "Yang belum bisa dipastikan",
+                [f"- {celah}" for celah in self.celah],
+            )
+        teks = self._render_teks()
+        return {
+            "format": FORMAT_SOCCER,
+            "format_version": FORMAT_VERSION_SOCCER,
+            "match_id": self.a.get("match_id"),
+            "status": self.a.get("status"),
+            "generated_from": self.a.get("generated_at"),
+            "sections": self.bagian,
+            "tidak_terverifikasi": list(self.celah),
+            "text": teks,
+        }
+
+    def _render_teks(self) -> str:
+        """Gabung bagian jadi satu teks (judul # lalu ## per bagian)."""
+        potongan = []
+        for i, bagian in enumerate(self.bagian):
+            awalan = "#" if i == 0 else "##"
+            potongan.append(f"{awalan} {bagian['heading']}")
+            potongan.extend(bagian["lines"])
+            potongan.append("")
+        return "\n".join(potongan).rstrip() + "\n"
+
+    # -- bagian -------------------------------------------------------
+
+    def _bagian_judul(self) -> None:
+        """Judul laga + tanggal + status + spanduk TANPA_XG."""
+        tandang = self._nama_tim("away")
+        kandang = self._nama_tim("home")
+        tanggal = _tanggal_singkat(self.a.get("match_date")) or "tanggal tidak tercatat"
+        status = self.a.get("status") or "?"
+        kata_status = _STATUS_ARTEFAK.get(status, status)
+        self._tambah(
+            f"LAPORAN LAGA BOLA — {tandang} di {kandang}",
+            [
+                f"Tanggal laga: {tanggal}.",
+                f"Status data: {kata_status}.",
+                "Label: TANPA_XG — model berbasis gol, bukan expected "
+                "goals (xG tidak tersedia); kaki bola dilarang masuk "
+                "Tiket Asuransi dan ambangnya +5 poin lebih ketat.",
+            ],
+        )
+
+    def _bagian_ringkasan(self) -> None:
+        """Ringkasan: kickoff, pekan, alasan HOLD/DATA_INCOMPLETE."""
+        baris: list[str] = []
+        mulai = _jam_singkat(self.a.get("start_time"))
+        if mulai:
+            baris.append(f"Kickoff: {mulai}.")
+        blok_match = {}
+        if self.inputs is not None:
+            blok_match = self.inputs.get("match") or {}
+        pekan = blok_match.get("matchweek") if isinstance(blok_match, dict) else None
+        if isinstance(pekan, int):
+            baris.append(f"Pekan ke-{pekan} {self.a.get('league') or 'EPL'}.")
+        fit = self.a.get("fit_status") or {}
+        if isinstance(fit, dict):
+            versi = fit.get("fit_version") or "tidak tercatat"
+            status_fit = fit.get("status") or "tidak_ada"
+            baris.append(f"Parameter fit: {versi} (status: {status_fit}).")
+            if not fit.get("approved"):
+                self._celah("parameter fit belum disetujui user (D12)")
+        status = self.a.get("status")
+        if status == "HOLD":
+            baris.append(
+                "Laga ini DITAHAN (HOLD): belum boleh dipakai untuk "
+                "tiket sampai alasan di bawah ini beres."
+            )
+        elif status == "DATA_INCOMPLETE":
+            baris.append(
+                "Data laga ini TIDAK LENGKAP: analisis tidak bisa "
+                "diselesaikan. Lihat 'Yang belum bisa dipastikan'."
+            )
+        for alasan in self.a.get("missing") or []:
+            if not isinstance(alasan, str):
+                continue
+            if alasan == "cedera_kurang_dari_2_sumber":
+                baris.append("- Kabar cedera belum terkonfirmasi (butuh 2 sumber).")
+            elif alasan == "fit_belum_disetujui":
+                baris.append("- Parameter fit belum disetujui user.")
+            elif alasan == "fit_menunggu_persetujuan":
+                baris.append("- Parameter fit belum ada (menunggu persetujuan).")
+            elif alasan == "simulasi_belum_tersedia":
+                baris.append("- Simulasi bola belum tersedia.")
+            elif alasan == "tidak_ada_kaki_memenuhi":
+                baris.append("- Tidak ada kaki yang memenuhi syarat.")
+        if not baris:
+            baris.append("Tidak ada ringkasan tambahan.")
+        self._tambah("Ringkasan", baris)
+
+    def _teks_stat_tim(self, sisi: str) -> list[str]:
+        """Baris statistik satu tim (musim + 6 terakhir + attack/defence)."""
+        blok = self._blok_tim(sisi)
+        nama = self._nama_tim(sisi)
+        if blok is None:
+            self._celah(f"data tim {nama} tidak ada")
+            return [f"- {nama}: data tidak terverifikasi."]
+        musim = blok.get("stats_season") or {}
+        terakhir = blok.get("stats_last6") or {}
+        attack = _angka(blok.get("attack"))
+        defence = _angka(blok.get("defence"))
+        baris = [f"- {nama}:"]
+        main = musim.get("played")
+        if isinstance(main, int):
+            baris.append(
+                f"  Musim ini: {main} laga, {musim.get('w', '?')}-"
+                f"{musim.get('d', '?')}-{musim.get('l', '?')} "
+                "(menang-seri-kalah)."
+            )
+        gol = _fmt_poin(_angka(musim.get("goals_for_per_match")), 2)
+        kemasukan = _fmt_poin(_angka(musim.get("goals_against_per_match")), 2)
+        if gol is not None and kemasukan is not None:
+            baris.append(
+                f"  Rata-rata gol: {gol} per laga; kebobolan: " f"{kemasukan} per laga."
+            )
+        else:
+            self._celah(f"rata-rata gol {nama} tidak terverifikasi")
+        gol6 = _fmt_poin(_angka(terakhir.get("goals_for_per_match")), 2)
+        kemasukan6 = _fmt_poin(_angka(terakhir.get("goals_against_per_match")), 2)
+        main6 = terakhir.get("played")
+        if gol6 is not None and kemasukan6 is not None and isinstance(main6, int):
+            baris.append(
+                f"  {main6} laga terakhir: {gol6} gol dan {kemasukan6} "
+                "kebobolan per laga."
+            )
+        if attack is not None and defence is not None:
+            # defence = KEBOCORAN (Dixon-Coles): > 1,00 = kebobolan
+            # lebih banyak dari rata-rata liga (bocor); < 1,00 = rapat.
+            baris.append(
+                f"  Kekuatan serang {_fmt_poin(attack, 2)}, kebocoran "
+                f"pertahanan {_fmt_poin(defence, 2)} (rata-rata liga = "
+                "1,00; makin besar makin gampang kebobolan)."
+            )
+        else:
+            self._celah(f"kekuatan serang/bertahan {nama} tidak terverifikasi")
+        return baris
+
+    def _bagian_data_tim(self) -> None:
+        """Data kedua tim."""
+        baris = self._teks_stat_tim("home") + self._teks_stat_tim("away")
+        self._tambah("Data tim", baris)
+
+    def _bagian_proyeksi(self) -> None:
+        """Proyeksi gol dari simulasi (median total + rata-rata gol)."""
+        if self.sim is None:
+            self._celah("simulasi tidak ada — proyeksi gol tidak terverifikasi")
+            self._tambah(
+                "Proyeksi gol", ["- Tidak terverifikasi (simulasi tidak ada)."]
+            )
+            return
+        total = self._dist_gol("total")
+        # score_distribution bola: home_points/away_points (bukan
+        # home_goals/away_goals) — kontrak football_sim.
+        home_gol = self._dist_gol("home_points")
+        away_gol = self._dist_gol("away_points")
+        median = _fmt_poin(_angka(total.get("median")))
+        rata_total = _fmt_poin(_angka(total.get("mean")))
+        rata_home = _fmt_poin(_angka(home_gol.get("mean")))
+        rata_away = _fmt_poin(_angka(away_gol.get("mean")))
+        iterasi = self.sim.get("iterations")
+        baris: list[str] = []
+        if isinstance(iterasi, int):
+            baris.append(f"Dari {iterasi:,} simulasi Dixon-Coles.".replace(",", "."))
+        if rata_home is not None and rata_away is not None:
+            baris.append(
+                f"- Perkiraan gol: {self._nama_tim('home')} {rata_home}, "
+                f"{self._nama_tim('away')} {rata_away}."
+            )
+        if median is not None:
+            baris.append(f"- Nilai tengah total gol: {median}.")
+        if rata_total is not None:
+            baris.append(f"- Rata-rata total gol: {rata_total}.")
+        if not baris:
+            self._celah("sebaran gol simulasi tidak lengkap")
+            baris.append("- Tidak terverifikasi (sebaran gol tidak lengkap).")
+        self._tambah("Proyeksi gol", baris)
+
+    def _bagian_cedera(self) -> None:
+        """Kabar pemain (saat ini: tidak terkonfirmasi)."""
+        entri = self.injuries.get("entries") or []
+        entri = [e for e in entri if isinstance(e, dict)]
+        n_sumber = self.injuries.get("n_sources")
+        baris: list[str] = []
+        if not entri:
+            baris.append(
+                "Kabar pemain belum terkonfirmasi: tidak ada sumber "
+                "cedera bola yang bisa dipakai (daftar cedera ESPN "
+                "kosong; sumber lain belum diratifikasi), sementara "
+                "aturan butuh 2 sumber."
+            )
+            self._celah("kabar cedera belum terkonfirmasi (0 dari 2 sumber)")
+        else:
+            for cedera in sorted(
+                entri,
+                key=lambda e: (
+                    _URUTAN_STATUS.get(str(e.get("status") or "").upper(), 9),
+                    str(e.get("player") or ""),
+                ),
+            ):
+                nama = cedera.get("player") or "pemain tidak dikenal"
+                status = str(cedera.get("status") or "").upper()
+                kata = _STATUS_PEMAIN.get(status, status.lower() or "tidak diketahui")
+                tim = cedera.get("team") or cedera.get("team_tricode") or ""
+                baris.append(f"- {nama} ({tim}): {kata}.")
+            if isinstance(n_sumber, int) and n_sumber < 2:
+                baris.append(
+                    f"Catatan: kabar ini baru dari {n_sumber} sumber — "
+                    "belum terkonfirmasi penuh (butuh 2)."
+                )
+                self._celah("kabar cedera baru dari 1 sumber")
+        self._tambah("Kabar pemain", baris)
+
+    def _teks_kaki(self, kaki: dict) -> str:
+        """Satu baris kaki: peluang + harga + EV + label."""
+        market_type = kaki.get("market_type") or "?"
+        judul = _KAKI_BOLA_JUDUL.get(market_type, str(market_type))
+        garis = _angka(kaki.get("line"))
+        if garis is not None:
+            judul += f" {garis:g}".replace(".", ",")
+        bagian = [judul]
+        p_model = _peluang(kaki.get("p_model"))
+        p_market = _peluang(kaki.get("p_market"))
+        p_final = _peluang(kaki.get("p_final"))
+        if p_model is not None:
+            bagian.append(f"model {_fmt_persen(p_model)}")
+        if p_market is not None:
+            sumber = kaki.get("comparison_source") or "pembanding"
+            bagian.append(f"{sumber} {_fmt_persen(p_market)}")
+        else:
+            bagian.append("tanpa pembanding (MODEL_ONLY)")
+        if p_final is not None:
+            bagian.append(f"gabungan {_fmt_persen(p_final)}")
+        harga = _fmt_sen(_angka(kaki.get("jup_estimated_cents")))
+        if harga is not None:
+            bagian.append(f"harga {harga}")
+        ev = _angka(kaki.get("ev_pct"))
+        if ev is not None:
+            bagian.append(f"EV {ev:+.1f}%".replace(".", ","))
+        label = kaki.get("price_label")
+        if isinstance(label, str) and label:
+            bagian.append(label)
+        if not kaki.get("meets"):
+            alasan = kaki.get("reason") or "tidak memenuhi syarat"
+            bagian.append(f"[tidak memenuhi: {alasan}]")
+        return "- " + ", ".join(bagian) + "."
+
+    def _bagian_kaki(self) -> None:
+        """Kaki 1X2 + O/U + BTTS (semua bertiket Utama, TANPA_XG)."""
+        if not self.legs:
+            self._celah("tidak ada kaki di artefak")
+            self._tambah("Kaki", ["- Tidak ada kaki di analisis ini."])
+            return
+        baris = [
+            "Semua kaki bola hanya untuk Tiket Utama (TANPA_XG dilarang "
+            "masuk Asuransi) dengan ambang peluang +5 poin.",
+        ]
+        for kelompok, judul in (
+            (
+                ("moneyline_home", "moneyline_draw", "moneyline_away"),
+                "1X2:",
+            ),
+            (("total_over", "total_under"), "Over/Under gol:"),
+            (("btts_yes",), "BTTS:"),
+        ):
+            kaki_kelompok = [
+                kaki
+                for kaki in self.legs
+                if isinstance(kaki, dict) and kaki.get("market_type") in kelompok
+            ]
+            if not kaki_kelompok:
+                continue
+            baris.append(judul)
+            for kaki in kaki_kelompok:
+                baris.append(self._teks_kaki(kaki))
+        self._tambah("Kaki", baris)
+
+    def _bagian_form5(self) -> None:
+        """5 laga terakhir tiap tim."""
+        baris: list[str] = []
+        for sisi in ("home", "away"):
+            blok = self._blok_tim(sisi)
+            nama = self._nama_tim(sisi)
+            form = blok.get("form5") if isinstance(blok, dict) else None
+            if not isinstance(form, list) or not form:
+                self._celah(f"5 laga terakhir {nama} tidak terverifikasi")
+                baris.append(f"- {nama}: tidak terverifikasi.")
+                continue
+            hasil = "".join(
+                str(item.get("result") or "?")
+                for item in form
+                if isinstance(item, dict)
+            )
+            baris.append(f"- {nama} (terbaru dulu): {hasil}.")
+            for item in form:
+                if not isinstance(item, dict):
+                    continue
+                lawan = item.get("opponent") or "?"
+                gf = item.get("goals_for")
+                ga = item.get("goals_against")
+                tanggal = _tanggal_singkat(item.get("match_date")) or "?"
+                kandang = "kandang" if item.get("home") else "tandang"
+                if gf is not None and ga is not None:
+                    baris.append(f"  {tanggal} vs {lawan} ({kandang}): {gf}-{ga}.")
+        self._tambah("Lima laga terakhir", baris)
+
+    def _bagian_h2h(self) -> None:
+        """5 pertemuan terakhir kedua tim."""
+        h2h = []
+        if self.inputs is not None:
+            h2h = self.inputs.get("h2h_last5") or []
+        if not isinstance(h2h, list) or not h2h:
+            self._celah("riwayat pertemuan tidak terverifikasi")
+            self._tambah(
+                "Pertemuan terakhir",
+                ["- Tidak ada riwayat pertemuan di data ini."],
+            )
+            return
+        baris = []
+        for item in h2h:
+            if not isinstance(item, dict):
+                continue
+            tanggal = _tanggal_singkat(item.get("match_date")) or "?"
+            home = item.get("home_team") or "?"
+            away = item.get("away_team") or "?"
+            hg = item.get("home_goals")
+            ag = item.get("away_goals")
+            if hg is not None and ag is not None:
+                baris.append(f"- {tanggal}: {home} {hg}-{ag} {away}.")
+        if not baris:
+            self._celah("riwayat pertemuan tidak terverifikasi")
+            baris.append("- Tidak terverifikasi.")
+        self._tambah("Pertemuan terakhir", baris)
+
+    def _bagian_kandang_tandang(self) -> None:
+        """Rekor kandang tim tuan rumah + rekor tandang tim tamu."""
+        baris: list[str] = []
+        for sisi, kunci, kata in (
+            ("home", "home_record", "kandang"),
+            ("away", "away_record", "tandang"),
+        ):
+            blok = self._blok_tim(sisi)
+            nama = self._nama_tim(sisi)
+            rekor = blok.get(kunci) if isinstance(blok, dict) else None
+            if not isinstance(rekor, dict) or not isinstance(rekor.get("played"), int):
+                self._celah(f"rekor {kata} {nama} tidak terverifikasi")
+                baris.append(f"- {nama} ({kata}): tidak terverifikasi.")
+                continue
+            gf = _fmt_poin(_angka(rekor.get("gf_per_match")), 2)
+            ga = _fmt_poin(_angka(rekor.get("ga_per_match")), 2)
+            baris.append(
+                f"- {nama} ({kata}): {rekor['played']} laga, "
+                f"{rekor.get('w', '?')}-{rekor.get('d', '?')}-"
+                f"{rekor.get('l', '?')}, {gf} gol dan {ga} kebobolan "
+                "per laga."
+            )
+        self._tambah("Kandang vs tandang", baris)
+
+    def _bagian_sumber(self) -> None:
+        """Sumber data artefak."""
+        sumber = self.a.get("sources") or []
+        if not isinstance(sumber, list) or not sumber:
+            self._celah("sumber data tidak tercatat di artefak")
+            self._tambah("Sumber data", ["- Tidak tercatat di artefak."])
+            return
+        baris = []
+        for entri in sumber:
+            if not isinstance(entri, dict):
+                continue
+            jam = _jam_singkat(entri.get("time")) or "jam tidak tercatat"
+            baris.append(
+                f"- {entri.get('kind')}: {entri.get('source')}, "
+                f"jenjang {entri.get('tier')}, {jam}."
+            )
+        self._tambah("Sumber data", baris)
+
+
+def build_soccer_report(analysis: dict) -> dict:
+    """Rakit laporan terstruktur satu laga bola (dict, JSON-serializable).
+
+    analysis: dict artefak ``soccer_analysis`` v1. Mengembalikan
+    {"format", "format_version", "match_id", "status",
+    "generated_from", "sections", "tidak_terverifikasi", "text"}.
+    Melempar ValueError bila analysis bukan dict atau bukan format
+    'soccer_analysis'. Recheck bola belum ada — tidak ada parameter
+    recheck di sini.
+    """
+    if not isinstance(analysis, dict):
+        raise ValueError(f"analysis harus dict, bukan {type(analysis).__name__}")
+    if analysis.get("format") != "soccer_analysis":
+        raise ValueError(
+            "analysis harus artefak format 'soccer_analysis', bukan "
+            f"{analysis.get('format')!r}"
+        )
+    return _LaporanBola(analysis).bangun()
+
+
+def render_soccer_report(analysis: dict) -> str:
+    """Render laporan ringkas satu laga bola jadi teks mudah dibaca.
+
+    analysis: dict artefak ``soccer_analysis`` v1. Lihat
+    build_soccer_report untuk kontrak lengkap; ValueError bila input
+    tidak valid.
+    """
+    return build_soccer_report(analysis)["text"]
+
+
+def render_soccer_report_json(analysis: dict) -> dict:
+    """Render laporan ringkas satu laga bola jadi dict terstruktur.
+
+    Sama seperti build_soccer_report (alias nama sesuai kontrak
+    langkah 3): {"format", "format_version", "match_id", "status",
+    "generated_from", "sections", "tidak_terverifikasi", "text"}.
+    """
+    return build_soccer_report(analysis)

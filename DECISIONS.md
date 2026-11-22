@@ -547,3 +547,14 @@ Model yang sama untuk sepak bola: proyeksi gol per tim (Dixon-Coles, §5b), simu
   cadangan tidak dibangun. Laporan:
   LAPORAN-TAHAP-3-LANGKAH-4.md. Tes 1088, config v10, 0 kredit
   Odds API.
+
+## 2026-11-22 — Tahap 3 Langkah 5 (Otak bola)
+
+- **Fit Dixon-Coles DILAPORKAN, MENUNGGU persetujuan user (pola D12)**: EPL rho −0,003, avg_home/away 1,6892/1,4062, rasio 1,2013; LaLiga rho +0,024, 1,4679/1,1310, rasio 1,2978 (fit gabungan 3 musim ≤2024/25, 1.140 laga/liga). `dixon_coles_rho`/`home_advantage_by_league`/`absence_penalty` di playstyle.yaml TETAP null sampai user menyetujui. Pilihan rho gabungan vs rho=0 diserahkan ke user/reviewer (rho teridentifikasi lemah; selang ~95% [−0,10, +0,08]).
+- **Validasi (holdout 2025/26 + rolling point-in-time)**: skill NYATA hanya 1X2 (EPL Brier 0,6218 vs klim 0,6563, z −2,61; LaLiga 0,5917 vs 0,6318, z −3,04; rolling mengonfirmasi). O/U 2.5 TIDAK ADA skill (z ≈ 0); BTTS LaLiga GAGAL signifikan (0,2580 vs 0,2484, z +2,14 — pergeseran regime; perbaikan bobot resensi/jendela geser = pekerjaan lanjutan, bukan diputuskan). Brier pasar DATA_INCOMPLETE (odds Pinnacle stale). Detail: LAPORAN-FIT-BOLA.md.
+- **Koreksi rumus defence (DIRATIFIKASI koordinator langkah 5)**: defence = KEBOCORAN (laju kebobolan / rata-rata liga; lebih besar = lebih bocor), sama dengan fit + sim. Rumus di tugas (rata-rata/laju = kekuatan) tertulis terbalik; bukti dari file fit (Arsenal 2024/25 defence 0,617, Southampton 1,506). Tanpa koreksi, contoh live memberi Man Utd 50% menang di Anfield. Menunggu keberatan reviewer.
+- **GARIS_TOTAL diperluas 0.5–8.5** (keputusan integrasi koordinator): sim awal hanya 1.5/2.5/3.5 sehingga 12/22 kaki contoh live tanpa p_model; perluasan mekanis dari PMF yang sama. Menunggu keberatan reviewer.
+- **Cedera bola: 0 sumber** (ESPN kosong, PL tidak punya endpoint cedera, FPL belum diratifikasi) → semua laga bola HOLD di bawah B2; B2 tidak dilonggarkan. FPL saja tidak cukup — sumber kedua masih hilang.
+- **TANPA_XG ditegakkan di peracik berbasis flag kaki** (`no_xg`/`banned_from_insurance`): kaki bola TANPA_XG dilarang Asuransi + ambang +5 poin, sekalipun artefaknya salah memberi tiket "insurance".
+- **LaLiga**: fit + validasi ada, ingest TIDAK didukung (builder menolak liga selain EPL); config `soccer.leagues_supported: ["EPL"]`.
+- **Recheck bola BELUM DIDEFINISIKAN** (hutang ke langkah 6); CLI `laporan`/`tanya`/`racik` belum diperluas ke artefak bola; tidak ada ambang "Kenapa beda?" untuk bola.

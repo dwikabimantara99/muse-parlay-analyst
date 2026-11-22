@@ -228,13 +228,26 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_10(self):
-        # Versi 10: Langkah 4 (2026-11-22) — pantauan live (section live:
-        # ambang status + risiko OT + anomali live; di atas versi 9:
-        # Langkah 3, peracik tiket).
+    def test_meta_versi_11(self):
+        # Versi 11: Langkah 5 (2026-11-22) — otak bola (wiring
+        # soccer_brain/soccer_analysis, TANPA_XG; di atas versi 10:
+        # Langkah 4, pantauan live).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 10)
+        self.assertEqual(meta["version"], 11)
         self.assertEqual(meta["last_reviewed"], "2026-11-22")
+
+    def test_soccer_section(self):
+        # Wiring otak bola (Langkah 5): section soccer + jendela hasil.
+        # Parameter fit TETAP null (D12 — belum difit/disetujui).
+        soccer = self.cfg["soccer"]
+        self.assertEqual(soccer["leagues_supported"], ["EPL"])
+        self.assertEqual(soccer["fit_params_path"], "out/fit_soccer_params.json")
+        self.assertTrue(soccer["fit_requires_approval"])
+        fb = self.cfg["simulation"]["football"]
+        self.assertEqual(fb["results_window_days"], 150)
+        self.assertIsNone(fb["dixon_coles_rho"])
+        self.assertIsNone(fb["home_advantage_by_league"])
+        self.assertIsNone(fb["absence_penalty"])
 
     def test_live_section(self):
         # Ambang pantauan live (Langkah 4) — NILAI AWAL, BELUM

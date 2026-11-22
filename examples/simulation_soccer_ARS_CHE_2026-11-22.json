@@ -1,0 +1,132 @@
+{
+  "match_id": "ARS_CHE_2026-11-22",
+  "sport": "football",
+  "iterations": 100000,
+  "generated_at": "2026-11-22T15:38:02.082949+00:00",
+  "engine": {
+    "name": "football_sim",
+    "version": "1.0.0",
+    "seed": 7
+  },
+  "markets": {
+    "home_win": 0.50544,
+    "draw": 0.27188,
+    "away_win": 0.22268,
+    "btts_yes": 0.54842,
+    "btts_no": 0.45158,
+    "total_over_0_5": 0.92227,
+    "total_under_0_5": 0.07773,
+    "total_over_1_5": 0.7763,
+    "total_under_1_5": 0.2237,
+    "total_over_2_5": 0.51879,
+    "total_under_2_5": 0.48121,
+    "total_over_3_5": 0.298,
+    "total_under_3_5": 0.702,
+    "total_over_4_5": 0.14477,
+    "total_under_4_5": 0.85523,
+    "total_over_5_5": 0.06111,
+    "total_under_5_5": 0.93889,
+    "total_over_6_5": 0.02187,
+    "total_under_6_5": 0.97813,
+    "total_over_7_5": 0.00733,
+    "total_under_7_5": 0.99267,
+    "total_over_8_5": 0.00209,
+    "total_under_8_5": 0.99791
+  },
+  "inputs_summary": {
+    "home_team": "Arsenal",
+    "away_team": "Chelsea",
+    "match_date": "2026-11-22",
+    "league": "EPL",
+    "fit_version": "contoh-0.1-menunggu-persetujuan-user",
+    "home_attack": 1.15,
+    "home_defence": 0.85,
+    "away_attack": 1.05,
+    "away_defence": 0.95,
+    "avg_home_goals": 1.55,
+    "avg_away_goals": 1.2,
+    "rho": -0.13,
+    "lambda_home": 1.6934,
+    "lambda_away": 1.071,
+    "max_goals_per_team": 10,
+    "elapsed_seconds": 0.296,
+    "notes": [
+      "parameter fit (rho, avg goals, kekuatan tim) dilewat eksplisit oleh pemanggil — berlaku setelah user menyetujui fit (D12); modul TIDAK membaca simulation.football dari playstyle.yaml",
+      "gol dibatasi 0..10 per tim; PMF dinormalisasi setelah pemotongan (lihat docstring modul)",
+      "squad_scenarios kosong: pemodelan absensi pemain bola belum ada (absence_penalty masih null)"
+    ]
+  },
+  "score_distribution": {
+    "home_points": {
+      "mean": 1.69,
+      "median": 2.0
+    },
+    "away_points": {
+      "mean": 1.06,
+      "median": 1.0
+    },
+    "total": {
+      "mean": 2.75,
+      "std": 1.66,
+      "median": 3.0,
+      "p5": 0.0,
+      "p25": 2.0,
+      "p74": 4.0,
+      "p75": 4.0,
+      "p95": 6.0
+    },
+    "scorelines": [
+      {
+        "home_goals": 1,
+        "away_goals": 1,
+        "probability": 0.12947
+      },
+      {
+        "home_goals": 2,
+        "away_goals": 1,
+        "probability": 0.09617
+      },
+      {
+        "home_goals": 1,
+        "away_goals": 0,
+        "probability": 0.09278
+      },
+      {
+        "home_goals": 2,
+        "away_goals": 0,
+        "probability": 0.09162
+      },
+      {
+        "home_goals": 0,
+        "away_goals": 0,
+        "probability": 0.07773
+      },
+      {
+        "home_goals": 1,
+        "away_goals": 2,
+        "probability": 0.06039
+      },
+      {
+        "home_goals": 3,
+        "away_goals": 1,
+        "probability": 0.05399
+      },
+      {
+        "home_goals": 0,
+        "away_goals": 1,
+        "probability": 0.05319
+      },
+      {
+        "home_goals": 2,
+        "away_goals": 2,
+        "probability": 0.05289
+      },
+      {
+        "home_goals": 3,
+        "away_goals": 0,
+        "probability": 0.05148
+      }
+    ]
+  },
+  "squad_scenarios": []
+}

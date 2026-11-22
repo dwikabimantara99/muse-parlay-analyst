@@ -1,9 +1,19 @@
-"""Tanya-jawab soal laga/analisis NBA (Tahap 3 Langkah 3).
+"""Tanya-jawab soal laga/analisis NBA dan bola (Tahap 3 Langkah 3 + 5).
 
 Modul ini menjawab pertanyaan user tentang SATU artefak analisis
-(`nba_analysis` format_version 1, lihat engine/nba_analysis.py) dalam
+(``nba_analysis`` atau ``soccer_analysis`` format_version 1) dalam
 Bahasa Indonesia sehari-hari, tanpa jargon. Pengenalan maksud
 pertanyaan DETERMINISTIK dari kata kunci (tanpa LLM).
+
+BOLA (Langkah 5): hanya dua intent yang didukung untuk artefak
+soccer_analysis — ``peluang_laga`` (peluang 1X2 + perkiraan gol dari
+simulasi Dixon-Coles) dan ``kabar_pemain`` (kabar cedera — saat ini
+selalu "tidak terkonfirmasi" karena tidak ada sumber cedera bola yang
+bisa dipakai, B2). Intent lain (kenapa_total, bagaimana_jika_absen,
+garis_teraman, kenapa_beda_model_market) menjawab jujur "belum
+tersedia untuk bola" — tidak crash, tidak mengarang angka. Sepak bola
+liga tidak mengenal perpanjangan waktu (seri adalah hasil), jadi
+pertanyaan OT dijawab dengan penjelasan itu.
 
 Fungsi utama: `answer(analysis, question, config=None)` ->
 `{"question", "intent", "answer", "numbers", "verified"}`.
@@ -194,7 +204,25 @@ def _fmt_ribu(nilai: int) -> str:
 
 
 def _nama_laga(analysis: dict) -> str:
-    """Nama laga untuk jawaban, mis. "Detroit Pistons di Atlanta Hawks"."""
+    """Nama laga untuk jawaban, mis. "Detroit Pistons di Atlanta Hawks".
+
+    Bola: "Manchester United di Liverpool" (dari home_team/away_team
+    artefak soccer_analysis).
+    """
+    if not isinstance(analysis, dict):
+        return "laga ini"
+    if analysis.get("format") == "soccer_analysis":
+        nama_home = analysis.get("home_team") or "tuan rumah"
+        nama_away = analysis.get("away_team") or "tamu"
+        inputs = analysis.get("inputs")
+        if isinstance(inputs, dict):
+            blok_home = inputs.get("home") or {}
+            blok_away = inputs.get("away") or {}
+            if isinstance(blok_home, dict) and isinstance(blok_home.get("team"), str):
+                nama_home = blok_home["team"]
+            if isinstance(blok_away, dict) and isinstance(blok_away.get("team"), str):
+                nama_away = blok_away["team"]
+        return f"{nama_away} di {nama_home}"
     inputs = analysis.get("inputs") if isinstance(analysis, dict) else None
     home = analysis.get("home_tricode") if isinstance(analysis, dict) else None
     away = analysis.get("away_tricode") if isinstance(analysis, dict) else None
@@ -506,17 +534,72 @@ def detect_intent(question: str) -> str:
     return "unknown"
 
 
-def _jawab_unknown(pertanyaan: str) -> dict:
-    """Jawaban jujur untuk pertanyaan yang tidak dikenali."""
+def _jawab_unknown(pertanyaan: str, soccer: bool = False) -> dict:
+    """Jawaban jujur untuk pertanyaan yang tidak dikenali.
+
+    Untuk artefak bola, hanya dua intent yang didukung (peluang_laga +
+    kabar_pemain) — daftarnya disesuaikan agar user tidak disesatkan.
+    """
+    didukung = SUPPORTED_QUESTIONS
+    if soccer:
+        didukung = [
+            item
+            for item in SUPPORTED_QUESTIONS
+            if item["intent"] in ("peluang_laga", "kabar_pemain")
+        ]
     daftar = "\n".join(
-        f"- {item['contoh']} ({item['keterangan']})" for item in SUPPORTED_QUESTIONS
+        f"- {item['contoh']} ({item['keterangan']})" for item in didukung
+    )
+    pembuka = (
+        "Maaf, saya tidak mengerti pertanyaan itu. Untuk laga bola, saya "
+        "bisa menjawab pertanyaan seperti ini:\n"
+        if soccer
+        else "Maaf, saya tidak mengerti pertanyaan itu. Saya bisa menjawab "
+        "pertanyaan seperti ini:\n"
+    )
+    jawaban = pembuka + daftar
+    return _hasil(pertanyaan, "unknown", jawaban, {}, True)
+
+
+# Alasan per intent yang belum tersedia untuk bola (Langkah 5).
+_ALASAN_BELUM_TERSEDIA_BOLA = {
+    "kenapa_total": (
+        "uraian komponen proyeksi total baru tersedia untuk NBA — "
+        "komponen proyeksi gol bola (attack/defence, rho Dixon-Coles) "
+        "belum dirangkai menjadi jawaban"
+    ),
+    "bagaimana_jika_absen": (
+        "sim ulang 'bagaimana jika absen' baru tersedia untuk NBA — "
+        "untuk bola belum ada data pemain + penalti absen yang terfit"
+    ),
+    "garis_teraman": (
+        "perbandingan garis Asuransi/Utama baru tersedia untuk NBA — "
+        "kaki bola tidak punya konsep garis Asuransi (TANPA_XG "
+        "dilarang masuk Asuransi)"
+    ),
+    "kenapa_beda_model_market": (
+        "analisis selisih model vs market baru tersedia untuk NBA — "
+        "ambang selisih untuk bola belum ditentukan"
+    ),
+}
+
+
+def _jawab_belum_tersedia_bola(pertanyaan: str, intent: str) -> dict:
+    """Jawaban jujur: intent ini belum tersedia untuk bola.
+
+    Tidak crash, tidak mengarang angka — verified=False karena
+    pertanyaan tidak bisa dijawab dari data.
+    """
+    alasan = _ALASAN_BELUM_TERSEDIA_BOLA.get(
+        intent, "jenis pertanyaan ini belum didukung untuk bola"
     )
     jawaban = (
-        "Maaf, saya tidak mengerti pertanyaan itu. Saya bisa menjawab "
-        "pertanyaan seperti ini:\n"
-        f"{daftar}"
+        f"Maaf, pertanyaan itu belum bisa saya jawab untuk laga bola: "
+        f"{alasan}. Untuk laga bola, saya bisa menjawab soal peluang "
+        "laga ('Siapa yang lebih dijagokan menang?') dan kabar pemain "
+        "('Siapa yang diragukan tampil?')."
     )
-    return _hasil(pertanyaan, "unknown", jawaban, {}, True)
+    return _hasil(pertanyaan, intent, jawaban, {}, False)
 
 
 def _bobot_resensi(cfg: dict, ringkasan: dict) -> tuple[float, float] | None:
@@ -1098,13 +1181,16 @@ def _jawab_garis_teraman(pertanyaan: str, analysis: dict) -> dict:
 
 
 def _kalimat_pemain_cedera(entri: dict, dikonfirmasi: set[str]) -> str:
-    """Satu kalimat kabar pemain dari entri cedera gabungan."""
+    """Satu kalimat kabar pemain dari entri cedera gabungan.
+
+    Tim dari "team_tricode" (NBA) atau "team" (bola).
+    """
     nama = entri.get("player") or "pemain tidak dikenal"
     status = str(entri.get("status") or "").upper()
     kata_status = _STATUS_KATA.get(
         status, status.lower() if status else "tidak diketahui"
     )
-    tricode = entri.get("team_tricode")
+    tricode = entri.get("team_tricode") or entri.get("team")
     alasan = entri.get("reason")
     sumber = entri.get("sources") or []
     n_sumber = len(sumber) if isinstance(sumber, list) else 0
@@ -1435,6 +1521,184 @@ def _jawab_peluang_laga(pertanyaan: str, analysis: dict) -> dict:
     return _hasil(pertanyaan, "peluang_laga", " ".join(kalimat), numbers, verified)
 
 
+def _jawab_peluang_laga_bola(pertanyaan: str, analysis: dict) -> dict:
+    """Peluang 1X2 + perkiraan gol dari simulasi Dixon-Coles.
+
+    Sepak bola liga tidak mengenal perpanjangan waktu — pertanyaan OT
+    dijawab dengan penjelasan itu (seri adalah hasil). Angka hanya
+    dari markets + score_distribution artefak; yang tidak ada
+    dijawab "tidak terverifikasi".
+    """
+    sim = _simulasi(analysis)
+    if sim is None:
+        jawaban = (
+            "Saya tidak bisa menjawab peluang laga ini — hasil simulasinya "
+            "tidak ada di analisis ini, jadi bagian itu tidak terverifikasi."
+        )
+        return _hasil(pertanyaan, "peluang_laga", jawaban, {}, False)
+    markets = sim.get("markets") or {}
+    # Kunci markets sim BOLA (football_sim): home_win/draw/away_win
+    # — berbeda dari NBA (moneyline_home/moneyline_away).
+    ml_home = _peluang(markets.get("home_win")) if isinstance(markets, dict) else None
+    ml_draw = _peluang(markets.get("draw")) if isinstance(markets, dict) else None
+    ml_away = _peluang(markets.get("away_win")) if isinstance(markets, dict) else None
+    dist = (sim.get("score_distribution") or {}).get("total") or {}
+    median_total = _angka(dist.get("median")) if isinstance(dist, dict) else None
+    mean_total = _angka(dist.get("mean")) if isinstance(dist, dict) else None
+    # score_distribution bola: home_points/away_points (bukan
+    # home_goals/away_goals).
+    dist_home = (sim.get("score_distribution") or {}).get("home_points") or {}
+    dist_away = (sim.get("score_distribution") or {}).get("away_points") or {}
+    mean_home = _angka(dist_home.get("mean")) if isinstance(dist_home, dict) else None
+    mean_away = _angka(dist_away.get("mean")) if isinstance(dist_away, dict) else None
+    numbers: dict = {}
+    if ml_home is not None:
+        numbers["moneyline_home"] = ml_home
+    if ml_draw is not None:
+        numbers["moneyline_draw"] = ml_draw
+    if ml_away is not None:
+        numbers["moneyline_away"] = ml_away
+    if median_total is not None:
+        numbers["median_total_goals"] = median_total
+    if mean_total is not None:
+        numbers["mean_total_goals"] = mean_total
+    if mean_home is not None:
+        numbers["mean_home_goals"] = mean_home
+    if mean_away is not None:
+        numbers["mean_away_goals"] = mean_away
+
+    teks = pertanyaan.lower()
+    mau_ot = _kata_utuh(teks, "ot") or any(
+        kata in teks for kata in ("overtime", "perpanjangan")
+    )
+    home = analysis.get("home_team") or "tuan rumah"
+    away = analysis.get("away_team") or "tamu"
+    kalimat: list[str] = []
+    verified = True
+    if mau_ot:
+        kalimat.append(
+            "Laga liga tidak mengenal perpanjangan waktu — bila skor "
+            "imbang setelah 90 menit, hasilnya seri. Jadi tidak ada "
+            "peluang OT untuk laga ini."
+        )
+    if ml_home is None or ml_draw is None or ml_away is None:
+        verified = False
+        kalimat.append(
+            "Peluang menang tidak terverifikasi — angkanya tidak ada "
+            "di analisis ini."
+        )
+    else:
+        peluang = [(ml_home, home), (ml_draw, "Seri"), (ml_away, away)]
+        unggul = max(peluang, key=lambda item: item[0])[1]
+        kalimat.append(
+            f"Yang paling dijagokan: {unggul}. Peluangnya — {home} menang "
+            f"{_fmt_persen(ml_home)}, seri {_fmt_persen(ml_draw)}, {away} "
+            f"menang {_fmt_persen(ml_away)}."
+        )
+    if mean_home is not None and mean_away is not None:
+        kalimat.append(
+            f"Perkiraan gol: {home} {_fmt_poin(mean_home)} gol, {away} "
+            f"{_fmt_poin(mean_away)} gol."
+        )
+    elif median_total is not None:
+        kalimat.append(f"Nilai tengah total gol {_fmt_poin(median_total)} gol.")
+    elif mean_total is not None:
+        kalimat.append(f"Rata-rata total gol {_fmt_poin(mean_total)} gol.")
+    else:
+        verified = False
+        kalimat.append(
+            "Perkiraan gol tidak terverifikasi — angkanya tidak ada " "di analisis ini."
+        )
+    if "TANPA_XG" in (analysis.get("labels") or []):
+        kalimat.append(
+            "Catatan: analisis ini TANPA_XG — model berbasis gol, bukan "
+            "expected goals, jadi perkiraannya lebih kasar dari model "
+            "dengan xG."
+        )
+    return _hasil(pertanyaan, "peluang_laga", " ".join(kalimat), numbers, verified)
+
+
+def _jawab_kabar_pemain_bola(pertanyaan: str, analysis: dict) -> dict:
+    """Kabar cedera bola: daftar absen/diragukan, atau satu pemain.
+
+    Saat ini selalu "tidak terkonfirmasi": tidak ada sumber cedera
+    bola yang bisa dipakai (ESPN kosong; FPL belum diratifikasi) —
+    aturan B2 butuh 2 sumber, jadi laga bola HOLD. Bila suatu hari
+    ada entri cedera di artefak, entri itu dijawab seperti NBA.
+    """
+    injuries = analysis.get("injuries") if isinstance(analysis, dict) else None
+    if not isinstance(injuries, dict):
+        jawaban = (
+            "Saya tidak bisa menjawab kabar pemain — data cedera tidak "
+            "ada di analisis ini, jadi bagian itu tidak terverifikasi."
+        )
+        return _hasil(pertanyaan, "kabar_pemain", jawaban, {}, False)
+    entri = _entri_cedera(analysis)
+    dikonfirmasi = set(injuries.get("confirmed_both") or [])
+    n_sumber = injuries.get("n_sources")
+    numbers: dict = {}
+    if isinstance(n_sumber, int) and not isinstance(n_sumber, bool):
+        numbers["n_sumber_cedera"] = float(n_sumber)
+    out = [e for e in entri if str(e.get("status") or "").upper() == "OUT"]
+    ragu = [
+        e
+        for e in entri
+        if str(e.get("status") or "").upper() in ("QUESTIONABLE", "DOUBTFUL")
+    ]
+    numbers["n_pasti_absen"] = float(len(out))
+    numbers["n_diragukan"] = float(len(ragu))
+
+    info = _cari_pemain(pertanyaan, analysis)
+    if info is not None:
+        nama = info["nama"]
+        entri_pemain = next((e for e in entri if e.get("player") == nama), None)
+        if entri_pemain is None:
+            jawaban = (
+                f"Tidak ada kabar cedera untuk {nama} di data ini — tapi "
+                "kabar cedera laga ini belum terkonfirmasi (tidak ada "
+                "sumber cedera bola yang bisa dipakai), jadi saya tidak "
+                "bisa memastikan pemain itu tersedia."
+            )
+            return _hasil(pertanyaan, "kabar_pemain", jawaban, numbers, False)
+        sumber = entri_pemain.get("sources") or []
+        if isinstance(sumber, list):
+            numbers["player_n_sources"] = float(len(sumber))
+        jawaban = "Kabar " + _kalimat_pemain_cedera(entri_pemain, dikonfirmasi) + "."
+        return _hasil(pertanyaan, "kabar_pemain", jawaban, numbers, True)
+
+    if not entri:
+        jawaban = (
+            "Kabar pemain untuk laga ini belum terkonfirmasi — tidak ada "
+            "sumber cedera bola yang bisa dipakai (daftar cedera ESPN "
+            "kosong; sumber lain belum diratifikasi), sementara aturan "
+            "butuh 2 sumber. Karena itu saya tidak bisa memastikan siapa "
+            "yang absen atau diragukan tampil, dan laga ini ditahan "
+            "(HOLD) sampai kabar pemainnya terkonfirmasi."
+        )
+        return _hasil(pertanyaan, "kabar_pemain", jawaban, numbers, False)
+    kalimat = []
+    if ragu:
+        kalimat.append("Yang diragukan tampil:")
+        kalimat.extend(
+            "- " + _kalimat_pemain_cedera(e, dikonfirmasi) + "." for e in ragu
+        )
+    else:
+        kalimat.append("Tidak ada pemain yang diragukan tampil.")
+    if out:
+        kalimat.append("Yang sudah pasti absen:")
+        kalimat.extend(
+            "- " + _kalimat_pemain_cedera(e, dikonfirmasi) + "." for e in out
+        )
+    else:
+        kalimat.append("Tidak ada pemain yang sudah pasti absen.")
+    if isinstance(n_sumber, int) and n_sumber < 2:
+        kalimat.append(
+            "Catatan: kabar ini baru dari "
+            f"{n_sumber} sumber — belum terkonfirmasi penuh (butuh 2)."
+        )
+    return _hasil(pertanyaan, "kabar_pemain", "\n".join(kalimat), numbers, True)
+
+
 def answer(
     analysis: dict,
     question: str,
@@ -1442,31 +1706,40 @@ def answer(
     *,
     iterations: int | None = None,
 ) -> dict:
-    """Jawab satu pertanyaan tentang artefak analisis NBA.
+    """Jawab satu pertanyaan tentang artefak analisis NBA atau bola.
 
-    analysis: artefak nba_analysis (format_version 1). question:
-    pertanyaan user (Bahasa Indonesia). config: dict playstyle
-    (None = baca playstyle.yaml; dipakai untuk ambang + sim ulang).
-    iterations: jumlah iterasi sim ulang untuk intent
-    bagaimana_jika_absen (None = RESIM_ITERATIONS = 20.000; tes
-    memakai nilai kecil lewat argumen ini).
+    analysis: artefak nba_analysis atau soccer_analysis
+    (format_version 1). question: pertanyaan user (Bahasa Indonesia).
+    config: dict playstyle (None = baca playstyle.yaml; dipakai untuk
+    ambang + sim ulang). iterations: jumlah iterasi sim ulang untuk
+    intent bagaimana_jika_absen (NBA saja; None = RESIM_ITERATIONS
+    = 20.000; tes memakai nilai kecil lewat argumen ini).
 
     Mengembalikan {"question", "intent", "answer", "numbers",
     "verified"}. "answer" teks Bahasa Indonesia sehari-hari tanpa
     jargon; "numbers" hanya angka dari artefak/kode/config;
     "verified" False bila ada bagian jawaban yang "tidak
     terverifikasi". Pertanyaan tak dikenal -> intent "unknown" +
-    daftar pertanyaan yang didukung. Fungsi ini tidak pernah raise
-    untuk artefak yang rusak — data hilang dijawab "tidak
-    terverifikasi", bukan exception.
+    daftar pertanyaan yang didukung. Untuk artefak bola, hanya
+    intent peluang_laga + kabar_pemain yang didukung; intent lain
+    dijawab jujur "belum tersedia untuk bola". Fungsi ini tidak
+    pernah raise untuk artefak yang rusak — data hilang dijawab
+    "tidak terverifikasi", bukan exception.
     """
     pertanyaan = question if isinstance(question, str) else ""
     artefak = analysis if isinstance(analysis, dict) else {}
+    soccer = artefak.get("format") == "soccer_analysis"
     if not pertanyaan.strip():
-        return _jawab_unknown(pertanyaan)
+        return _jawab_unknown(pertanyaan, soccer=soccer)
     intent = detect_intent(pertanyaan)
     if intent == "unknown":
-        return _jawab_unknown(pertanyaan)
+        return _jawab_unknown(pertanyaan, soccer=soccer)
+    if soccer:
+        if intent == "peluang_laga":
+            return _jawab_peluang_laga_bola(pertanyaan, artefak)
+        if intent == "kabar_pemain":
+            return _jawab_kabar_pemain_bola(pertanyaan, artefak)
+        return _jawab_belum_tersedia_bola(pertanyaan, intent)
     cfg = _muat_cfg(config)
     if intent == "kenapa_total":
         return _jawab_kenapa_total(pertanyaan, artefak, cfg)

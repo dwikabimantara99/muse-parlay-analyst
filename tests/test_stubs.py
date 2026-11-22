@@ -9,13 +9,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# (modul, fungsi) yang wajib masih berupa stub setelah Tahap 3 Langkah 1.
+# (modul, fungsi) yang wajib masih berupa stub setelah Tahap 3 Langkah 5.
 # engine.nba_sim.simulate + engine.markets.evaluate_markets dibangun di
 # Langkah 1 (Otak NBA); engine.devig.blend dibangun worker paralel Tahap 3
 # (dihapus dari daftar ini — tesnya ada di tests/test_devig.py milik
-# worker itu). Sisanya tetap stub.
+# worker itu). engine.football_sim.simulate dibangun di Langkah 5
+# (Mesin Simulasi Bola Dixon-Coles; tesnya di tests/test_football_sim.py).
+# Sisanya tetap stub.
 STUBS = [
-    ("engine.football_sim", "simulate"),
     ("optimizer.tickets", "optimize"),
     ("critic.critic", "critique"),
     ("critic.validate_numbers", "validate_numbers"),

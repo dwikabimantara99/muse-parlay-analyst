@@ -27,6 +27,12 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   garis Asuransi HARUS lebih tinggi (lebih aman) dari garis Utama. Bila
   garisnya sama — atau garis Asuransi lebih rendah — laga itu hanya masuk
   SATU tiket, diprioritaskan Asuransi.
+- TANPA_XG (B4, Tahap 3 Langkah 5): kaki dari analisis bola TANPA_XG
+  (``no_xg``/``banned_from_insurance``) DILARANG masuk Tiket Asuransi,
+  dan ambang peluang minimumnya naik ``no_xg.threshold_penalty_points``
+  (+5 poin) untuk tiket mana pun. Penegakan memakai FLAG kaki, bukan
+  format artefaknya — kaki TANPA_XG tidak pernah masuk Asuransi
+  sekalipun artefaknya salah memberi tiket "insurance".
 - Aturan condong-ke-market (keputusan user 20:36 WIB 2026-11-22): bila
   |median model - garis market| > ``market_line_check.total_gap_points``
   dan tidak ada alasan konkret ("Kenapa beda?"), probabilitas kaki
@@ -47,9 +53,13 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   (peringatan saja, bukan larangan).
 
 Batasan (dicatat, bukan disembunyikan):
-- Peracik HANYA memakai kaki Alt Under dari artefak nba_analysis.
-  Moneyline TIDAK diracik (profil user: hindari moneyline kecuali fakta
-  sangat membuktikan pemenang; mesin belum punya kriteria itu).
+- Peracik memakai kaki Alt Under dari artefak nba_analysis DAN kaki
+  1X2/O-U gol/BTTS dari artefak soccer_analysis (Langkah 5). Moneyline
+  NBA TIDAK diracik (profil user: hindari moneyline kecuali fakta
+  sangat membuktikan pemenang; mesin belum punya kriteria itu) —
+  moneyline 1X2 BOLA diracik karena itu pasar utama bola.
+- Kaki bola (TANPA_XG) hanya masuk Tiket Utama, tidak pernah Asuransi
+  (B4), dengan ambang peluang minimum +5 poin.
 - EV tiket dari simulasi gabungan: kaki dari laga berbeda dianggap
   independen (P menang = Π p_final/keputusan); kaki dari laga yang sama
   (garis berbeda) berkorelasi — P(keduanya menang) = P(total ≤ garis
@@ -187,6 +197,60 @@ def _tiket_kaki(kaki: dict) -> str | None:
     return None
 
 
+def _penalti_no_xg(kaki: dict, cfg: dict) -> float:
+    """Penalti ambang TANPA_XG satu kaki, sebagai fraksi (0,05 = 5 poin).
+
+    Diambil dari kaki itu sendiri (``threshold_penalty_points`` yang
+    ditulis builder dari config), lalu dari config
+    ``no_xg.threshold_penalty_points``. Bila keduanya tidak ada,
+    0,05 — nilai B4/D-T1 yang didokumentasikan (arah fail-closed:
+    ambang lebih ketat, bukan lebih longgar).
+    """
+    nilai = _angka(kaki.get("threshold_penalty_points"))
+    if nilai is not None and nilai >= 0:
+        return nilai / 100.0
+    try:
+        return _ambang(cfg, "no_xg", "threshold_penalty_points") / 100.0
+    except config_mod.ConfigError:
+        return 0.05
+
+
+def _seleksi_kaki(kaki: dict, analisis: dict) -> str:
+    """Teks seleksi kaki untuk tiket + ringkasan (Bahasa Indonesia).
+
+    Bola: "Liverpool menang" / "Seri" / "Over 2,5 gol" / "Kedua tim
+    mencetak gol". NBA: "Under 233,5" (tanpa kata "gol").
+    """
+    market_type = kaki.get("market_type")
+    if analisis.get("format") == "soccer_analysis":
+        home = analisis.get("home_team") or "kandang"
+        away = analisis.get("away_team") or "tandang"
+        if market_type == "moneyline_home":
+            return f"{home} menang"
+        if market_type == "moneyline_draw":
+            return "Seri"
+        if market_type == "moneyline_away":
+            return f"{away} menang"
+        if market_type in ("total_over", "total_under"):
+            garis = _angka(kaki.get("line"))
+            arah = "Over" if market_type == "total_over" else "Under"
+            if garis is not None:
+                teks_garis = (
+                    f"{garis:g}".replace(".", ",")
+                    if garis != int(garis)
+                    else f"{int(garis)}"
+                )
+                return f"{arah} {teks_garis} gol"
+            return arah
+        if market_type == "btts_yes":
+            return "Kedua tim mencetak gol"
+        return str(market_type or "kaki")
+    garis = _angka(kaki.get("line"))
+    if garis is not None:
+        return f"Under {garis:g}"
+    return str(market_type or "kaki")
+
+
 def _median_total(analisis: dict) -> float | None:
     """Median total dari simulasi artefak (score_distribution.total)."""
     simulasi = analisis.get("simulation")
@@ -272,6 +336,28 @@ def ticket_win_probability(kaki_tiket: list[dict]) -> tuple[float, list[str]]:
     for match_id, grup in per_laga.items():
         if len(grup) == 1:
             peluang *= grup[0]["decision_prob"]
+            continue
+        garis_grup = [k.get("line") for k in grup]
+        # Kaki tanpa kunci "leg" (bentuk lama, NBA sebelum Langkah 5)
+        # dianggap total_under — semua kandidat lama adalah kaki
+        # total_under; hanya market_type yang JELAS bukan total_under
+        # yang memicu fallback.
+        semua_total_under = all(
+            k.get("leg", {}).get("market_type") in (None, "total_under") for k in grup
+        )
+        if not semua_total_under or any(g is None for g in garis_grup):
+            # Korelasi hanya terdefinisi untuk dua kaki total_under dari
+            # laga yang sama (P = P(total <= garis terendah)). Kaki 1X2/
+            # BTTS/Over tidak punya rumus korelasi di sini -> produk
+            # dengan catatan (peracik sendiri tidak pernah menumpuk dua
+            # kaki dari satu laga dalam satu tiket).
+            for kandidat in grup:
+                peluang *= kandidat["decision_prob"]
+            catatan.append(
+                f"korelasi laga {match_id} tidak dihitung (kaki bukan "
+                "total_under semua) — peluang menang dihitung seolah "
+                "kaki-kakinya independen"
+            )
             continue
         garis_terendah = min(k["line"] for k in grup)
         pasar = grup[0].get("sim_markets") or {}
@@ -401,9 +487,16 @@ def _kumpulkan_kandidat(
                 continue
             leg_id = kaki.get("leg_id") or "?"
             garis = _angka(kaki.get("line"))
-            if not kaki.get("meets") or garis is None:
+            label_kaki = _seleksi_kaki(kaki, analisis)
+            if not kaki.get("meets"):
                 alasan = kaki.get("reason") or "tidak memenuhi syarat"
-                coret[tiket].append(f"{match_id} (garis {kaki.get('line')}): {alasan}")
+                coret[tiket].append(f"{match_id} ({label_kaki}): {alasan}")
+                continue
+            market_type = kaki.get("market_type")
+            if market_type in ("total_over", "total_under") and garis is None:
+                # Kaki total tanpa garis tidak bisa dinilai; kaki 1X2/
+                # BTTS memang tidak punya garis (line null itu sah).
+                coret[tiket].append(f"{match_id} ({label_kaki}): garis total tidak ada")
                 continue
             p_final = _angka(kaki.get("p_final"))
             p_model = _angka(kaki.get("p_model"))
@@ -412,7 +505,7 @@ def _kumpulkan_kandidat(
             harga_venue, harga_mentah = _harga_kaki(kaki)
             if p_final is None or p_model is None or ev_pct is None:
                 coret[tiket].append(
-                    f"{match_id} (Under {garis:g}): peluang/EV tidak lengkap"
+                    f"{match_id} ({label_kaki}): peluang/EV tidak lengkap"
                 )
                 continue
             if p_market is None:
@@ -420,20 +513,33 @@ def _kumpulkan_kandidat(
                 # bukan null), jadi kaki ini tidak bisa masuk tiket
                 # yang valid — dicoret dengan alasan, bukan dikarang.
                 coret[tiket].append(
-                    f"{match_id} (Under {garis:g}): tanpa pembanding pasar "
+                    f"{match_id} ({label_kaki}): tanpa pembanding pasar "
                     "(MODEL_ONLY) — tidak bisa masuk tiket"
                 )
                 continue
             if harga_venue is None or not 0.0 < harga_venue < 100.0:
-                coret[tiket].append(
-                    f"{match_id} (Under {garis:g}): harga venue tidak ada"
-                )
+                coret[tiket].append(f"{match_id} ({label_kaki}): harga venue tidak ada")
                 continue
             label = kaki.get("price_label")
             if label == "MAHAL" and tiket == "insurance" and tolak_mahal_ins:
                 coret[tiket].append(
-                    f"{match_id} (Under {garis:g}): label MAHAL — tidak "
+                    f"{match_id} ({label_kaki}): label MAHAL — tidak "
                     "boleh masuk Asuransi"
+                )
+                continue
+            # --- TANPA_XG (B4): dilarang Asuransi + ambang +5 poin. ---
+            # Penegakan memakai FLAG kaki (no_xg/banned_from_insurance),
+            # bukan format artefak — kaki TANPA_XG tidak pernah masuk
+            # Asuransi sekalipun artefaknya salah memberi tiket
+            # "insurance".
+            no_xg = (
+                kaki.get("no_xg") is True or kaki.get("banned_from_insurance") is True
+            )
+            penalti = _penalti_no_xg(kaki, cfg) if no_xg else 0.0
+            if no_xg and tiket == "insurance":
+                coret[tiket].append(
+                    f"{match_id} ({label_kaki}): TANPA_XG — kaki bola "
+                    "tanpa xG dilarang masuk Asuransi (B4)"
                 )
                 continue
             # --- Putusan recheck (tidak pernah dilonggarkan) ---
@@ -447,7 +553,7 @@ def _kumpulkan_kandidat(
                     # Laporan recheck wajib membawa satu entri per kaki
                     # analisis awal; bila hilang -> fail-closed.
                     coret[tiket].append(
-                        f"{match_id} (Under {garis:g}): kaki tidak ada di "
+                        f"{match_id} ({label_kaki}): kaki tidak ada di "
                         "laporan recheck"
                     )
                     continue
@@ -455,20 +561,20 @@ def _kumpulkan_kandidat(
                 if verdict in ("JANGAN_PASANG", "DATA_INCOMPLETE"):
                     alasan = "; ".join(putusan.get("reasons") or []) or verdict
                     coret[tiket].append(
-                        f"{match_id} (Under {garis:g}): recheck {verdict} — {alasan}"
+                        f"{match_id} ({label_kaki}): recheck {verdict} — {alasan}"
                     )
                     continue
                 if verdict == "PERHATIAN":
                     alasan_perhatian = list(putusan.get("reasons") or [])
                     if not alasan_perhatian:
                         coret[tiket].append(
-                            f"{match_id} (Under {garis:g}): PERHATIAN tanpa "
+                            f"{match_id} ({label_kaki}): PERHATIAN tanpa "
                             "alasan tercatat"
                         )
                         continue
                 elif verdict != "TETAP_OK":
                     coret[tiket].append(
-                        f"{match_id} (Under {garis:g}): putusan recheck "
+                        f"{match_id} ({label_kaki}): putusan recheck "
                         f"tidak dikenal: {verdict!r}"
                     )
                     continue
@@ -497,14 +603,14 @@ def _kumpulkan_kandidat(
                         )
                         if prob_market is None:
                             coret[tiket].append(
-                                f"{match_id} (Under {garis:g}): selisih median "
+                                f"{match_id} ({label_kaki}): selisih median "
                                 f"vs garis market {gap:g} poin tapi harga "
                                 "market tidak tersedia"
                             )
                             continue
                         if prob_market < min_prob["insurance"]:
                             coret[tiket].append(
-                                f"{match_id} (Under {garis:g}): condong-ke-market "
+                                f"{match_id} ({label_kaki}): condong-ke-market "
                                 f"(selisih {gap:g} poin, tanpa alasan konkret) "
                                 f"— harga market {prob_market * 100:.0f}% < "
                                 f"{min_prob['insurance'] * 100:.0f}%"
@@ -515,13 +621,21 @@ def _kumpulkan_kandidat(
                             "probabilitas market (aturan condong-ke-market: "
                             f"selisih {gap:g} poin, tanpa recheck/alasan konkret)"
                         )
-            if prob_keputusan < min_prob[tiket]:
-                coret[tiket].append(
-                    f"{match_id} (Under {garis:g}): peluang keputusan "
+            # Ambang efektif: min_leg_prob + penalti TANPA_XG (bila ada).
+            ambang_efektif = min_prob[tiket] + penalti
+            if prob_keputusan < ambang_efektif:
+                pesan = (
+                    f"{match_id} ({label_kaki}): peluang keputusan "
                     f"{prob_keputusan * 100:.0f}% < minimum "
-                    f"{min_prob[tiket] * 100:.0f}% untuk "
+                    f"{ambang_efektif * 100:.0f}% untuk "
                     f"{'Asuransi' if tiket == 'insurance' else 'Utama'}"
                 )
+                if penalti > 0:
+                    pesan += (
+                        f" (ambang dasar {min_prob[tiket] * 100:.0f}% + "
+                        f"{penalti * 100:.0f} poin TANPA_XG)"
+                    )
+                coret[tiket].append(pesan)
                 continue
             kandidat[tiket].append(
                 {
@@ -530,6 +644,13 @@ def _kumpulkan_kandidat(
                     "match_id": match_id,
                     "ticket": tiket,
                     "line": garis,
+                    "selection": label_kaki,
+                    "sport": (
+                        "football"
+                        if analisis.get("format") == "soccer_analysis"
+                        else "nba"
+                    ),
+                    "no_xg": no_xg,
                     "harga_jup": harga_venue,
                     "p_final": p_final,
                     "p_model": p_model,
@@ -649,10 +770,12 @@ def _pilih_subset(
 
 
 def _tanggal_tiket(subset: list[dict]) -> str:
-    """Tanggal tiket: game_date paling umum di kaki-kakinya (else hari ini UTC)."""
+    """Tanggal tiket: game_date/match_date paling umum di kaki-kakinya (else hari ini UTC)."""
     tanggal = Counter()
     for kand in subset:
-        game_date = kand["analysis"].get("game_date")
+        game_date = kand["analysis"].get("game_date") or kand["analysis"].get(
+            "match_date"
+        )
         if isinstance(game_date, str) and game_date:
             tanggal[game_date] += 1
     if tanggal:
@@ -686,15 +809,30 @@ def _rakit_tiket(
         flags: list[str] = []
         if kand["price_label"] == "MAHAL":
             flags.append("MAHAL")
+        if kand.get("no_xg"):
+            flags.append("TANPA_XG")
         if kand["recheck_verdict"] == "PERHATIAN":
             flags.append("PERHATIAN")
+        seleksi = kand.get("selection")
+        if seleksi is None:
+            # Kandidat dari pemanggil lama (tanpa "selection"): turunkan
+            # dari garis bila ada, else nama market.
+            garis = kand.get("line")
+            seleksi = (
+                f"Under {garis:g}"
+                if garis is not None
+                else str(kaki.get("market_type") or "kaki")
+            )
+        elif kand.get("sport", "nba") == "nba":
+            # Format lama NBA dipertahankan: "Under 233.5 (DET@ATL)".
+            seleksi = f"{seleksi} ({tim})"
         kaki_tiket.append(
             {
                 "leg_id": kaki.get("leg_id"),
                 "match_id": match_id,
-                "sport": "nba",
-                "market": "total_under",
-                "selection": f"Under {kand['line']:g} ({tim})",
+                "sport": kand.get("sport", "nba"),
+                "market": kaki.get("market_type") or "total_under",
+                "selection": seleksi,
                 "p_model": kand["p_model"],
                 "p_market": kand["p_market"],
                 "p_final": kand["p_final"],
@@ -799,13 +937,19 @@ def _ringkasan_tiket(
         f"  Modal {_fmt_uang(tiket['stake'])} — pengali x{tiket['multiplier']:.2f}"
     )
     for kand in subset or []:
+        seleksi = kand.get("selection")
+        if seleksi is None:
+            garis = kand.get("line")
+            seleksi = f"Under {garis:g}" if garis is not None else "kaki"
         info = (
-            f"  • Under {kand['line']:g} ({kand['match_id']}) — "
+            f"  • {seleksi} ({kand['match_id']}) — "
             f"harga {kand['harga_jup']:g}¢, peluang "
             f"{kand['decision_prob'] * 100:.0f}%"
         )
         if kand["price_label"]:
             info += f", {kand['price_label']}"
+        if kand.get("no_xg"):
+            info += ", TANPA_XG"
         if kand["recheck_verdict"] == "PERHATIAN":
             info += " [PERHATIAN: " + "; ".join(kand["recheck_alasan"]) + "]"
         if kand["decision_alasan"]:
@@ -831,9 +975,12 @@ def compose_tickets(
     stake_total: float | None = None,
     now: datetime | str | None = None,
 ) -> dict:
-    """Racik pasangan Tiket Asuransi + Tiket Utama dari satu slate NBA.
+    """Racik pasangan Tiket Asuransi + Tiket Utama dari satu slate.
 
-    ``analyses``: daftar artefak ``nba_analysis`` (satu per laga).
+    ``analyses``: daftar artefak ``nba_analysis`` dan/atau
+    ``soccer_analysis`` (satu per laga). Kaki bola (TANPA_XG) hanya
+    masuk Tiket Utama, tidak pernah Asuransi, dengan ambang peluang
+    minimum +5 poin (B4).
     ``rechecks``: daftar laporan ``nba_recheck`` (satu per laga) atau
     None bila belum ada recheck — kaki tetap boleh dipakai, tapi tiket
     mendapat peringatan jendela + status "belum dicek ulang".
@@ -1022,8 +1169,16 @@ def compose_tickets(
         tersaring = []
         for kand in kandidat_main:
             garis_ins = garis_ins_terpilih.get(kand["match_id"])
-            if garis_ins is not None and garis_ins <= kand["line"]:
-                if garis_ins == kand["line"]:
+            garis_main = kand.get("line")
+            # Aturan garis berbeda hanya berlaku bila kedua kaki punya
+            # garis (total); kaki 1X2/BTTS tidak punya garis dan tidak
+            # pernah masuk Asuransi (TANPA_XG) sehingga tidak berkonflik.
+            if (
+                garis_ins is not None
+                and garis_main is not None
+                and garis_ins <= garis_main
+            ):
+                if garis_ins == garis_main:
                     catatan_garis.append(
                         f"Laga {kand['match_id']} hanya masuk Asuransi "
                         f"karena garisnya sama ({garis_ins:g})."
@@ -1032,7 +1187,7 @@ def compose_tickets(
                     catatan_garis.append(
                         f"Laga {kand['match_id']} hanya masuk Asuransi "
                         f"karena garis Asuransi ({garis_ins:g}) tidak lebih "
-                        f"aman dari garis Utama ({kand['line']:g})."
+                        f"aman dari garis Utama ({garis_main:g})."
                     )
                 continue
             tersaring.append(kand)
@@ -1163,8 +1318,9 @@ def compose_tickets(
     ):
         for kand in subset or []:
             if kand["recheck_verdict"] == "PERHATIAN":
+                seleksi = kand.get("selection") or "kaki"
                 perhatian.append(
-                    f"{nama} — {kand['match_id']} (Under {kand['line']:g}): "
+                    f"{nama} — {kand['match_id']} ({seleksi}): "
                     + "; ".join(kand["recheck_alasan"])
                 )
     if perhatian:
@@ -1180,8 +1336,19 @@ def compose_tickets(
         baris += ["", "KAKI YANG TIDAK LOLOS:"] + [f"  • {c}" for c in tidak_lolos]
     catatan_ringkas = list(catatan_garis)
     catatan_ringkas.append(
-        "Hanya kaki Alt Under yang diracik; moneyline tidak dipakai."
+        "Hanya kaki Alt Under (NBA) dan kaki 1X2/O-U gol/BTTS (bola) "
+        "yang diracik; moneyline NBA tidak dipakai."
     )
+    ada_bola = any(
+        kand.get("sport") == "football"
+        for subset in (subset_terpilih["insurance"], subset_terpilih["main"])
+        for kand in (subset or [])
+    )
+    if ada_bola:
+        catatan_ringkas.append(
+            "Kaki bola (TANPA_XG) hanya masuk Tiket Utama, tidak pernah "
+            "Asuransi, dengan ambang peluang +5 poin (B4)."
+        )
     if mode_agresif:
         catatan_ringkas.append("Mode agresif: pengali maksimum Utama bebas.")
     baris += ["", "CATATAN:"] + [f"  • {c}" for c in catatan_ringkas]
