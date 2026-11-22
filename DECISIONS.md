@@ -462,3 +462,48 @@ Model yang sama untuk sepak bola: proyeksi gol per tim (Dixon-Coles, §5b), simu
   historis DunkAPI). Contoh `simulation_nba_ATL_DET_2026-11-22.json`
   diregenerasi dengan kode final.
 - Laporan: LAPORAN-TAHAP-3-LANGKAH-2.md. Tes 849 (dari 707), config v8, 0 kredit Odds API.
+
+## 2026-11-22 — Tahap 3 Langkah 3: laporan + tanya-jawab + peracik tiket
+
+- **Profil Utama jadi nilai config (v9, profil user 2026-11-22)**:
+  `tickets.main.multiplier_min` 3,5→3,0; `multiplier_max` 6,0→5,0;
+  kunci baru `target_multiplier_max` 4,0 (target lunak peracik).
+  Menggantikan default blueprint §6a. Mode agresif tetap
+  membebaskan maks Utama (hanya atas perintah user per malam).
+- **Peracik tiket (engine/ticket_composer.py)**: garis Asuransi dan
+  Utama untuk laga yang sama HARUS berbeda (Asuransi lebih tinggi);
+  bila hanya satu garis lolos → laga hanya masuk satu tiket
+  (prioritas Asuransi); bila garis Asuransi < garis Utama → laga
+  hanya masuk Asuransi; tiap laga ≤1 kaki per tiket. Aturan
+  condong-ke-market berlaku di peracik (tidak pernah melonggarkan
+  putusan recheck). Hanya TETAP_OK (PERHATIAN hanya dengan alasan
+  tercatat + ditandai); JANGAN_PASANG/DATA_INCOMPLETE/HOLD tidak
+  masuk; kaki hilang dari laporan recheck → fail-closed. Tanpa
+  recheck, kaki tetap boleh dipakai + peringatan jendela (recheck
+  >60 menit atau belum ada → peringatan, bukan larangan). Bila
+  satu tiket None, stake tidak dialihkan diam-diam. EV tiket dari
+  sim gabungan (laga berbeda independen; laga sama pakai
+  `total_under_<garis terendah>` dari sim, fallback Π p_final +
+  catatan). Hanya Alt Under yang diracik; moneyline tidak dipakai.
+  MODEL_ONLY dicoret (skema tiket mewajibkan `p_market` angka).
+- **`min_leg_prob` sebagai gate keras — MENUNGGU KEPUTUSAN
+  user/reviewer**: peracik menegakkan `min_leg_prob` (Asuransi
+  0,74 / Utama 0,65) atas probabilitas keputusan sebagai syarat
+  keras. Dampak live 22 Nov: kaki DEN@CHI (p_final 0,7352)
+  gugur, sehingga Asuransi tidak terracik. §6a menulis "idealnya
+  ≥74%" — bisa dibaca sebagai preferensi lunak. Bila diputuskan
+  lunak, Asuransi live akan terracik 3 kaki (~x2,34). Perubahan
+  satu tempat di `_kumpulkan_kandidat`.
+- **`--match` menerima match_id artefak maupun slate** (perbaikan
+  CLI langkah 3): `DET@ATL_2026-11-22` dan `nba-2026-11-22-det-atl`
+  keduanya diterima oleh `laporan`/`tanya`/`recheck`.
+- **Tanya-jawab**: 6 intent deterministik (tanpa LLM); sim ulang
+  "bagaimana-jika" default 20.000 iterasi (disebut di jawaban);
+  data tidak ada → "tidak terverifikasi"; alasan (a) "pasar tahu
+  sesuatu" tidak pernah diklaim dari satu artefak.
+- **Laporan**: bagian "Kenapa beda?" tetap tampil bila ada anomali
+  `kenapa_beda_required` walau tidak ada kaki yang selisihnya
+  > 8 poin.
+- **Ditutup langkah ini**: hutang peringatan jendela recheck;
+  kendala garis berbeda Asuransi/Utama; condong-ke-market di
+  peracik.

@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 8
+  version: 9
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22"
   last_reviewed: "2026-11-22"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -25,8 +25,17 @@ tickets:
     must_cover_total_stake: true
   main:
     name: "Utama"
-    multiplier_min: 3.5         # §6a default 3,5x
-    multiplier_max: 6.0         # §6a default 6x (mode Agresif: bebas, bisa 10x+)
+    # Profil user 2026-11-22 (Tahap 3 Langkah 3): Utama x3–x4.
+    # Menggantikan default blueprint 3,5x (batas bawah).
+    multiplier_min: 3.0
+    # Profil user 2026-11-22 (Tahap 3 Langkah 3): Utama x3–x4, MAKS x5
+    # bila data sangat optimis; x3,5 saja sudah berkah; x9–x10 hanya
+    # hiburan. Menggantikan default blueprint 6,0x.
+    multiplier_max: 5.0
+    # Target lunak peracik (profil user 2026-11-22): racikan Utama
+    # diusahakan ≤ 4,0x; di atas itu hanya bila tidak ada kombinasi
+    # yang masuk target (tetap ≤ multiplier_max 5,0x).
+    target_multiplier_max: 4.0
     min_leg_prob: 0.65          # §6a idealnya ≥65% per kaki
   # Mode default. "aggressive" hanya atas perintah user per malam ("malam ini
   # mode agresif"). Di mode agresif: multiplier_max Utama bebas + moneyline

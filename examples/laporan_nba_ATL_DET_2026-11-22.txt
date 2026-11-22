@@ -1,0 +1,239 @@
+# Laporan Laga NBA: Detroit Pistons vs Atlanta Hawks
+Tanggal laga: 22 Nov 2026.
+Jam mulai: 23 Nov 2026 03:30 UTC+07:00.
+Laporan ini dibuat dari analisis 22 Nov 2026 14:24 UTC.
+Status data: Lengkap.
+
+## Ringkasan
+Model memperkirakan total tengah-tengah (median) 219 poin; pasar memasang garis 225,5 — market mengharap total lebih tinggi dari model (selisih 6,5 poin).
+Kaki Asuransi Under 233,5: model 77,0% | pasar 68,5% (kalshi) | akhir 71,1% — WAJAR.
+Kaki Utama Under 237,5: model 82,7% | pasar 75,5% (kalshi) | akhir 77,7% — WAJAR.
+Cek ulang sebelum pasang: JANGAN PASANG.
+
+## Data tim
+### Detroit Pistons (DET) — tandang
+- Musim ini: serangan 114,8 poin per 100 serangan; pertahanan 109,4; selisih 5,4; tempo 98,2 serangan per laga. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+- 10 laga terakhir: serangan 116,2; pertahanan 111,3; selisih 4,9; tempo 98,2. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+- Istirahat 1 hari sejak laga terakhir.
+- Tidak main dua malam beruntun.
+### Atlanta Hawks (ATL) — kandang
+- Musim ini: serangan 113,1 poin per 100 serangan; pertahanan 110,4; selisih 2,7; tempo 103,1 serangan per laga. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+- 10 laga terakhir: serangan 111,6; pertahanan 110,1; selisih 1,5; tempo 103,1. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+- Istirahat 1 hari sejak laga terakhir.
+- Tidak main dua malam beruntun.
+
+## Pemain kunci
+Rating di bawah ini adalah BPM — perkiraan nilai tambah pemain per 100 serangan dibanding pemain rata-rata. Makin tinggi makin bagus; 0 berarti rata-rata. Diurutkan dari yang paling lama main.
+### Detroit Pistons
+- Cade Cunningham: rating +6,1, main 34,5 menit per laga (angka sudah disesuaikan ke musim lalu) — KEMUNGKINAN BESAR TAMPIL (cedera (Injury/Illness - Right Knee Soreness)). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+- Duncan Robinson: rating +1,8, main 29,1 menit per laga (angka sudah disesuaikan ke musim lalu) — TIDAK MAIN (cedera (Injury/Illness - Left Quadriceps Strain)). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+- Ausar Thompson: rating +2,8, main 27,6 menit per laga (angka sudah disesuaikan ke musim lalu). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+- Jalen Duren: rating +5,6, main 26,7 menit per laga (angka sudah disesuaikan ke musim lalu) — TIDAK MAIN (cedera (Injury/Illness - Right Hamstring Strain)). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+- John Collins: rating -2,0, main 26,4 menit per laga (angka sudah disesuaikan ke musim lalu). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+### Atlanta Hawks
+- Jalen Johnson: rating +2,6, main 34,8 menit per laga (angka sudah disesuaikan ke musim lalu). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+- Nickeil Alexander-Walker: rating +0,2, main 32,5 menit per laga (angka sudah disesuaikan ke musim lalu). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+- Dyson Daniels: rating +2,3, main 31,9 menit per laga (angka sudah disesuaikan ke musim lalu). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+- Onyeka Okongwu: rating +0,6, main 31,0 menit per laga (angka sudah disesuaikan ke musim lalu). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+- CJ McCollum: rating -0,5, main 27,8 menit per laga (angka sudah disesuaikan ke musim lalu) — TIDAK MAIN (cedera (Injury/Illness - Left Calf Strain)). (sumber: Basketball-Reference, jenjang 2, 22 Nov 2026 14:24 UTC)
+
+## Proyeksi total
+Model memperkirakan Atlanta Hawks mencetak 110,1 poin dan Detroit Pistons mencetak 108,6 poin — total 218,7 poin.
+Selisih yang diperkirakan: 1,6 poin untuk Atlanta Hawks.
+Tempo laga diperkirakan 100,6 serangan per tim.
+Keuntungan main di kandang: +1,7 poin untuk Atlanta Hawks.
+Sebaran total (simpangan baku): 19,0 poin — total akhir sering berbeda belasan poin dari proyeksi ini.
+Model sudah menghitung 10 pemain absen: Asa Newell, CJ McCollum, Duncan Robinson, Ebuka Okorie, Henri Veesaar, Jalen Duren, Jock Landale, Mouhamed Gueye, Taurean Prince, Ugonna Onyenso.
+Status turnamen (NBA Cup/Playoff): tidak terverifikasi — tidak ada penyesuaian turnamen di proyeksi.
+Proyeksi ini berasal dari simulasi nba_sim, dibuat 22 Nov 2026 14:24 UTC.
+
+## Kabar pemain (cedera & ketersediaan)
+Dicek dari 2 sumber: ESPN, Official NBA Injury Report (diambil 22 Nov 2026 14:24 UTC).
+- Asa Newell (ATL): tidak main. Alasan: cedera (Injury/Illness - Left Great Toe Surgery). Sumber: Official NBA Injury Report, ESPN.
+- CJ McCollum (ATL): tidak main. Alasan: cedera (Injury/Illness - Left Calf Strain). Sumber: Official NBA Injury Report, ESPN.
+- Duncan Robinson (DET): tidak main. Alasan: cedera (Injury/Illness - Left Quadriceps Strain). Sumber: Official NBA Injury Report, ESPN.
+- Ebuka Okorie (DET): tidak main. Alasan: cedera (Injury/Illness - Left Oblique Strain). Sumber: Official NBA Injury Report, ESPN.
+- Henri Veesaar (ATL): tidak main. Alasan: cedera (Injury/Illness - Right ACL Tear). Sumber: Official NBA Injury Report, ESPN.
+- Jalen Duren (DET): tidak main. Alasan: cedera (Injury/Illness - Right Hamstring Strain). Sumber: Official NBA Injury Report, ESPN.
+- Jock Landale (ATL): tidak main. Alasan: cedera (Injury/Illness - Right Great Toe Sprain). Sumber: Official NBA Injury Report, ESPN.
+- Mouhamed Gueye (ATL): tidak main. Alasan: cedera (Injury/Illness - Left Foot Fracture). Sumber: Official NBA Injury Report, ESPN.
+- Taurean Prince (DET): tidak main. Alasan: cedera (Injury/Illness Arthroscopy - Right Knee). Sumber: Official NBA Injury Report, ESPN.
+- Ugonna Onyenso (DET): tidak main. Alasan: tugas liga pengembangan (G League - Two-Way). Sumber: Official NBA Injury Report.
+- Isaac Jones (DET): belum pasti tampil. Alasan: tugas liga pengembangan (G League - Two-Way). Sumber: Official NBA Injury Report.
+- Jalen Wilson (ATL): belum pasti tampil. Alasan: tugas liga pengembangan (G League - Two-Way). Sumber: Official NBA Injury Report.
+- Kingston Flemings (ATL): belum pasti tampil. Alasan: cedera (Injury/Illness - Lumbar Strain). Sumber: Official NBA Injury Report, ESPN.
+- Rafael Castro (ATL): belum pasti tampil. Alasan: tugas liga pengembangan (G League - Two-Way). Sumber: Official NBA Injury Report.
+- RayJ Dennis (ATL): belum pasti tampil. Alasan: tugas liga pengembangan (G League - Two-Way). Sumber: Official NBA Injury Report.
+- Ronald Holland II (DET): belum pasti tampil. Alasan: cedera (Injury/Illness Bone Bruise - Left Knee Contusion /). Sumber: Official NBA Injury Report, ESPN.
+- Cade Cunningham (DET): kemungkinan besar tampil. Alasan: cedera (Injury/Illness - Right Knee Soreness). Sumber: Official NBA Injury Report, ESPN.
+Pemain yang dipastikan tidak main/diragukan oleh 2 sumber: Asa Newell, CJ McCollum, Duncan Robinson, Ebuka Okorie, Henri Veesaar, Jalen Duren, Jock Landale, Mouhamed Gueye, Taurean Prince.
+Konflik status — Kingston Flemings (ATL): Official NBA Injury Report bilang QUESTIONABLE; ESPN bilang OUT. Keduanya ditampilkan, mesin tidak memilih diam-diam.
+Konflik status — Cade Cunningham (DET): Official NBA Injury Report bilang PROBABLE; ESPN bilang QUESTIONABLE. Keduanya ditampilkan, mesin tidak memilih diam-diam.
+Konflik status — Ronald Holland II (DET): Official NBA Injury Report bilang QUESTIONABLE; ESPN bilang OUT. Keduanya ditampilkan, mesin tidak memilih diam-diam.
+
+## Bursa & harga pasar
+Garis total utama (paling banyak dipasang): 225,5 — volume $47.505. (sumber: Polymarket CLOB, jenjang 2, 22 Nov 2026 14:24 UTC)
+- Harga Over 225,5: 46,5¢ (tawar 46¢ / minta 47¢).
+- Harga Under 225,5: 53,5¢ (tawar 53¢ / minta 54¢).
+Spread paling cair: Pistons -2,5 (48¢), volume $2.700.
+Harga menang/kalah di jup.ag: Atlanta Hawks 46¢, Detroit Pistons 55¢.
+Tangga Under (garis — harga — volume):
+- Under 225,5: 53,5¢, volume $47.505.
+- Under 226,5: 55,5¢, volume $25.464.
+- Under 227,5: 57,5¢, volume $9.583.
+- Under 229,5: 62,5¢, volume $431.
+- Under 231,5: 66,5¢, volume $169.
+- Under 233,5: 69,5¢, volume $270.
+- Under 235,5: 72,5¢, volume $434.
+- Under 237,5: 76¢, volume $6 — pasar tipis (harga bisa melompat).
+- Under 239,5: 80,5¢, volume $5 — pasar tipis (harga bisa melompat).
+- Under 241,5: 82,5¢, volume $11 — pasar tipis (harga bisa melompat).
+- Under 243,5: 85¢, volume $11 — pasar tipis (harga bisa melompat).
+- Under 245,5: 88¢, volume $93 — pasar tipis (harga bisa melompat).
+- Under 247,5: 89,5¢ — pasar tipis (harga bisa melompat).
+- Under 249,5: 92,5¢, volume $141.
+- Under 251,5: 93,5¢ — pasar tipis (harga bisa melompat).
+- Under 253,5: 95,5¢ — pasar tipis (harga bisa melompat).
+- Under 255,5: 95,5¢ — pasar tipis (harga bisa melompat).
+(+ 50 garis Under lain di bawah garis utama tidak ditampilkan.)
+
+## Kaki Asuransi & Utama
+### Kaki Asuransi — Under 233,5
+- Peluang menurut model: 77,0%.
+- Peluang menurut pasar (kalshi): 68,5%. (label PEMBANDING_KALSHI — pembanding Kalshi.)
+- Peluang akhir (gabungan model dan pasar): 71,1%.
+- Harga di jup.ag (perkiraan): 70¢.
+- Harga Polymarket: 69,5¢.
+- Nilai (EV): +1,5% — WAJAR (harga sesuai peluangnya).
+- Bantalan: 14,5 poin di atas median model (219).
+- Bantalan: 8 poin di atas garis market (225,5).
+- Memenuhi syarat: ya.
+### Kaki Utama — Under 237,5
+- Peluang menurut model: 82,7%.
+- Peluang menurut pasar (kalshi): 75,5%. (label PEMBANDING_KALSHI — pembanding Kalshi.)
+- Peluang akhir (gabungan model dan pasar): 77,7%.
+- Harga di jup.ag (perkiraan): 76,5¢.
+- Harga Polymarket: 76¢.
+- Nilai (EV): +1,5% — WAJAR (harga sesuai peluangnya).
+- Bantalan: 18,5 poin di atas median model (219).
+- Bantalan: 12 poin di atas garis market (225,5).
+- Memenuhi syarat: ya.
+
+## Lima laga terakhir
+### Detroit Pistons
+- 5 laga terakhir: 3 menang, 2 kalah. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+- 20 Nov 2026, kandang vs TOR: kalah 102–105.
+- 18 Nov 2026, tandang vs NOP: menang 122–109.
+- 17 Nov 2026, tandang vs SAS: menang 105–93.
+- 14 Nov 2026, tandang vs MIA: kalah 117–137.
+- 12 Nov 2026, tandang vs WAS: menang 144–140.
+### Atlanta Hawks
+- 5 laga terakhir: 3 menang, 2 kalah. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+- 20 Nov 2026, kandang vs CHA: menang 111–97.
+- 18 Nov 2026, tandang vs OKC: menang 117–112.
+- 15 Nov 2026, tandang vs MIL: menang 113–106.
+- 13 Nov 2026, tandang vs CHI: kalah 117–125.
+- 9 Nov 2026, kandang vs LAL: kalah 114–124.
+
+## Pertemuan terakhir
+5 pertemuan terakhir: tidak terverifikasi — tidak ada data pertemuan di artefak.
+
+## Riwayat kandang vs tandang
+### Detroit Pistons
+- Di kandang: 3 menang – 3 kalah; rata-rata cetak 110,7 poin, kebobolan 108,5 poin. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+- Di tandang: 7 menang – 2 kalah; rata-rata cetak 117 poin, kebobolan 108,8 poin. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+### Atlanta Hawks
+- Di kandang: 4 menang – 3 kalah; rata-rata cetak 119 poin, kebobolan 119,3 poin. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+- Di tandang: 6 menang – 3 kalah; rata-rata cetak 116 poin, kebobolan 111 poin. (sumber: stats.nba.com, jenjang 1, 22 Nov 2026 14:24 UTC)
+
+## Simulasi 100.000 pertandingan
+Mesin mengulang laga ini 100.000 kali dengan kondisi yang sama.
+Mesin simulasi: nba_sim v1.1.0.
+Total poin: rata-rata 219,4; nilai tengah (median) 219.
+74 dari 100 ulangan totalnya di bawah 232 poin.
+90 dari 100 ulangan totalnya antara 188 dan 252 poin.
+Sebaran total (simpangan baku): 19,5 poin.
+Peluang laga masuk babak tambahan (overtime): 2,9%.
+Perkiraan skor tengah-tengah: Atlanta Hawks 110 – 109 Detroit Pistons.
+Peluang menang (model): Atlanta Hawks 54,5%; Detroit Pistons 45,5%.
+Selisih skor tengah-tengah (kandang dikurangi tandang): 2 poin; kisaran 90% ulangan: -22 sampai 25.
+
+## Skenario skuad
+### Semua pemain tersedia
+- Tidak ada pemain absen.
+- Peluang Atlanta Hawks menang: 46,2%.
+- Peluang Under 233,5 (Asuransi): 69,5%.
+- Peluang Under 237,5 (Utama): 76,4%.
+### 1 pemain inti kandang tambahan absen
+- Tambahan absen (di atas pemain yang memang sudah absen): Jalen Johnson.
+- Peluang Atlanta Hawks menang: 45,1%.
+- Peluang Under 233,5 (Asuransi): 81,9%.
+- Peluang Under 237,5 (Utama): 86,7%.
+### 1 pemain inti tiap tim tambahan absen
+- Tambahan absen (di atas pemain yang memang sudah absen): Cade Cunningham, Jalen Johnson.
+- Peluang Atlanta Hawks menang: 61,3%.
+- Peluang Under 233,5 (Asuransi): 88,7%.
+- Peluang Under 237,5 (Utama): 92,1%.
+### 2 pemain inti tiap tim tambahan absen
+- Tambahan absen (di atas pemain yang memang sudah absen): Ausar Thompson, Cade Cunningham, Dyson Daniels, Jalen Johnson.
+- Peluang Atlanta Hawks menang: 61,0%.
+- Peluang Under 233,5 (Asuransi): 93,3%.
+- Peluang Under 237,5 (Utama): 95,5%.
+### Semua pemain yang diragukan ikut absen
+- Tambahan absen (di atas pemain yang memang sudah absen): Isaac Jones, Kingston Flemings, RayJ Dennis.
+- Peluang Atlanta Hawks menang: 56,6%.
+- Peluang Under 233,5 (Asuransi): 74,7%.
+- Peluang Under 237,5 (Utama): 80,7%.
+Catatan: skenario hanya membawa peluang, bukan proyeksi total — total proyeksi tiap skenario tidak ada di artefak.
+
+## Anomali
+Mesin menemukan hal-hal berikut yang patut diperhatikan:
+- Garis market (225,5) dan median model (219) berbeda 6,5 poin — market mengharap total lebih tinggi dari model.
+- Bantalan garis 233,5 cukup menurut model (14,5 poin) tapi hanya 8 poin menurut garis market — di bawah syarat 12 poin. (kaki Asuransi Under 233,5)
+- Model dan pasar berbeda 8,5 poin (model 77,0%, pasar 68,5%). (kaki Asuransi Under 233,5)
+
+## Kenapa beda?
+Model dan pasar berbeda jauh — bagian ini wajib dibaca sebelum memasang. Semua yang diperiksa di bawah ini berasal dari data; yang tidak ada datanya ditulis tidak terverifikasi.
+### Kaki Asuransi — Under 233,5
+- Model: 77,0% — Pasar (kalshi): 68,5% — selisih 8,5 poin.
+- Yang diperiksa dari data:
+  - Cedera: 10 pemain tidak main/diragukan (Asa Newell, CJ McCollum, Duncan Robinson, Ebuka Okorie, Henri Veesaar, Jalen Duren, Jock Landale, Mouhamed Gueye, Taurean Prince, Ugonna Onyenso) — sudah masuk hitungan model.
+  - Ada konflik status cedera antar sumber (lihat bagian Kabar pemain) — data cedera tidak bulat.
+  - Garis: median model 219 vs garis market 225,5 — selisih 6,5 poin.
+  - Harga bergerak +0,0¢ sejak analisis awal (dari cek ulang).
+  - Kualitas data model: ada catatan hilang — injuries_bukan_cedera:Ugonna Onyenso; injuries_konflik:Kingston Flemings; injuries_komentar_konflik:Kingston Flemings; injuries_konflik:Cade Cunningham; injuries_konflik:Ronald Holland II; injuries_komentar_konflik:Ronald Holland II; home.shrinkage_tanpa_musim_lalu:Kingston Flemings; away.shrinkage_tanpa_musim_lalu:Ebuka Okorie; tournament_flag_tidak_dapat_ditentukan.
+- Kesimpulan: cek ulang tidak menemukan alasan konkret — aturan condong-ke-market memakai probabilitas pasar untuk kaki Asuransi.
+
+## Cek ulang sebelum pasang
+Putusan: JANGAN PASANG. (dicek 22 Nov 2026 14:27 UTC)
+Simulasi tidak dihitung ulang (tidak ada perubahan material).
+Perubahan sejak analisis awal:
+- [garis market] selisih median model vs garis market 6.5 poin (> ambang 5); tidak ditemukan alasan konkret — probabilitas Asuransi memakai harga market
+### Kaki Asuransi — Under 233,5
+- Putusan: Jangan pasang.
+- Alasan: condong_ke_market: harga market 69.5% < 74% dan tidak ada alasan konkret.
+- Harga: 70¢ -> 70¢ (gerak +0,0¢).
+- Peluang yang dipakai untuk putusan: 69,5% (dari market).
+### Kaki Utama — Under 237,5
+- Putusan: Tetap OK.
+- Harga: 76,5¢ -> 76,5¢ (gerak +0,0¢).
+- Peluang yang dipakai untuk putusan: 82,7% (dari model).
+Yang harus dilakukan: cari garis Asuransi lain — harga market garis 233.5 di bawah ambang Asuransi.
+
+## Sumber data
+- nba_games_season: stats.nba.com (jenjang 1), 22 Nov 2026 14:24 UTC.
+- nba_team_advanced_season: stats.nba.com (jenjang 1), 22 Nov 2026 14:24 UTC.
+- nba_team_advanced_last10: stats.nba.com (jenjang 1), 22 Nov 2026 14:24 UTC.
+- nba_player_impact: Basketball-Reference (jenjang 2), 22 Nov 2026 14:24 UTC.
+- nba_player_impact_musim_lalu: Basketball-Reference (jenjang 2), 22 Nov 2026 14:24 UTC.
+- nba_injuries: Official NBA Injury Report (jenjang 1), 22 Nov 2026 14:24 UTC.
+- nba_injuries: ESPN (jenjang 2), 22 Nov 2026 14:24 UTC.
+- polymarket_ladder: Polymarket CLOB (jenjang 2), 22 Nov 2026 14:24 UTC.
+- kalshi_total_markets: Kalshi API (jenjang 2), 22 Nov 2026 14:24 UTC.
+- Harga pertama total_under_233.5: 70¢ (dicatat 22 Nov 2026 14:24 UTC).
+- Harga pertama total_under_237.5: 76,5¢ (dicatat 22 Nov 2026 14:24 UTC).
+
+## Yang belum bisa dipastikan
+- Status turnamen: tidak terverifikasi.
+- 5 pertemuan terakhir: tidak terverifikasi.
+- Total proyeksi per skenario skuad: tidak ada di artefak (skenario hanya membawa peluang).

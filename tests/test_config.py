@@ -31,8 +31,10 @@ class TestPlaystyle(unittest.TestCase):
 
     def test_tiket_utama(self):
         main = self.cfg["tickets"]["main"]
-        self.assertEqual(main["multiplier_min"], 3.5)
-        self.assertEqual(main["multiplier_max"], 6.0)
+        # Profil user 2026-11-22 (Langkah 3): Utama x3–x4, maks x5.
+        self.assertEqual(main["multiplier_min"], 3.0)
+        self.assertEqual(main["multiplier_max"], 5.0)
+        self.assertEqual(main["target_multiplier_max"], 4.0)
         self.assertEqual(main["min_leg_prob"], 0.65)
 
     def test_mode_default_standard(self):
@@ -226,12 +228,12 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_8(self):
-        # Versi 8: Langkah 2 (2026-11-22) — kunci shrinkage_k_games
-        # di simulation.nba (di atas versi 7: bagian recheck
-        # pra-submit; versi 6: patch langkah 1b).
+    def test_meta_versi_9(self):
+        # Versi 9: Langkah 3 (2026-11-22) — peracik tiket
+        # (Utama x3–x5 + target lunak 4,0x, profil user 2026-11-22;
+        # di atas versi 8: Langkah 2, kunci shrinkage_k_games).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 8)
+        self.assertEqual(meta["version"], 9)
         self.assertEqual(meta["last_reviewed"], "2026-11-22")
 
     def test_shrinkage_k_games(self):

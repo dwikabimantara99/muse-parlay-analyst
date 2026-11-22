@@ -7,6 +7,17 @@
     python cli.py recheck --analysis out/analysis_<id>.json [--match DET@ATL_2026-11-22]
         # Tahap 3 Langkah 2 ✓ — cek ulang pra-submit satu laga NBA.
         # Exit 0 = GO, 1 = NO-GO (laporan ditulis), 2 = tidak bisa jalan.
+    python cli.py laporan --analysis out/analysis_<id>.json [--match ...]
+        [--recheck out/recheck_<id>.json] [--out laporan.txt] [--json]
+        # Tahap 3 Langkah 3 ✓ — laporan lengkap satu laga NBA.
+    python cli.py tanya --analysis out/analysis_<id>.json [--match ...]
+        "<pertanyaan>"
+        # Tahap 3 Langkah 3 ✓ — tanya-jawab soal satu laga NBA.
+    python cli.py racik --analysis <file...> [--recheck <file...>]
+        --stake-total <usd> [--out out/tickets_<tanggal>.json]
+        # Tahap 3 Langkah 3 ✓ — racik Tiket Asuransi + Utama.
+        # Exit 0 = minimal satu tiket terracik, 1 = tidak ada tiket,
+        # 2 = tidak bisa jalan.
     python cli.py log --file ticket.json       # Tahap 1  ✓
     python cli.py log --settle <id> --result WIN|LOSS|PUSH|VOID|CASHOUT
         [--cashout-amount <usd>] [--leg-result <leg_id>=<hasil> ...]
@@ -14,12 +25,15 @@
 
 Exit code: 0 sukses, 1 error (input tidak valid / ledger gagal) —
 recheck: 0 = GO, 1 = NO-GO (laporan tetap ditulis), 2 = recheck tidak
-bisa berjalan (tidak ada laporan).
+bisa berjalan (tidak ada laporan). laporan/tanya: 0 sukses, 2 = tidak
+bisa jalan. racik: 0 = minimal satu tiket terracik, 1 = tidak ada
+tiket yang bisa diracik, 2 = tidak bisa jalan.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import sys
 from pathlib import Path
@@ -341,6 +355,11 @@ def _ambil_nba_analysis(
         for m in punya:
             if m.get("match_id") == match_id:
                 return m["nba_analysis"], None
+            # Terima juga match_id artefak ("DET@ATL_2026-11-22"),
+            # bukan hanya match_id slate ("nba-2026-11-22-det-atl").
+            inner = m.get("nba_analysis") or {}
+            if inner.get("match_id") == match_id:
+                return m["nba_analysis"], None
         return None, f"laga {match_id} tidak punya artefak nba_analysis di file ini"
     if len(punya) == 1:
         return punya[0]["nba_analysis"], None
@@ -352,6 +371,36 @@ def _ambil_nba_analysis(
         f"ada {len(punya)} laga dengan artefak nba_analysis ({daftar}) — "
         "sebutkan --match",
     )
+
+
+def _kumpulkan_nba_analysis(
+    data: dict,
+) -> tuple[list[dict] | None, str | None]:
+    """Kumpulkan SEMUA artefak nba_analysis dari file input (untuk racik).
+
+    Menerima (a) artefak nba_analysis langsung (format ==
+    "nba_analysis") atau (b) output cli.py analyze (ada kunci
+    "matches"; artefak ada di kunci "nba_analysis" tiap entri laga).
+    Mengembalikan (daftar artefak, None) atau (None, pesan error).
+    """
+    if not isinstance(data, dict):
+        return None, "file analisis harus berupa objek JSON"
+    if data.get("format") == "nba_analysis":
+        return [data], None
+    matches = data.get("matches")
+    if not isinstance(matches, list):
+        return None, (
+            "file bukan artefak nba_analysis maupun output analyze "
+            "(tidak ada kunci 'matches')"
+        )
+    punya = [
+        m["nba_analysis"]
+        for m in matches
+        if isinstance(m, dict) and isinstance(m.get("nba_analysis"), dict)
+    ]
+    if not punya:
+        return None, "tidak ada laga dengan artefak nba_analysis di file ini"
+    return punya, None
 
 
 def cmd_recheck(args: argparse.Namespace) -> int:
@@ -423,6 +472,190 @@ def cmd_recheck(args: argparse.Namespace) -> int:
         print(f"  yang harus diubah: {laporan['action_required']}")
     print(f"output: {out_path}")
     return 0 if verdict == "GO" else 1
+
+
+def cmd_laporan(args: argparse.Namespace) -> int:
+    """Laporan lengkap satu laga NBA (Tahap 3 Langkah 3).
+
+    Input: file JSON analisis (--analysis) — artefak nba_analysis
+    langsung, atau output cli.py analyze (pilih laga dengan --match).
+    Laporan recheck opsional (--recheck) dilampirkan bila ada.
+    Teks dicetak ke stdout atau ditulis ke --out; --json mengeluarkan
+    bentuk JSON laporan. Exit code: 0 sukses, 2 = tidak bisa jalan.
+    """
+    try:
+        data = json.loads(Path(args.analysis).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"error: tidak bisa membaca {args.analysis}: {exc}", file=sys.stderr)
+        return 2
+    analysis, error = _ambil_nba_analysis(data, args.match)
+    if error is not None:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    recheck = None
+    if args.recheck:
+        try:
+            recheck = json.loads(Path(args.recheck).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"error: tidak bisa membaca {args.recheck}: {exc}", file=sys.stderr)
+            return 2
+    from report import nba_report as nba_report_mod
+
+    try:
+        if args.json:
+            hasil = nba_report_mod.render_nba_report_json(analysis, recheck)
+            teks = json.dumps(hasil, ensure_ascii=False, indent=2)
+        else:
+            teks = nba_report_mod.render_nba_report(analysis, recheck)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    match_id = analysis.get("match_id", "unknown")
+    if args.out:
+        try:
+            out_path = Path(args.out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(teks, encoding="utf-8")
+        except OSError as exc:
+            print(f"error: tidak bisa menulis {args.out}: {exc}", file=sys.stderr)
+            return 2
+        print(f"laporan {match_id} ditulis ke {args.out}")
+        return 0
+    print(teks)
+    return 0
+
+
+def cmd_tanya(args: argparse.Namespace) -> int:
+    """Tanya-jawab soal satu laga NBA (Tahap 3 Langkah 3).
+
+    Input: file JSON analisis (--analysis) + pertanyaan
+    (Bahasa Indonesia). Jawaban berasal dari artefak analisis dan
+    mesin sim — angka dari kode, bukan karangan; data tidak ada
+    dijawab "tidak terverifikasi". Exit code: 0 sukses,
+    2 = tidak bisa jalan.
+    """
+    try:
+        data = json.loads(Path(args.analysis).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"error: tidak bisa membaca {args.analysis}: {exc}", file=sys.stderr)
+        return 2
+    analysis, error = _ambil_nba_analysis(data, args.match)
+    if error is not None:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    from engine import qa as qa_mod
+
+    hasil = qa_mod.answer(analysis, args.pertanyaan)
+    print(hasil["answer"])
+    if not hasil.get("verified", True):
+        print(
+            "[sebagian jawaban tidak terverifikasi — datanya tidak ada "
+            "di analisis ini]",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def cmd_racik(args: argparse.Namespace) -> int:
+    """Racik Tiket Asuransi + Utama dari satu slate NBA (Tahap 3 Langkah 3).
+
+    Input: file-file JSON analisis (--analysis, boleh banyak) —
+    artefak nba_analysis langsung, atau output cli.py analyze.
+    Laporan recheck (--recheck, boleh banyak) bersifat opsional;
+    tanpa recheck, tiket mendapat peringatan jendela. Modal total
+    (--stake-total, USD) wajib — peracik tidak mengarang modal.
+    Hasil ditulis ke --out (default out/tickets_<tanggal>.json) +
+    ringkasan tercetak. Exit code: 0 = minimal satu tiket terracik,
+    1 = tidak ada tiket yang bisa diracik, 2 = tidak bisa jalan.
+    """
+    analyses: list[dict] = []
+    for path in args.analysis:
+        try:
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"error: tidak bisa membaca {path}: {exc}", file=sys.stderr)
+            return 2
+        got, error = _kumpulkan_nba_analysis(data)
+        if error is not None:
+            print(f"error: {path}: {error}", file=sys.stderr)
+            return 2
+        analyses.extend(got)
+    # Laga yang sama dari dua file dihitung sekali (kemunculan pertama).
+    dilihat: set[str] = set()
+    unik: list[dict] = []
+    for art in analyses:
+        mid = art.get("match_id")
+        if isinstance(mid, str) and mid in dilihat:
+            print(
+                f"catatan: laga {mid} muncul dua kali — dipakai sekali",
+                file=sys.stderr,
+            )
+            continue
+        if isinstance(mid, str):
+            dilihat.add(mid)
+        unik.append(art)
+    analyses = unik
+    if not analyses:
+        print("error: tidak ada artefak nba_analysis", file=sys.stderr)
+        return 2
+    rechecks: list[dict] | None = None
+    if args.recheck:
+        rechecks = []
+        for path in args.recheck:
+            try:
+                lap = json.loads(Path(path).read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                print(f"error: tidak bisa membaca {path}: {exc}", file=sys.stderr)
+                return 2
+            if not isinstance(lap, dict) or lap.get("format") != "nba_recheck":
+                print(f"error: {path} bukan laporan nba_recheck", file=sys.stderr)
+                return 2
+            rechecks.append(lap)
+    from config import ConfigError, load_playstyle
+    from engine import nba_analysis as nba_analysis_mod
+    from engine import ticket_composer as composer_mod
+
+    for art in analyses:
+        error = nba_analysis_mod.validate_nba_analysis(art)
+        if error is not None:
+            print(
+                f"error: artefak {art.get('match_id', '?')} tidak valid: {error}",
+                file=sys.stderr,
+            )
+            return 2
+    try:
+        cfg = load_playstyle()
+        hasil = composer_mod.compose_tickets(
+            analyses, rechecks, cfg, stake_total=args.stake_total
+        )
+    except (ValueError, ConfigError) as exc:
+        print(f"error: peracik gagal: {exc}", file=sys.stderr)
+        return 2
+    tanggal = analyses[0].get("game_date") or datetime.date.today().isoformat()
+    out_path = Path(args.out or (REPO_ROOT / "out" / f"tickets_{tanggal}.json"))
+    payload = {
+        "format": "tickets",
+        "game_date": tanggal,
+        "insurance": hasil.get("insurance"),
+        "insurance_reason": hasil.get("insurance_reason"),
+        "main": hasil.get("main"),
+        "main_reason": hasil.get("main_reason"),
+        "warnings": hasil.get("warnings", []),
+        "summary": hasil.get("summary", ""),
+    }
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError as exc:
+        print(f"error: tidak bisa menulis {out_path}: {exc}", file=sys.stderr)
+        return 2
+    print(hasil.get("summary", ""))
+    for warn in hasil.get("warnings", []):
+        print(f"PERINGATAN: {warn}")
+    print(f"output: {out_path}")
+    return 0 if (hasil.get("insurance") or hasil.get("main")) else 1
 
 
 def _parse_leg_results(raw: list[str] | None) -> dict[str, str]:
@@ -514,7 +747,7 @@ def cmd_recap(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Bangun parser argumen CLI (analyze / recheck / log / recap)."""
+    """Bangun parser argumen CLI (analyze / recheck / laporan / tanya / racik / log / recap)."""
     parser = argparse.ArgumentParser(
         prog="cli.py",
         description="muse-parlay-analyst — satu pintu masuk (Blueprint §10).",
@@ -558,6 +791,86 @@ def build_parser() -> argparse.ArgumentParser:
         help="file output JSON (default: out/recheck_<match_id>.json)",
     )
     p_recheck.set_defaults(func=cmd_recheck)
+
+    p_laporan = sub.add_parser(
+        "laporan",
+        help="laporan lengkap satu laga NBA (Tahap 3 Langkah 3)",
+    )
+    p_laporan.add_argument(
+        "--analysis",
+        required=True,
+        help="file JSON analisis: artefak nba_analysis langsung, atau "
+        "output cli.py analyze",
+    )
+    p_laporan.add_argument(
+        "--match",
+        default=None,
+        help="match_id laga yang dilaporkan (wajib bila file berisi lebih "
+        "dari satu laga dengan artefak nba_analysis)",
+    )
+    p_laporan.add_argument(
+        "--recheck",
+        default=None,
+        help="file laporan nba_recheck untuk dilampirkan (opsional)",
+    )
+    p_laporan.add_argument(
+        "--out",
+        default=None,
+        help="file output (default: cetak ke stdout)",
+    )
+    p_laporan.add_argument(
+        "--json", action="store_true", help="keluarkan JSON, bukan teks"
+    )
+    p_laporan.set_defaults(func=cmd_laporan)
+
+    p_tanya = sub.add_parser(
+        "tanya",
+        help="tanya-jawab soal satu laga NBA (Tahap 3 Langkah 3)",
+    )
+    p_tanya.add_argument(
+        "--analysis",
+        required=True,
+        help="file JSON analisis: artefak nba_analysis langsung, atau "
+        "output cli.py analyze",
+    )
+    p_tanya.add_argument(
+        "--match",
+        default=None,
+        help="match_id laga yang ditanya (wajib bila file berisi lebih "
+        "dari satu laga dengan artefak nba_analysis)",
+    )
+    p_tanya.add_argument("pertanyaan", help="pertanyaan dalam Bahasa Indonesia")
+    p_tanya.set_defaults(func=cmd_tanya)
+
+    p_racik = sub.add_parser(
+        "racik",
+        help="racik Tiket Asuransi + Utama dari satu slate NBA " "(Tahap 3 Langkah 3)",
+    )
+    p_racik.add_argument(
+        "--analysis",
+        required=True,
+        nargs="+",
+        help="file JSON analisis (artefak nba_analysis atau output "
+        "analyze), boleh banyak",
+    )
+    p_racik.add_argument(
+        "--recheck",
+        default=None,
+        nargs="+",
+        help="file laporan nba_recheck, boleh banyak (opsional)",
+    )
+    p_racik.add_argument(
+        "--stake-total",
+        required=True,
+        type=float,
+        help="total modal kedua tiket (USD) — wajib",
+    )
+    p_racik.add_argument(
+        "--out",
+        default=None,
+        help="file output JSON (default: out/tickets_<tanggal>.json)",
+    )
+    p_racik.set_defaults(func=cmd_racik)
 
     p_log = sub.add_parser("log", help="catat / selesaikan tiket (Tahap 1)")
     p_log.add_argument("--file", help="file ticket.json (sesuai skema)")
