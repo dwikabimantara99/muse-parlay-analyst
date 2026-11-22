@@ -42,6 +42,7 @@ REQUIRED_PLAYSTYLE_SECTIONS = (
     "recheck",
     "live",
     "calibration",
+    "learning",
 )
 
 REQUIRED_SOURCES_KEYS = ("meta", "sources", "rules")

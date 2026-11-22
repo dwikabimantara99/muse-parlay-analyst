@@ -1,0 +1,96 @@
+# Laporan Belajar Mesin Parlay — DATA SINTETIS — BUKAN HASIL NYATA
+DATA SINTETIS — BUKAN HASIL NYATA.
+Angka di laporan ini berasal dari data buatan untuk demo dan tes — bukan hasil taruhan nyata.
+Laporan ini dibuat 22 Nov 2026 15:55 UTC.
+Sumber data: kaki sintetis (buatan).
+
+## Ringkasan
+DATA SINTETIS — BUKAN HASIL NYATA.
+Dari 62 kaki yang sudah selesai, 35 menang (56,5%) dan 27 kalah.
+
+Skor Brier mengukur seberapa tepat tebakan peluang — makin kecil makin bagus (0 berarti sempurna; 0,25 berarti sama dengan menebak 50% terus-menerus).
+- Brier model: 0,2736.
+- Brier pasar: 0,2917.
+- Brier gabungan (model + pasar): 0,2783.
+- Brier tebakan dasar (sekadar menebak peluang menang rata-rata): 0,2458.
+Secara keseluruhan, model lebih tepat dari pasar.
+Perhatian: model kalah dari tebakan dasar — sekadar menebak peluang menang rata-rata lebih tepat dari model.
+
+EV (nilai harapan) di bawah ini per unit modal, bila tiap kaki dimainkan satuan — bukan untung/rugi tiket parlay.
+- EV yang diperkirakan: +7,7%.
+- EV yang benar-benar terjadi: -2,1%.
+
+## Per pasar
+### Bola — 1X2 (kandang/seri/tandang) (8 kaki)
+- Menang 4 dari 8 kaki (50,0%).
+- Brier model: 0,2600.
+- Brier pasar: 0,2804.
+- Brier tebakan dasar: 0,2500.
+- Di pasar ini, model lebih jago dari pasar.
+- Model kalah dari tebakan dasar di pasar ini — pasar ini perlu ditinjau.
+- EV yang diperkirakan +0,0%, EV yang benar-benar terjadi -13,8%.
+- Sampel masih kecil (di bawah 20 kaki) — kesimpulan untuk pasar ini belum kuat.
+### Bola — Kedua tim cetak gol (BTTS) (4 kaki)
+- Menang 1 dari 4 kaki (25,0%).
+- Brier model: 0,4375.
+- Brier pasar: 0,3100.
+- Brier tebakan dasar: 0,1875.
+- Di pasar ini, pasar lebih jago dari model.
+- Model kalah dari tebakan dasar di pasar ini — pasar ini perlu ditinjau.
+- EV yang diperkirakan +7,5%, EV yang benar-benar terjadi -58,3%.
+- Sampel masih kecil (di bawah 20 kaki) — kesimpulan untuk pasar ini belum kuat.
+### Bola — Over/Under gol (6 kaki)
+- Menang 4 dari 6 kaki (66,7%).
+- Brier model: 0,2233.
+- Brier pasar: 0,2267.
+- Brier tebakan dasar: 0,2222.
+- Di pasar ini, model dan pasar hampir sama jagonya.
+- Model sama dengan tebakan dasar di pasar ini (selisihnya terlalu kecil untuk disimpulkan).
+- EV yang diperkirakan +5,0%, EV yang benar-benar terjadi +11,1%.
+- Sampel masih kecil (di bawah 20 kaki) — kesimpulan untuk pasar ini belum kuat.
+### NBA — Menang/Kalah (20 kaki)
+- Menang 8 dari 20 kaki (40,0%).
+- Brier model: 0,4000.
+- Brier pasar: 0,2625.
+- Brier tebakan dasar: 0,2400.
+- Di pasar ini, pasar lebih jago dari model.
+- Model kalah dari tebakan dasar di pasar ini — pasar ini perlu ditinjau.
+- EV yang diperkirakan +13,6%, EV yang benar-benar terjadi -27,3%.
+### NBA — Total Under (24 kaki)
+- Menang 18 dari 24 kaki (75,0%).
+- Brier model: 0,1581.
+- Brier pasar: 0,3331.
+- Brier tebakan dasar: 0,1875.
+- Di pasar ini, model lebih jago dari pasar.
+- Model lebih baik dari tebakan dasar di pasar ini.
+- EV yang diperkirakan +6,1%, EV yang benar-benar terjadi +28,8%.
+
+## Kalibrasi bobot model (w)
+Bobot model (w) menentukan seberapa besar suara model dalam peluang akhir: peluang akhir = w × peluang model + (1 − w) × peluang pasar.
+- Bobot model sekarang: 0,30.
+- Kaki yang dipakai kalibrasi (punya peluang model dan pasar): 62.
+- Brier gabungan dengan bobot sekarang: 0,2783.
+- Rekomendasi: ubah bobot model menjadi 0,75.
+- Brier gabungan dengan bobot rekomendasi: 0,2710.
+Rekomendasi ini belum diterapkan — menunggu persetujuanmu.
+- Alasan (catatan mesin): w optimal 0.75 (Brier 0.2710) vs w saat ini 0.3 (Brier 0.2783); n=62.
+Bobot tidak pernah berubah sendiri — perubahan hanya terjadi setelah kamu menyetujuinya.
+
+## Usulan yang menunggu persetujuan
+Usulan di bawah ini HANYA usulan — tidak ada yang berubah sampai kamu menyetujuinya.
+### [USUL-001] Pasar NBA / moneyline: model kalah dari frekuensi dasar
+- Di pasar NBA / moneyline, Brier model (0.4000) lebih buruk dari Brier climatology (0.2400) — sekadar menebak frekuensi dasar lebih akurat dari model di sini.
+- Bukti: Brier tebakan dasar 0,2400; Brier model 0,4000.
+- sampel 20 kaki; keyakinan sedang; status: menunggu persetujuan.
+- Yang diusulkan: Pertimbangkan tidak memainkan pasar NBA / moneyline atau menaikkan ambang peluang minimumnya — menunggu persetujuan user.
+### [USUL-002] Pasar NBA / moneyline: EV prediksi terlalu optimis
+- Di pasar NBA / moneyline, EV terealisasi rata-rata (-0.2727) berada 0.4091 di bawah EV prediksi rata-rata (0.1364) — melebihi batas peringatan 0.05.
+- Bukti: Batas peringatan selisih EV +5,0%; EV prediksi rata-rata +13,6%; EV nyata rata-rata -27,3%; Selisih EV +40,9%.
+- sampel 20 kaki; keyakinan sedang; status: menunggu persetujuan.
+- Yang diusulkan: Tinjau ambang EV / label harga untuk pasar NBA / moneyline (mis. menaikkan ambang EV minimum atau memperketat label DISKON) — menunggu persetujuan user.
+
+## Keterbatasan
+- DATA SINTETIS — BUKAN HASIL NYATA.
+- Angka di laporan ini berasal dari data buatan untuk demo dan tes. Jangan dipakai untuk keputusan taruhan.
+- Skor Brier mengukur ketepatan peluang, bukan untung/rugi uang. EV per kaki adalah diagnostik bila kaki dimainkan satuan, bukan hasil tiket parlay.
+- Tidak ada usulan di laporan ini yang diterapkan otomatis; semua menunggu persetujuanmu.

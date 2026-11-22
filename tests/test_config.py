@@ -228,12 +228,12 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_11(self):
-        # Versi 11: Langkah 5 (2026-11-22) — otak bola (wiring
-        # soccer_brain/soccer_analysis, TANPA_XG; di atas versi 10:
-        # Langkah 4, pantauan live).
+    def test_meta_versi_12(self):
+        # Versi 12: Langkah 6 (2026-11-22) — belajar sendiri
+        # (kalibrasi w + usulan belajar: min_legs_w, section learning;
+        # di atas versi 11: Langkah 5, otak bola).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 11)
+        self.assertEqual(meta["version"], 12)
         self.assertEqual(meta["last_reviewed"], "2026-11-22")
 
     def test_soccer_section(self):

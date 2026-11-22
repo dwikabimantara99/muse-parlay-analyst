@@ -23,3 +23,17 @@ python cli.py log --file examples/ticket_asuransi.json --db /tmp/contoh.db
 python cli.py log --file examples/ticket_utama.json --db /tmp/contoh.db
 python cli.py recap --db /tmp/contoh.db
 ```
+
+## Laporan belajar (Tahap 3 Langkah 6)
+
+- `laporan_belajar_contoh_sintetis.txt` — contoh keluaran
+  `python cli.py belajar --contoh-sintetis`: laporan belajar dari 62
+  kaki SINTETIS (fixture `tests/fixtures/sintetis_belajar_kaki.json`).
+  **DATA SINTETIS — BUKAN HASIL NYATA.** Angka di dalamnya dirancang
+  untuk demo/tes (model mengalahkan market di NBA Total Under, kalah
+  dari tebakan dasar di NBA moneyline, rekomendasi w 0,75) — jangan
+  dipakai untuk keputusan taruhan. Dibuat ulang dengan:
+
+```bash
+python cli.py belajar --contoh-sintetis --keluaran examples/laporan_belajar_contoh_sintetis.txt
+```

@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 11
+  version: 12
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22"
   last_reviewed: "2026-11-22"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -372,3 +372,31 @@ calibration:
   # Laporan kalibrasi membandingkan akurasi (Brier) model vs pasar
   # (keputusan user 2026-11-21); kenaikan w hanya atas persetujuan user.
   compare_brier_model_vs_market: true
+  # Sampel minimum kaki settled (dengan p_model DAN p_market) agar
+  # engine/calibration.py boleh mengusulkan w baru. Di bawah ini,
+  # w_rekomendasi None. Sama dengan report_every_legs (§9: kalibrasi
+  # Brier tiap 50 kaki). Rekomendasi TIDAK diterapkan otomatis.
+  min_legs_w: 50
+
+# ── §9. Belajar dari hasil (Tahap 3 Langkah 6) ─────────────────────────────
+learning:
+  # Ambang sampel minimum per pasar agar usulan jenis "pasar" (aturan
+  # (a): model kalah dari frekuensi dasar) dan "ambang" (aturan (c):
+  # EV prediksi terlalu optimis) boleh diajukan (engine/proposals.py).
+  min_n_pasar: 20
+  # Ambang sampel minimum per pasar agar usulan "kalibrasi" (aturan
+  # (b): model mengalahkan market di pasar itu) boleh diajukan. Sama
+  # dengan calibration.min_legs_w: klaim "model lebih baik dari pasar"
+  # butuh sampel sebesar kalibrasi w.
+  min_n_kalibrasi_pasar: 50
+  # Selisih EV terealisasi vs EV prediksi (desimal; 0,05 = 5 poin)
+  # yang memicu usulan "ambang" (aturan (c)): EV terealisasi rata-rata
+  # di bawah EV prediksi rata-rata minus nilai ini -> EV prediksi
+  # terlalu optimis, tinjau ambang EV / label harga.
+  ev_gap_warn: 0.05
+  # Ambang keyakinan usulan dari n (engine/proposals.py): n <
+  # sedang_min -> "rendah"; sedang_min <= n < tinggi_min -> "sedang";
+  # n >= tinggi_min -> "tinggi".
+  keyakinan_n:
+    sedang_min: 20
+    tinggi_min: 50

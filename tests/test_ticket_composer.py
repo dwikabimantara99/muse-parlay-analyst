@@ -298,9 +298,9 @@ class TestRacikStandar(unittest.TestCase):
 
     def test_config_main_maks_5_target_4(self):
         # Perubahan config Langkah 3 (profil user 2026-11-22); versi
-        # config kini 11 (Langkah 4 menambah section live, Langkah 5
-        # menambah section soccer).
-        self.assertEqual(CFG["meta"]["version"], 11)
+        # config kini 12 (Langkah 4 menambah section live, Langkah 5
+        # menambah section soccer, Langkah 6 menambah section learning).
+        self.assertEqual(CFG["meta"]["version"], 12)
         self.assertEqual(CFG["tickets"]["main"]["multiplier_max"], 5.0)
         self.assertEqual(CFG["tickets"]["main"]["target_multiplier_max"], 4.0)
 

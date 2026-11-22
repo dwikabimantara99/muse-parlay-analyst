@@ -28,6 +28,13 @@
     python cli.py log --settle <id> --result WIN|LOSS|PUSH|VOID|CASHOUT
         [--cashout-amount <usd>] [--leg-result <leg_id>=<hasil> ...]
     python cli.py recap [--json]
+    python cli.py belajar [--db ledger.db] [--keluaran laporan.txt]
+        [--contoh-sintetis]
+        # Tahap 3 Langkah 6 — laporan belajar dari hasil tercatat:
+        # ringkasan Brier per pasar, kalibrasi bobot w, dan usulan
+        # yang menunggu persetujuan. Belum ada data -> laporan
+        # "belum ada data", exit 0. --contoh-sintetis memakai fixture
+        # sintetis (laporan berlabel SINTETIS).
 
 Exit code: 0 sukses, 1 error (input tidak valid / ledger gagal) —
 recheck: 0 = GO, 1 = NO-GO (laporan tetap ditulis), 2 = recheck tidak
@@ -35,13 +42,16 @@ bisa berjalan (tidak ada laporan). laporan/tanya: 0 sukses, 2 = tidak
 bisa jalan. racik: 0 = minimal satu tiket terracik, 1 = tidak ada
 tiket yang bisa diracik, 2 = tidak bisa jalan. pantau: 0 = aman,
 1 = ada kaki TERANCAM/KALAH/anomali atau DATA_INCOMPLETE,
-2 = tidak bisa jalan.
+2 = tidak bisa jalan. belajar: 0 sukses (termasuk belum ada data),
+2 = tidak bisa jalan (modul belajar / fixture tidak tersedia).
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime
+import importlib
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -1292,8 +1302,176 @@ def cmd_recap(args: argparse.Namespace) -> int:
     return 0
 
 
+# Fixture demo/tes perintah belajar (DATA SINTETIS — bukan hasil nyata).
+FIXTURE_SINTETIS_BELAJAR = (
+    REPO_ROOT / "tests" / "fixtures" / "sintetis_belajar_kaki.json"
+)
+
+
+def _modul_belajar():
+    """Muat modul Langkah 6 (learning/calibration/proposals) defensif.
+
+    Mengembalikan (learning, calibration, proposals, belum_tersedia):
+    modul yang tidak ada di disk jadi None dan namanya dicatat di
+    belum_tersedia. Pemeriksaan memakai find_spec — error DI DALAM
+    modul yang ada (mis. ImportError dari dependensinya) tetap raise,
+    supaya bug tidak tertutup diam-diam oleh jalur "belum ada".
+    engine.learning wajib (tanpa itu ringkasan tidak bisa dibangun);
+    calibration/proposals opsional (bagiannya ditandai belum tersedia
+    di laporan).
+    """
+    belum_tersedia: list[str] = []
+
+    def _coba(nama: str):
+        if importlib.util.find_spec(nama) is None:
+            belum_tersedia.append(nama)
+            return None
+        return importlib.import_module(nama)
+
+    learning_mod = _coba("engine.learning")
+    calibration_mod = _coba("engine.calibration")
+    proposals_mod = _coba("engine.proposals")
+    return learning_mod, calibration_mod, proposals_mod, belum_tersedia
+
+
+def bangun_data_belajar(
+    outcomes,
+    sumber_data: str,
+    *,
+    modul=None,
+    n_settled: int | None = None,
+    n_pending: int = 0,
+    n_dikeluarkan: int = 0,
+    n_hasil_tidak_dikenal: int | None = None,
+    n_tiket: int | None = None,
+    pesan: str | None = None,
+    catatan_sumber: str | None = None,
+):
+    """Rakit dict data laporan belajar dari daftar outcome record.
+
+    outcomes: daftar dict kontrak OUTCOME RECORD (engine/learning.py).
+    sumber_data: "ledger" | "replay" | "sintetis". modul: tuple dari
+    _modul_belajar (None = muat sendiri). Hitungan n_* bila tidak
+    diberikan dihitung dari outcomes (n_settled) atau 0.
+    Dipakai cmd_belajar dan scripts/laporan_belajar_replay.py.
+    Mengembalikan (data, error): error str bila engine.learning belum
+    tersedia (data None); bila tidak, error None.
+    """
+    if modul is None:
+        modul = _modul_belajar()
+    learning_mod, calibration_mod, proposals_mod, hilang = modul
+    if learning_mod is None:
+        return None, "modul engine/learning.py belum tersedia"
+    outcomes = [o for o in (outcomes or []) if isinstance(o, dict)]
+    settled = [
+        o
+        for o in outcomes
+        if o.get("settled") is True and o.get("result") in (True, False)
+    ]
+    ada_data = len(settled) > 0
+    ringkasan = learning_mod.ringkasan_keseluruhan(outcomes) if ada_data else None
+    per_pasar = learning_mod.ringkasan_per_pasar(outcomes) if ada_data else None
+    kalibrasi_w = (
+        calibration_mod.rekomendasi_w(outcomes) if calibration_mod is not None else None
+    )
+    usulan = (
+        proposals_mod.hasilkan_usulan(per_pasar or {}, outcomes)
+        if proposals_mod is not None
+        else None
+    )
+    data = {
+        "sumber_data": sumber_data,
+        "ada_data": ada_data,
+        "pesan": pesan,
+        "ringkasan": ringkasan,
+        "ringkasan_per_pasar": per_pasar,
+        "kalibrasi_w": kalibrasi_w,
+        "usulan": usulan,
+        "n_settled": n_settled if n_settled is not None else len(settled),
+        "n_pending": n_pending,
+        "n_dikeluarkan": n_dikeluarkan,
+        "n_hasil_tidak_dikenal": n_hasil_tidak_dikenal,
+        "n_tiket": n_tiket,
+        "dibuat_pada": datetime.datetime.now(datetime.UTC).isoformat(),
+        "catatan_sumber": catatan_sumber,
+        "modul_belum_tersedia": hilang,
+    }
+    return data, None
+
+
+def _muat_fixture_sintetis():
+    """Baca fixture kaki sintetis -> (outcomes, error)."""
+    try:
+        dokumen = json.loads(FIXTURE_SINTETIS_BELAJAR.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"tidak bisa membaca fixture sintetis: {exc}"
+    kaki = dokumen.get("kaki") if isinstance(dokumen, dict) else None
+    if not isinstance(kaki, list) or not kaki:
+        return None, "fixture sintetis tidak berisi daftar kaki"
+    return kaki, None
+
+
+def cmd_belajar(args: argparse.Namespace) -> int:
+    """Laporan belajar dari hasil tercatat (Tahap 3 Langkah 6).
+
+    Default: baca ledger (--db), bangun ringkasan Brier per pasar +
+    kalibrasi bobot w + usulan lewat modul Langkah 6, cetak laporan.
+    Bila belum ada data -> laporan "belum ada data", exit 0.
+    --contoh-sintetis memakai fixture sintetis (laporan berlabel
+    SINTETIS). --keluaran menulis laporan ke file (dan mencetak
+    pathnya). Exit code: 0 sukses (termasuk belum ada data),
+    2 = tidak bisa jalan.
+    """
+    from report import learning_report as learning_report_mod
+
+    modul = _modul_belajar()
+    learning_mod = modul[0]
+    if learning_mod is None:
+        print(
+            "error: modul engine/learning.py belum tersedia — laporan "
+            "belajar belum bisa dibuat",
+            file=sys.stderr,
+        )
+        return 2
+    if args.contoh_sintetis:
+        outcomes, error = _muat_fixture_sintetis()
+        if error is not None:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        data, error = bangun_data_belajar(outcomes, "sintetis", modul=modul)
+    else:
+        hasil = learning_mod.muat_hasil_ledger(args.db)
+        data, error = bangun_data_belajar(
+            hasil.get("outcomes") or [],
+            "ledger",
+            modul=modul,
+            n_settled=hasil.get("n_settled"),
+            n_pending=hasil.get("n_pending") or 0,
+            n_dikeluarkan=hasil.get("n_dikeluarkan") or 0,
+            n_hasil_tidak_dikenal=hasil.get("n_hasil_tidak_dikenal"),
+            n_tiket=hasil.get("n_tiket"),
+            pesan=hasil.get("pesan"),
+        )
+    if error is not None:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    teks = learning_report_mod.render_laporan_belajar(data)
+    if args.keluaran:
+        try:
+            out_path = Path(args.keluaran)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(teks, encoding="utf-8")
+        except OSError as exc:
+            print(f"error: tidak bisa menulis {args.keluaran}: {exc}", file=sys.stderr)
+            return 2
+        print(f"laporan belajar ditulis ke {args.keluaran}")
+        return 0
+    print(teks)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """Bangun parser argumen CLI (analyze / recheck / laporan / tanya / racik / pantau / log / recap)."""
+    """Bangun parser argumen CLI (analyze / recheck / laporan / tanya / racik / pantau / log / recap / belajar)."""
     parser = argparse.ArgumentParser(
         prog="cli.py",
         description="muse-parlay-analyst — satu pintu masuk (Blueprint §10).",
@@ -1482,6 +1660,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _db_arg(p_recap)
     p_recap.set_defaults(func=cmd_recap)
+
+    p_belajar = sub.add_parser(
+        "belajar",
+        help="laporan belajar dari hasil tercatat (Tahap 3 Langkah 6)",
+    )
+    p_belajar.add_argument(
+        "--keluaran",
+        default=None,
+        help="file output laporan (default: cetak ke stdout)",
+    )
+    p_belajar.add_argument(
+        "--contoh-sintetis",
+        action="store_true",
+        help="demo dengan fixture kaki sintetis (laporan berlabel "
+        "SINTETIS — bukan hasil nyata)",
+    )
+    _db_arg(p_belajar)
+    p_belajar.set_defaults(func=cmd_belajar)
     return parser
 
 
