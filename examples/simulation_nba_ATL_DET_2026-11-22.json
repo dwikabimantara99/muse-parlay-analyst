@@ -2,17 +2,17 @@
   "match_id": "DET@ATL_2026-11-22",
   "sport": "nba",
   "iterations": 100000,
-  "generated_at": "2026-11-22T12:27:05.628692+00:00",
+  "generated_at": "2026-11-22T13:28:18.225751+00:00",
   "engine": {
     "name": "nba_sim",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "seed": null
   },
   "markets": {
-    "moneyline_home": 0.64091,
-    "moneyline_away": 0.35909,
-    "total_under_222": 0.47898,
-    "total_over_222": 0.50011
+    "moneyline_home": 0.59225,
+    "moneyline_away": 0.40775,
+    "total_under_218.5": 0.48251,
+    "total_over_218.5": 0.51749
   },
   "inputs_summary": {
     "home_tricode": "ATL",
@@ -22,10 +22,10 @@
     "pace_game": 100.64,
     "league_avg_off_rtg": 113.32,
     "league_avg_pace": 99.46499999999999,
-    "projected_home_points": 113.41,
-    "projected_away_points": 108.54,
-    "projected_margin": 4.87,
-    "projected_total": 221.95,
+    "projected_home_points": 110.96,
+    "projected_away_points": 107.78,
+    "projected_margin": 3.18,
+    "projected_total": 218.75,
     "recency_weights": {
       "season": 0.6,
       "last10": 0.4
@@ -44,6 +44,7 @@
     "sigma_total_points": 18.2198,
     "t_nu": 34.5,
     "bpm_scale": 1.0,
+    "bpm_replacement": -2.0,
     "base_absent_players": [
       "Asa Newell",
       "CJ McCollum",
@@ -56,7 +57,7 @@
       "Taurean Prince",
       "Ugonna Onyenso"
     ],
-    "elapsed_seconds": 1.7,
+    "elapsed_seconds": 1.693,
     "notes": [
       "pemain OUT tanpa data BPM/menit: Henri Veesaar (dampak absen tidak bisa dihitung, dihitung 0)",
       "pemain OUT tanpa data BPM/menit: Mouhamed Gueye (dampak absen tidak bisa dihitung, dihitung 0)",
@@ -65,42 +66,43 @@
   },
   "score_distribution": {
     "margin": {
-      "mean": 4.9,
-      "std": 13.86,
-      "median": 5.0,
-      "p5": -18.0,
-      "p25": -5.0,
-      "p75": 14.0,
-      "p95": 28.0
+      "mean": 3.14,
+      "std": 13.83,
+      "median": 3.0,
+      "p5": -20.0,
+      "p25": -6.0,
+      "p75": 12.0,
+      "p95": 26.0
     },
     "total": {
-      "mean": 222.68,
-      "std": 18.73,
-      "median": 223.0,
-      "p5": 192.0,
-      "p25": 210.0,
-      "p75": 235.0,
-      "p95": 254.0
+      "mean": 219.5,
+      "std": 18.78,
+      "median": 219.0,
+      "p5": 189.0,
+      "p25": 207.0,
+      "p74": 231.0,
+      "p75": 232.0,
+      "p95": 250.0
     },
     "home_points": {
-      "mean": 113.79,
-      "median": 114.0
+      "mean": 111.32,
+      "median": 111.0
     },
     "away_points": {
-      "mean": 108.89,
-      "median": 109.0
+      "mean": 108.18,
+      "median": 108.0
     },
-    "ot_probability": 0.0262
+    "ot_probability": 0.0286
   },
   "squad_scenarios": [
     {
       "scenario": "full",
       "absent_players": [],
       "markets": {
-        "moneyline_home": 0.46075,
-        "moneyline_away": 0.53925,
-        "total_under_222": 0.45298,
-        "total_over_222": 0.52612
+        "moneyline_home": 0.45862,
+        "moneyline_away": 0.54138,
+        "total_under_218.5": 0.38962,
+        "total_over_218.5": 0.61038
       }
     },
     {
@@ -119,10 +121,10 @@
         "Ugonna Onyenso"
       ],
       "markets": {
-        "moneyline_home": 0.58845,
-        "moneyline_away": 0.41155,
-        "total_under_222": 0.51926,
-        "total_over_222": 0.45983
+        "moneyline_home": 0.49815,
+        "moneyline_away": 0.50185,
+        "total_under_218.5": 0.55084,
+        "total_over_218.5": 0.44916
       }
     },
     {
@@ -142,10 +144,10 @@
         "Ugonna Onyenso"
       ],
       "markets": {
-        "moneyline_home": 0.70352,
-        "moneyline_away": 0.29648,
-        "total_under_222": 0.61116,
-        "total_over_222": 0.36894
+        "moneyline_home": 0.66431,
+        "moneyline_away": 0.33569,
+        "total_under_218.5": 0.6712,
+        "total_over_218.5": 0.3288
       }
     },
     {
@@ -167,10 +169,10 @@
         "Ugonna Onyenso"
       ],
       "markets": {
-        "moneyline_home": 0.72005,
-        "moneyline_away": 0.27995,
-        "total_under_222": 0.66162,
-        "total_over_222": 0.31894
+        "moneyline_home": 0.67419,
+        "moneyline_away": 0.32581,
+        "total_under_218.5": 0.76437,
+        "total_over_218.5": 0.23563
       }
     },
     {
@@ -191,10 +193,10 @@
         "Ugonna Onyenso"
       ],
       "markets": {
-        "moneyline_home": 0.66285,
-        "moneyline_away": 0.33715,
-        "total_under_222": 0.45462,
-        "total_over_222": 0.52369
+        "moneyline_home": 0.58076,
+        "moneyline_away": 0.41924,
+        "total_under_218.5": 0.48943,
+        "total_over_218.5": 0.51057
       }
     }
   ]

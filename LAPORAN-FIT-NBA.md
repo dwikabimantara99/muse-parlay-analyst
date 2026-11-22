@@ -7,6 +7,13 @@ Tanggal: 2026-11-22. Bahasa: Indonesia. Semua angka dari kode Python
 > dari data historis dan SUDAH dimasukkan ke `config/playstyle.yaml`
 > (v4) sesuai perintah kerja — tetapi **berlaku setelah user setujui**.
 > Laporan ini adalah bahan persetujuan itu.
+>
+> **Re-fit out-of-sample (patch 1b, §12):** fit + backtest diulang
+> dengan rating rolling point-in-time. Pergeseran parameter TIDAK
+> MATERIAL menurut ambang pelaporan §12 (sigma +4,4%/+4,2% < 10%;
+> home/B2B berubah < 0,5 poin) — nilai D12 di §1 tetap yang berlaku,
+> `playstyle.yaml` TIDAK diubah. Brier jujur kandang-menang adalah
+> 0,1983 (bukan 0,1859).
 
 ## 1. Ringkasan hasil fit
 
@@ -247,3 +254,186 @@ total naik 218,28 → 221,95).
 Tes baru: 42 (markets 14, nba_sim 18, fit 10). Suite penuh:
 559 tes, SEMUA LOLOS (exit 0, 2026-11-22) — termasuk tes worker
 paralel (blend + data). TIDAK commit — koordinator yang commit.
+
+## 12. Re-fit out-of-sample — rating rolling point-in-time (patch 1b, temuan auditor 1)
+
+Tanggal: 2026-11-22. Nilai §1 di atas TETAP terlihat dan tetap yang
+berlaku (D12); bagian ini adalah re-fit pembanding, BUKAN pengganti.
+`config/playstyle.yaml` TIDAK diubah oleh pekerjaan ini.
+
+### 12.1 Metode rolling (persis)
+
+- **Sumber box score.** `data/nba_history/games_all.json` ternyata
+  HANYA menyimpan poin (tanpa FGA/FTA/OREB/TOV) — tidak cukup untuk
+  possessions. Jalan keluar: respons MENTAH endpoint leaguegamefinder
+  yang sama (sudah dipakai `fetch_league_games`) ternyata memuat
+  kolom box score lengkap (FGA, FTA, OREB, TOV, PTS, MIN) — parser
+  kontrak hanya membuangnya. Skrip fit kini mem-parse respons mentah
+  itu sendiri (`parse_boxscores_leaguegamefinder`, 3 panggilan
+  keyless gratis, 0 kredit Odds API), di-cache ke
+  `data/nba_history/boxscores_{musim}.json` (+ `boxscores_all.json`).
+  Hasil: 5.402 record (2.701 laga × 2 tim) — 0 laga tanpa box score.
+- **Possessions (Dean Oliver).** POSS = FGA + 0,44×FTA − OREB + TOV.
+  off_rtg = 100×PTS/POSS sendiri; def_rtg = 100×PTS_lawan/POSS_lawan;
+  pace = 240×POSS/MIN_tim (POSS per 48 menit; MIN_tim = jumlah menit
+  pemain, 240 untuk laga regulasi; OT ditangani rumus karena MIN
+  ikut membesar).
+- **Point-in-time.** Untuk tiap laga, rating tiap tim dihitung HANYA
+  dari laga SEBELUM tanggal laga itu. Proses berjalan tanggal demi
+  tanggal: snapshot rating semua laga tanggal itu DULU, baru update
+  state dengan box score tanggal itu — box score satu tanggal tidak
+  pernah memengaruhi laga tanggal yang sama. Laga setelah tanggal
+  uji tidak memengaruhi rating (dibuktikan tes).
+- **Keputusan desain (D-R1 s.d. D-R5):**
+  - D-R1 — **Prior = rating BBRef musim SEBELUMNYA** untuk tim itu
+    (data masa lalu, bukan look-ahead). Untuk 2024-25, priornya
+    rating BBRef 2023-24 (di-fetch sekali, di-cache ke
+    `ratings_bbref_2023-24.json`).
+  - D-R2 — **Shrinkage awal musim:** rating =
+    (n×observasi + K×prior)/(n+K), K = 10 laga. n=0 → prior persis;
+    n=10 → 50/50; n=82 → ~89% observasi. K=10 adalah pilihan desain
+    yang didokumentasikan (bukan hasil fit).
+  - D-R3 — **Last10 di-shrink ke rating MUSIM** (bukan ke prior):
+    hirarki prior → musim → last10, agar prior musim lalu tidak
+    dihitung ganda di komponen last10.
+  - D-R4 — **Jendela reset tiap musim** (musim-berjalan + last10-
+    berjalan hanya dalam musim yang sama); carryover antar musim
+    hanya lewat prior D-R1.
+  - D-R5 — **Rata-rata liga (lg_avg) juga point-in-time:** rata-rata
+    off_rtg efektif ke-30 tim pada tanggal laga itu (tim yang belum
+    main menyumbang priornya). Rating efektif yang masuk
+    `project_points` = gabungan 60% musim + 40% last10 (bobot
+    recency dari config — SAMA seperti yang dipakai sim).
+- **Catatan perbandingan yang jujur.** Fit rolling berbeda dari fit
+  v1 dalam DUA hal sekaligus: (a) rating point-in-time (bukan musim
+  penuh), dan (b) bobot resensi 60/40 kini BEROPERASI (v1 memakai
+  100% rating musim penuh karena last10 per tanggal tidak ada).
+  Keduanya adalah perbaikan menuju "mengukur persis rumus yang
+  dipakai mesin", tetapi selisih angka di bawah adalah efek gabungan
+  keduanya, bukan efek (a) saja.
+
+### 12.2 Perbandingan parameter (v1 disetujui vs rolling)
+
+n = 2.701 laga di kedua fit; 0 laga dilewati di fit rolling
+(0 tanpa prior, 0 tanpa lg_avg).
+
+| Parameter | v1 (D12, disetujui) | Rolling | Selisih | Selisih % |
+|---|---|---|---|---|
+| sigma_margin_points | 13,8168 | 14,4307 | +0,6139 | +4,44% |
+| sigma_total_points | 18,2198 | 18,9868 | +0,7670 | +4,21% |
+| home_advantage_points | 1,6552 | 1,6639 | +0,0087 | +0,53% |
+| back_to_back_penalty_points | −1,596 | −1,5164 | +0,0796 | +4,99% |
+| altitude_adjustment_points | −0,0105 | −0,4094 | −0,3989 | — |
+| t_nu | 34,5 | 35,0 | +0,5 | +1,45% |
+
+Bukti pendukung rolling: slope regresi net rating 0,8786 (v1 0,9406),
+R² 0,2069 (v1 0,2696), SE intersep 0,277 (v1 0,2658); B2B
+mean_residual −0,5236 vs +0,9928, SE selisih 0,4303 (v1: −0,7057 vs
++0,8903, SE 0,4144); altitude SE selisih 1,1399 — nilai −0,4094 masih
+dalam noise (tetap "praktis nol", seperti v1); t_nu loglik −7686,5,
+kurtosis lebih 0,1612 (v1: −7685,9 / 0,1684). Mean residual total
++1,4388 (v1 +1,205) — masih konsisten dengan efek OT (§4).
+
+Hasil lengkap: `out/fit_nba_params_rolling.json` (gitignored);
+hasil v1 diamankan ke `out/fit_nba_params_v1.json` (file lama
+`out/fit_nba_params.json` tetap utuh).
+
+### 12.3 Penilaian materialitas — TIDAK MATERIAL
+
+Ambang pelaporan (bukan keputusan): material bila sigma berubah
+>10% ATAU home/B2B berubah >0,5 poin.
+
+- Sigma margin +4,44% (< 10%), sigma total +4,21% (< 10%).
+- Home berubah +0,0087 poin (< 0,5); B2B berubah +0,0796 poin
+  (< 0,5).
+- Altitude berubah −0,3989 poin tetapi TIDAK masuk kriteria
+  materialitas, dan nilainya tetap dalam noise (SE 1,14).
+
+**Verdict: TIDAK MATERIAL — tidak ada penanda "menunggu persetujuan
+ulang user".** Nilai D12 di §1 tetap yang berlaku di
+`playstyle.yaml`. Arah pergeseran sesuai dugaan auditor: sigma
+rolling LEBIH BESAR (residual tidak lagi diperkecil look-ahead) —
+v1 memang sedikit underestimate, sebesar ~4–4,5%, bukan kesalahan
+orde besar. Apakah nilai rolling (sigma 18,99) sebaiknya diadopsi
+menggantikan nilai D12 (sigma 18,22) adalah keputusan user/reviewer
+terpisah — pekerjaan ini hanya menyajikan angkanya.
+
+### 12.4 Backtest ulang dengan rating rolling (subset SAMA)
+
+Subset identik dengan run v1 (150 laga, 50 terbaru/musim —
+game_id diverifikasi SAMA persis), seed sama, config sama
+(parameter D12), base case saja. Waktu backtest 284,0 dtk.
+Hasil lengkap: `out/validation_nba_rolling.json`; v1 diamankan ke
+`out/validation_nba_v1.json`.
+
+| Event | Brier v1 | Brier rolling | Selisih |
+|---|---|---|---|
+| Kandang menang | 0,185911 | 0,198308 | +0,012397 (+6,67%) |
+| Under (median+8) | 0,230642 | 0,219926 | −0,010716 |
+
+- **Kandang menang: Brier jujur 0,1983.** Mean prediksi hampir sama
+  (0,5605 vs 0,5597), frekuensi aktual sama (0,58) — event ini
+  tidak bergantung model, jadi perbandingannya bersih. Temuan
+  auditor TERKONFIRMASI: v1 memang agak optimis (0,1859 → 0,1983).
+  Tetapi skill nyata TETAP ADA: Brier 0,1983 masih jauh di bawah
+  klimatologi 0,2436.
+- **Under: hati-hati membaca angka ini.** Brier membaik 0,2306 →
+  0,2199, TETAPI frekuensi aktual ikut berubah (0,64 → 0,6733)
+  karena garis Under (median model + 8) bergeser mengikuti median
+  model yang baru — event yang dinilai TIDAK identik antar run.
+  Yang TIDAK berubah: model tetap tidak membedakan antar laga
+  untuk Under (semua 150 prediksi jatuh dalam satu bucket
+  [0,6–0,7), mean 0,659) dan Brier model praktis SAMA dengan
+  klimatologi (rolling: 0,2199 vs klim 0,2200; v1: 0,2306 vs klim
+  0,2304). Jadi "perbaikan" Brier Under terutama mencerminkan
+  garis yang bergeser, BUKAN skill baru — kesimpulan v1 §6 butir 7
+  tetap berlaku: yang membedakan Alt Under adalah median model vs
+  garis market, bukan P(Under) model.
+- **Uji kepekaan di JSON rolling** memakai engine 1.1.0 (patch 1b
+  perbaikan 2, replacement level) — basis berubah vs v1 (median
+  222 → 218, proyeksi 221,95 → 217,22) KARENA engine, bukan karena
+  rolling. Bintang teratas yang dipilih (Daniels/Cunningham) sama
+  di kedua run; rumus dampak baru (sinkronisasi §12.6) memilih
+  bintang yang sama pada inputs ini, jadi JSON rolling tidak
+  terpengaruh urutan pekerjaan.
+- **Keterbatasan yang TETAP ADA:** cedera per tanggal untuk laga
+  historis tetap tidak tersedia — backtest tetap tanpa penyesuaian
+  pemain absen (last10 di sini adalah last10 STATISTIK TIM, bukan
+  skuad). Brier pasar tetap DATA_INCOMPLETE (tidak ada harga pasar
+  historis). B2B tetap dari tanggal kalender saja. Sigma_total
+  tetap mencakup varians OT (§4).
+
+### 12.5 Tes baru (patch 1b)
+
+`tests/test_fit_nba.py` +15 tes (10 → 25), `tests/test_validation.py`
++9 tes (15 → 24, termasuk 4 tes sinkronisasi §12.6): kebenaran rating rolling pada
+game log sintetis (nilai hitung tangan — possessions, off/def/pace,
+shrinkage musim + last10, gabungan efektif, lg_avg), sifat
+point-in-time (laga setelah tanggal uji dan box score tanggal yang
+sama TIDAK memengaruhi rating; laga setelahnya BOLEH memengaruhi
+laga berikutnya), determinisme, parsing box score mentah (termasuk
+anomali MATCHUP), fit-dengan-rolling ujung-ke-ujung, backtest
+rolling kecil + determinisme + laga tanpa rolling dilewati.
+Backtest penuh (150 laga, 100.000x) BUKAN bagian suite — itu run
+skrip. Suite tertarget: 49 tes, SEMUA LOLOS; ruff + black bersih.
+
+### 12.6 Sinkronisasi rumus dampak pemain (tugas tambahan pekerja perbaikan 2)
+
+`scripts/validate_nba_model.py` punya salinan `_dampak_pemain`
+sendiri (rumus lama: BPM × menit/48 × skala) yang dipakai
+pemeringkatan bintang uji kepekaan. Salinan itu kini DELEGASI ke
+`engine.nba_sim._dampak_pemain` (rumus tunggal di engine — TIDAK
+ada lagi duplikasi rumus di skrip; bila engine berubah signature,
+skrip gagal loud, bukan diam-diam memakai rumus lama):
+dampak = (BPM − bpm_replacement) × (mp/48) × bpm_scale ×
+faktor_overlap, bpm_replacement = −2,0 (dari config),
+faktor_overlap = 1 − w_last10 × missed_last10/10 dengan w_last10
+ternormalisasi (0,4) dan missed_last10 None → faktor 1,0.
+`jalankan_kepekaan` membaca bpm_replacement + bobot recency dari
+config (dinormalisasi seperti `simulate()`). Perubahan ini TIDAK
+mengubah hasil backtest (tidak ada cedera di input historis) —
+hanya konsistensi pemeringkatan bintang uji kepekaan. Tes:
+wrapper identik dengan fungsi engine untuk 7 kasus (termasuk
+missed None/invalid, BPM/menit hilang), nilai hitung tangan,
+dan satu kasus pembeda peringkat (rumus lama memilih Y, rumus
+baru memilih X).

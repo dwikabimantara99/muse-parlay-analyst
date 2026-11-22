@@ -3,6 +3,65 @@
 Cadangan jadwal/statistik NBA bila stats.nba.com gagal, dan sumber garis
 sportsbook bola (devig, DECISIONS.md urutan pembanding).
 
+Cedera NBA (fetch_injuries_nba) adalah pasangan cek silang tier 2 untuk
+PDF resmi tier 1 di nba_brain (aturan B2). Sejak 2026-11-22 ESPN
+MENGGANTIKAN Rotowire di peran itu — Rotowire gratis hanya mengembalikan
+5 entri + "Subscribers Only" (paywall, terverifikasi live 22 Nov 2026),
+sedang ESPN mengembalikan 110 cedera 30 tim dalam satu panggilan.
+
+PEMETAAN STATUS ESPN -> status ternormalisasi (dipakai is_injury,
+konflik status-vs-komentar, dan merge nba_brain):
+  Out -> OUT (eksak); Doubtful -> DOUBTFUL (eksak);
+  Questionable -> QUESTIONABLE (eksak); Probable -> PROBABLE (eksak);
+  Available -> AVAILABLE (eksak); Day-To-Day -> QUESTIONABLE
+  (perkiraan terdekat, status asli disimpan di "status_asli");
+  GTD / Game-Time Decision -> QUESTIONABLE (perkiraan terdekat).
+  Status lain -> None (tidak dikenal; merge mencatatnya di "missing").
+  Pemetaan ini SAMA dengan nba_brain._normalize_status — keduanya harus
+  tetap selaras; nba_brain memakai "status_normalized" dari entri ESPN
+  bila ada, dan _normalize_status hanya untuk baris tanpa field itu
+  (misal PDF resmi).
+
+KONFLIK STATUS vs KOMENTAR (terverifikasi di data live 22 Nov 2026):
+field "status" ESPN kadang bertentangan dengan shortComment-nya —
+contoh nyata: Ronald Holland II status Out tapi komentar "listed as
+questionable". Aturan: status adalah datum terstruktur (yang dipakai),
+komentar disimpan sebagai konteks ("detail" + "long_comment"), dan
+"status_comment_conflict" = True bila pasangan berikut terjadi
+(pencocokan substring case-insensitive, HANYA pada shortComment —
+longComment adalah narasi dan terbukti memberi false positive, misal
+"if he remains sidelined" yang kondisional):
+  - status OUT + komentar mengandung "questionable", "probable",
+    "game-time decision", "expected to play", "likely to play", atau
+    "will play" (contoh: Holland, Flemings — 2 dari 110 entri live);
+  - status PROBABLE/AVAILABLE + komentar mengandung "ruled out",
+    "will not play", "won't play", "will miss", "listed as out",
+    "is out for", "out for the", atau "sidelined";
+  - status QUESTIONABLE/DOUBTFUL + komentar mengandung salah satu
+    frasa "definitif tidak main" di atas (contoh: Day-To-Day tapi
+    "has been ruled out" — 8 dari 110 entri live).
+  Day-To-Day + "probable" BUKAN konflik (probable masih dalam keluarga
+  game-time decision). "Won't return" (laga yang sedang berjalan) BUKAN
+  sinyal konflik — itu soal laga berjalan, bukan laga berikutnya.
+
+ENTRI NON-CEDERA: daftar cedera ESPN juga memuat entri administratif
+yang BUKAN cedera — contoh nyata: Ugonna Onyenso Day-To-Day karena
+"agreed to a two-way contract". "is_injury" = True HANYA bila
+(a) status ternormalisasi OUT/DOUBTFUL/QUESTIONABLE, DAN (b) ada detail
+cedera (details.type/detail/side terisi, atau shortComment terisi),
+DAN (c) TIDAK ada alasan administratif sebagai isi utama shortComment
+(pola: "two-way contract/deal", "personal reasons", "G League
+assignment" / "assigned to ... G League", "suspend(ed/ion)"), DAN
+(d) details.type BUKAN "Rest"/"Personal" (klasifikasi ESPN sendiri;
+contoh: Tatum "(rest)", Small "personal reasons"). Catatan penting:
+pencocokan HANYA pada shortComment, bukan longComment — substring
+"two-way"/"g league" di longComment terbukti false positive pada
+pemain yang benar-benar cedera (misal Holmgren, Sheppard, Watkins —
+semuanya cedera sungguhan dengan kata itu di narasi). "Illness"
+(details.type) DIHITUNG sebagai detail kesehatan (pemain tidak
+tersedia karena alasan kesehatan). Entri is_injury=False TIDAK
+dihitung sebagai konfirmasi cedera oleh merge nba_brain.
+
 FAKTA: ESPN TIDAK PUNYA ODDS NBA. Terbukti di probe odds 2a-lanjutan
 (probes/espn_odds.py): scoreboard NBA hari ini 0/4 event punya odds,
 scoreboard NBA besok 0/6, dan summary laga NBA memuat field odds kosong
@@ -48,6 +107,179 @@ SOCCER_SCOREBOARD_URL = (
 
 # Total ESPN memakai prefiks "o"/"u" pada garis, misal "o3.5"/"u3.5".
 _TOTAL_LINE_RE = re.compile(r"^[ou]([0-9]+(?:\.[0-9]+)?)$", re.I)
+
+# Pemetaan status cedera ESPN -> status ternormalisasi (lihat docstring
+# modul). Kunci: huruf kecil, tanda hubung/garis bawah -> spasi.
+_STATUS_EXACT = {
+    "out": "OUT",
+    "doubtful": "DOUBTFUL",
+    "questionable": "QUESTIONABLE",
+    "probable": "PROBABLE",
+    "available": "AVAILABLE",
+}
+_STATUS_APPROX = {
+    "day to day": "QUESTIONABLE",
+    "gtd": "QUESTIONABLE",
+    "game time decision": "QUESTIONABLE",
+}
+
+# Sinyal di shortComment bahwa pemain DEFINITIF tidak main.
+_OUT_SIGNALS = (
+    "ruled out",
+    "will not play",
+    "won't play",
+    "will miss",
+    "listed as out",
+    "is out for",
+    "out for the",
+    "sidelined",
+)
+# Sinyal di shortComment bahwa pemain MUNGKIN/BISA main.
+_AVAILABLE_SIGNALS = (
+    "questionable",
+    "probable",
+    "game-time decision",
+    "game time decision",
+    "expected to play",
+    "likely to play",
+    "will play",
+)
+
+# Pola alasan administratif sebagai isi utama shortComment (bukan
+# cedera). Dicocokkan HANYA pada shortComment — lihat docstring modul
+# soal false positive di longComment.
+_NON_INJURY_RE = re.compile(
+    r"two-way (contract|deal)"
+    r"|personal reasons?"
+    r"|g league assignment"
+    r"|assigned to (the |his |her )?g league"
+    r"|suspend(ed|ion)",
+    re.I,
+)
+# details.type ESPN yang BUKAN cedera (klasifikasi ESPN sendiri).
+_NON_INJURY_DETAIL_TYPES = frozenset({"rest", "personal"})
+
+
+def normalize_injury_status(raw: object) -> tuple[str | None, str | None]:
+    """Normalisasi status cedera ESPN.
+
+    Mengembalikan (status_ternormalisasi, status_asli). status_asli
+    diisi hanya bila pemetaannya perkiraan (Day-To-Day/GTD) atau tidak
+    dikenal, agar jejaknya tidak hilang. Pemetaan sama dengan
+    nba_brain._normalize_status — keduanya harus tetap selaras.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None, None
+    key = re.sub(r"\s+", " ", raw.strip().lower().replace("-", " ").replace("_", " "))
+    if key in _STATUS_EXACT:
+        return _STATUS_EXACT[key], None
+    if key in _STATUS_APPROX:
+        return _STATUS_APPROX[key], raw.strip()
+    return None, raw.strip()
+
+
+def _status_comment_conflict(status_normalized: str | None, short_comment: str) -> bool:
+    """True bila status terstruktur bertentangan dengan shortComment.
+
+    Pasangan yang dianggap bertentangan (lihat docstring modul):
+    OUT + sinyal bisa-main; PROBABLE/AVAILABLE + sinyal definitif
+    tidak main; QUESTIONABLE/DOUBTFUL + sinyal definitif tidak main.
+    """
+    comment = (short_comment or "").lower()
+    says_out = any(signal in comment for signal in _OUT_SIGNALS)
+    says_available = any(signal in comment for signal in _AVAILABLE_SIGNALS)
+    if status_normalized == "OUT":
+        return says_available
+    if status_normalized in ("PROBABLE", "AVAILABLE"):
+        return says_out
+    if status_normalized in ("QUESTIONABLE", "DOUBTFUL"):
+        return says_out
+    return False
+
+
+def _is_injury_entry(
+    status_normalized: str | None, short_comment: str, details: dict
+) -> bool:
+    """True bila entri ESPN ini adalah konfirmasi cedera.
+
+    Syarat (lihat docstring modul): status OUT/DOUBTFUL/QUESTIONABLE,
+    ada detail cedera, dan tidak ada alasan administratif. "Illness"
+    dihitung sebagai detail kesehatan.
+    """
+    if status_normalized not in ("OUT", "DOUBTFUL", "QUESTIONABLE"):
+        return False
+    detail_type = str(details.get("type") or "").strip().lower()
+    if detail_type in _NON_INJURY_DETAIL_TYPES:
+        return False
+    if _NON_INJURY_RE.search(short_comment or ""):
+        return False
+    has_detail = bool(
+        details.get("type") or details.get("detail") or details.get("side")
+    ) or bool((short_comment or "").strip())
+    return has_detail
+
+
+def parse_injuries_nba(data: dict) -> list[dict]:
+    """Ubah respons JSON injuries ESPN jadi list cedera NBA.
+
+    Setiap entri: {player, team, status, detail, status_normalized,
+    status_comment_conflict, is_injury, long_comment, date, source,
+    tier} + "status_asli" bila pemetaan statusnya perkiraan
+    (Day-To-Day/GTD). "status" memakai istilah ESPN apa adanya ("Out",
+    "Day-To-Day", ...); "status_normalized" hasil normalize_injury_status;
+    "detail" = shortComment (fallback: gabungan type/detail/side dari
+    field details). "time" (jam pengambilan) TIDAK diisi di sini —
+    ditambahkan fetch_injuries_nba dari fetched_at FetchResult.
+    ValueError("espn_format_changed") bila field injuries tidak ada.
+    """
+    teams = data.get("injuries")
+    if not isinstance(teams, list):
+        raise ValueError("espn_format_changed")
+    injuries = []
+    for team in teams:
+        if not isinstance(team, dict):
+            continue
+        team_name = team.get("displayName")
+        for injury in team.get("injuries") or []:
+            if not isinstance(injury, dict):
+                continue
+            athlete = injury.get("athlete") or {}
+            player = athlete.get("displayName")
+            status = injury.get("status")
+            if not player or not team_name or not status:
+                continue
+            detail = injury.get("shortComment")
+            details = injury.get("details") or {}
+            if not detail:
+                parts = [
+                    str(details.get(key))
+                    for key in ("type", "detail", "side")
+                    if details.get(key)
+                ]
+                detail = " - ".join(parts) if parts else None
+            status_normalized, status_asli = normalize_injury_status(status)
+            short_comment = injury.get("shortComment") or ""
+            entry = {
+                "player": player,
+                "team": team_name,
+                "status": status,
+                "detail": detail,
+                "status_normalized": status_normalized,
+                "status_comment_conflict": _status_comment_conflict(
+                    status_normalized, short_comment
+                ),
+                "is_injury": _is_injury_entry(
+                    status_normalized, short_comment, details
+                ),
+                "long_comment": injury.get("longComment"),
+                "date": injury.get("date"),
+                "source": SOURCE,
+                "tier": TIER,
+            }
+            if status_asli is not None:
+                entry["status_asli"] = status_asli
+            injuries.append(entry)
+    return injuries
 
 
 # Satu limiter untuk SEMUA request modul ini (dibagi semua pemanggilan):
@@ -134,50 +366,6 @@ def parse_scoreboard(data: dict, sport: str) -> list[dict]:
             }
         )
     return games
-
-
-def parse_injuries_nba(data: dict) -> list[dict]:
-    """Ubah respons JSON injuries ESPN jadi list cedera NBA.
-
-    Setiap entri: {player, team, status, detail}. status memakai istilah
-    ESPN apa adanya ("Out", "Day-To-Day", ...); detail = shortComment
-    (fallback: gabungan type/detail/side dari field details).
-    ValueError("espn_format_changed") bila field injuries tidak ada.
-    """
-    teams = data.get("injuries")
-    if not isinstance(teams, list):
-        raise ValueError("espn_format_changed")
-    injuries = []
-    for team in teams:
-        if not isinstance(team, dict):
-            continue
-        team_name = team.get("displayName")
-        for injury in team.get("injuries") or []:
-            if not isinstance(injury, dict):
-                continue
-            athlete = injury.get("athlete") or {}
-            player = athlete.get("displayName")
-            status = injury.get("status")
-            if not player or not team_name or not status:
-                continue
-            detail = injury.get("shortComment")
-            if not detail:
-                details = injury.get("details") or {}
-                parts = [
-                    str(details.get(key))
-                    for key in ("type", "detail", "side")
-                    if details.get(key)
-                ]
-                detail = " - ".join(parts) if parts else None
-            injuries.append(
-                {
-                    "player": player,
-                    "team": team_name,
-                    "status": status,
-                    "detail": detail,
-                }
-            )
-    return injuries
 
 
 def _close_odds(section: dict, side: str) -> dict | None:
@@ -351,8 +539,12 @@ def fetch_scoreboard(
 def fetch_injuries_nba(client: HttpClient | None = None) -> FetchResult:
     """Ambil daftar cedera NBA dari ESPN (jenjang 2, cek silang).
 
-    data: list cedera {player, team, status, detail}. Fetch gagal ->
-    ok=False dengan error (tidak melempar).
+    data: list cedera (lihat parse_injuries_nba) + "time" (jam
+    pengambilan, = FetchResult.fetched_at) di tiap entri. extra
+    mencatat n_injuries (semua entri), n_injury (yang dihitung sebagai
+    konfirmasi cedera, is_injury True), dan n_non_injury (entri
+    administratif yang dikecualikan — two-way, rest, personal, dst).
+    Fetch gagal -> ok=False dengan error (tidak melempar).
     """
     fetched_at = now_iso()
     data, error = _fetch_json(NBA_INJURIES_URL, client)
@@ -363,13 +555,20 @@ def fetch_injuries_nba(client: HttpClient | None = None) -> FetchResult:
         injuries = parse_injuries_nba(data)
     except ValueError as exc:
         return FetchResult(SOURCE, TIER, fetched_at, False, error=str(exc))
+    for injury in injuries:
+        injury["time"] = fetched_at
+    n_non_injury = sum(1 for injury in injuries if not injury["is_injury"])
     return FetchResult(
         SOURCE,
         TIER,
         fetched_at,
         True,
         data=injuries,
-        extra={"n_injuries": len(injuries)},
+        extra={
+            "n_injuries": len(injuries),
+            "n_injury": len(injuries) - n_non_injury,
+            "n_non_injury": n_non_injury,
+        },
     )
 
 

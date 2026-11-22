@@ -161,6 +161,7 @@ PLAYERS = [
         "mp": 450,
         "mp_per_game": 28.0,
         "bpm": 1.8,
+        "bbref_slug": "k/kesslwa01",
     },
     {
         "player": "Brice Sensabaugh",
@@ -262,16 +263,58 @@ PDF_INJURIES = [
     },
 ]
 
-ROTOWIRE_INJURIES = [
-    {"player": "Walker Kessler", "team": "UTA", "status": "Out", "detail": "Knee"},
-    {"player": "Kyrie Irving", "team": "DAL", "status": "Probable", "detail": "Ankle"},
+# Bentuk TERPARSE fetcher ESPN (ingest/espn.py): status mentah +
+# status_normalized + flag konflik/is_injury + source/tier/time.
+ESPN_INJURIES = [
+    {
+        "player": "Walker Kessler",
+        "team": "Utah Jazz",
+        "status": "Out",
+        "detail": "Kessler (knee) won't play.",
+        "status_normalized": "OUT",
+        "status_comment_conflict": False,
+        "is_injury": True,
+        "source": "ESPN",
+        "tier": 2,
+        "time": FETCHED_AT,
+    },
+    {
+        "player": "Kyrie Irving",
+        "team": "Dallas Mavericks",
+        "status": "Probable",
+        "detail": "Irving (ankle) is probable.",
+        "status_normalized": "PROBABLE",
+        "status_comment_conflict": False,
+        "is_injury": True,
+        "source": "ESPN",
+        "tier": 2,
+        "time": FETCHED_AT,
+    },
     {
         "player": "Anthony Davis",
-        "team": "DAL",
+        "team": "Dallas Mavericks",
         "status": "Day-To-Day",
-        "detail": "Back",
+        "detail": "Davis (back) is day-to-day.",
+        "status_normalized": "QUESTIONABLE",
+        "status_asli": "Day-To-Day",
+        "status_comment_conflict": False,
+        "is_injury": True,
+        "source": "ESPN",
+        "tier": 2,
+        "time": FETCHED_AT,
     },
-    {"player": "LeBron James", "team": "LAL", "status": "Out", "detail": "Back"},
+    {
+        "player": "LeBron James",
+        "team": "Los Angeles Lakers",
+        "status": "Out",
+        "detail": "James (back) is out.",
+        "status_normalized": "OUT",
+        "status_comment_conflict": False,
+        "is_injury": True,
+        "source": "ESPN",
+        "tier": 2,
+        "time": FETCHED_AT,
+    },
 ]
 
 
@@ -290,6 +333,18 @@ def _adv_side_effect(season, last_n_games=None, client=None):
     return _ok("stats.nba.com", 1, ADV_LAST10)
 
 
+def _partisipasi_side_effect(targets, season=None, client=None):
+    """Game log palsu untuk _PatchSemua: Kessler absen 7/10, lain 0/10."""
+    hasil = {}
+    for t in targets or []:
+        nama = t.get("player")
+        hasil[nama] = {
+            "missed_last10": 7 if nama == "Walker Kessler" else 0,
+            "games_considered": 10,
+        }
+    return hasil
+
+
 class _PatchSemua:
     """Context manager: patch semua fetcher yang dipakai nba_brain."""
 
@@ -303,7 +358,8 @@ class _PatchSemua:
             "fetch_league_games": _ok("stats.nba.com", 1, GAMES),
             "fetch_player_advanced": _ok("Basketball-Reference", 2, PLAYERS),
             "fetch_report": _ok("Official NBA Injury Report", 1, PDF_INJURIES),
-            "fetch_injuries": _ok("Rotowire", 2, ROTOWIRE_INJURIES),
+            "fetch_injuries_nba": _ok("ESPN", 2, ESPN_INJURIES),
+            "fetch_missed_last10_many": _partisipasi_side_effect,
             "fetch_team_advanced": _fail(
                 "Basketball-Reference", 2, "tidak boleh dipanggil di jalur normal"
             ),
@@ -372,7 +428,7 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
                 ("nba_team_advanced_last10", "stats.nba.com", 1),
                 ("nba_player_impact", "Basketball-Reference", 2),
                 ("nba_injuries", "Official NBA Injury Report", 1),
-                ("nba_injuries", "Rotowire", 2),
+                ("nba_injuries", "ESPN", 2),
             ],
         )
         # Rata-rata liga dari 3 tim fixture.
@@ -446,8 +502,14 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
         self.assertEqual(kessler["player"], "Walker Kessler")
         self.assertEqual(kessler["status"], "OUT")
         self.assertEqual(kessler["team_tricode"], "UTA")
-        self.assertEqual(kessler["sources"], ["Official NBA Injury Report", "Rotowire"])
+        self.assertEqual(kessler["sources"], ["Official NBA Injury Report", "ESPN"])
         self.assertNotIn("conflict", kessler)
+        # Partisipasi game log tersambung (patch 1b): Kessler OUT
+        # mendapat missed_last10 dari side effect _PatchSemua.
+        kessler_pemain = next(
+            p for p in home["players"] if p["player"] == "Walker Kessler"
+        )
+        self.assertEqual(kessler_pemain["missed_last10"], 7)
 
     def test_blok_tim_tandang_dal(self):
         with _PatchSemua():
@@ -487,13 +549,13 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
         self.assertEqual(irving["status"], "QUESTIONABLE")
         self.assertEqual(
             irving["conflict"],
-            {"Official NBA Injury Report": "QUESTIONABLE", "Rotowire": "PROBABLE"},
+            {"Official NBA Injury Report": "QUESTIONABLE", "ESPN": "PROBABLE"},
         )
-        self.assertEqual(irving["sources"], ["Official NBA Injury Report", "Rotowire"])
+        self.assertEqual(irving["sources"], ["Official NBA Injury Report", "ESPN"])
         davis = [i for i in away["injuries"] if i["player"] == "Anthony Davis"][0]
         self.assertEqual(davis["status"], "QUESTIONABLE")
         self.assertEqual(davis["status_asli"], "Day-To-Day")
-        self.assertEqual(davis["sources"], ["Rotowire"])
+        self.assertEqual(davis["sources"], ["ESPN"])
 
     def test_fallback_bbref_tidak_dipanggil_bila_stats_ok(self):
         with _PatchSemua() as patched:
@@ -653,12 +715,12 @@ class TestFetchMatchInputsGagalSebagian(unittest.TestCase):
         ):
             result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
         self.assertTrue(result.ok)
-        # Cedera hanya dari Rotowire; Irving PROBABLE tanpa konflik.
+        # Cedera hanya dari ESPN; Irving PROBABLE tanpa konflik.
         irving = [
             i for i in result.data["away"]["injuries"] if i["player"] == "Kyrie Irving"
         ][0]
         self.assertEqual(irving["status"], "PROBABLE")
-        self.assertEqual(irving["sources"], ["Rotowire"])
+        self.assertEqual(irving["sources"], ["ESPN"])
         self.assertNotIn("conflict", irving)
         self.assertIn("injuries_official_pdf", result.data["missing"])
         self.assertNotIn("away.injuries", result.data["missing"])
@@ -667,7 +729,7 @@ class TestFetchMatchInputsGagalSebagian(unittest.TestCase):
     def test_cedera_kedua_sumber_gagal(self):
         with _PatchSemua(
             fetch_report=_fail("Official NBA Injury Report", 1, "pdf gagal"),
-            fetch_injuries=_fail("Rotowire", 2, "http_500: gagal"),
+            fetch_injuries_nba=_fail("ESPN", 2, "http_500: gagal"),
         ):
             result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
         self.assertTrue(result.ok)
@@ -675,7 +737,7 @@ class TestFetchMatchInputsGagalSebagian(unittest.TestCase):
         self.assertEqual(result.data["away"]["injuries"], [])
         for field in (
             "injuries_official_pdf",
-            "injuries_rotowire",
+            "injuries_espn",
             "home.injuries",
             "away.injuries",
         ):
@@ -690,12 +752,14 @@ class TestFetchMatchInputsGagalSebagian(unittest.TestCase):
                 "detail": None,
             }
         ]
-        rw = [
+        # Baris bentuk LAMA (tanpa status_normalized): menguji jalur
+        # fallback _normalize_status di merge.
+        espn_rows = [
             {"player": "John Collins", "team": "UTA", "status": "Out", "detail": "Knee"}
         ]
         with _PatchSemua(
             fetch_report=_ok("Official NBA Injury Report", 1, pdf),
-            fetch_injuries=_ok("Rotowire", 2, rw),
+            fetch_injuries_nba=_ok("ESPN", 2, espn_rows),
         ):
             result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
         collins = result.data["home"]["injuries"][0]
@@ -717,7 +781,7 @@ class TestFetchMatchInputsGagalSebagian(unittest.TestCase):
         ]
         with _PatchSemua(
             fetch_report=_ok("Official NBA Injury Report", 1, pdf),
-            fetch_injuries=_ok("Rotowire", 2, []),
+            fetch_injuries_nba=_ok("ESPN", 2, []),
         ):
             result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
         collins = result.data["home"]["injuries"][0]
@@ -751,7 +815,7 @@ class TestFetchMatchInputsGagalTotalDanInput(unittest.TestCase):
             fetch_team_advanced=_fail("Basketball-Reference", 2, "http_403"),
             fetch_player_advanced=_fail("Basketball-Reference", 2, "http_403"),
             fetch_report=_fail("Official NBA Injury Report", 1, "pdf gagal"),
-            fetch_injuries=_fail("Rotowire", 2, "http_500"),
+            fetch_injuries_nba=_fail("ESPN", 2, "http_500"),
         ):
             result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
         self.assertFalse(result.ok)
@@ -773,7 +837,7 @@ class TestFetchMatchInputsGagalTotalDanInput(unittest.TestCase):
                 "team_advanced_last10",
                 "player_advanced",
                 "injuries_official_pdf",
-                "injuries_rotowire",
+                "injuries_espn",
             },
         )
 
@@ -813,6 +877,140 @@ class TestFetchMatchInputsGagalTotalDanInput(unittest.TestCase):
         self.assertNotIn("home.form5", result.data["missing"])
 
 
+class TestMergeESPN(unittest.TestCase):
+    """Merge PDF resmi + ESPN: pengecualian non-cedera, flag konflik
+    komentar, dan kegagalan satu sumber (Perbaikan 4, patch 1b)."""
+
+    def _baris_espn(self, player, team, status, detail, **extra):
+        """Satu baris bentuk TERPARSE fetcher ESPN."""
+        baris = {
+            "player": player,
+            "team": team,
+            "status": status,
+            "detail": detail,
+            "status_normalized": extra.pop("status_normalized", None),
+            "status_comment_conflict": extra.pop("status_comment_conflict", False),
+            "is_injury": extra.pop("is_injury", True),
+            "source": "ESPN",
+            "tier": 2,
+            "time": FETCHED_AT,
+        }
+        baris.update(extra)
+        return baris
+
+    def test_entri_bukan_cedera_dikecualikan(self):
+        espn_rows = ESPN_INJURIES + [
+            self._baris_espn(
+                "Alex Two-Way",
+                "Utah Jazz",
+                "Day-To-Day",
+                "Two-Way agreed to a two-way contract.",
+                status_normalized="QUESTIONABLE",
+                status_asli="Day-To-Day",
+                is_injury=False,
+            ),
+            self._baris_espn(
+                "Ben Rest",
+                "Dallas Mavericks",
+                "Out",
+                "Rest (rest) is out.",
+                status_normalized="OUT",
+                is_injury=False,
+            ),
+        ]
+        with _PatchSemua(fetch_injuries_nba=_ok("ESPN", 2, espn_rows)):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        home_names = [i["player"] for i in result.data["home"]["injuries"]]
+        away_names = [i["player"] for i in result.data["away"]["injuries"]]
+        self.assertNotIn("Alex Two-Way", home_names)
+        self.assertNotIn("Ben Rest", away_names)
+        # Pengecualian dicatat di missing (jejak audit, bukan diam-diam).
+        self.assertIn("injuries_bukan_cedera:Alex Two-Way", result.data["missing"])
+        self.assertIn("injuries_bukan_cedera:Ben Rest", result.data["missing"])
+        # Cedera sungguhan tetap ada.
+        self.assertIn("Walker Kessler", home_names)
+        self.assertIn("Anthony Davis", away_names)
+
+    def test_konflik_komentar_diteruskan(self):
+        espn_rows = ESPN_INJURIES + [
+            self._baris_espn(
+                "Chris Konflik",
+                "Utah Jazz",
+                "Out",
+                "Konflik (knee) is listed as questionable.",
+                status_normalized="OUT",
+                status_comment_conflict=True,
+            ),
+        ]
+        with _PatchSemua(fetch_injuries_nba=_ok("ESPN", 2, espn_rows)):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        konflik = [
+            i for i in result.data["home"]["injuries"] if i["player"] == "Chris Konflik"
+        ][0]
+        self.assertEqual(konflik["status"], "OUT")
+        self.assertTrue(konflik["status_comment_conflict"])
+        self.assertIn("injuries_komentar_konflik:Chris Konflik", result.data["missing"])
+        # Entri tanpa konflik tidak membawa kunci itu.
+        kessler = [
+            i
+            for i in result.data["home"]["injuries"]
+            if i["player"] == "Walker Kessler"
+        ][0]
+        self.assertNotIn("status_comment_conflict", kessler)
+
+    def test_espn_gagal_pdf_saja(self):
+        with _PatchSemua(
+            fetch_injuries_nba=_fail("ESPN", 2, "http_500: gagal"),
+        ):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        self.assertTrue(result.ok)
+        # Irving hanya dari PDF: QUESTIONABLE, tanpa konflik.
+        irving = [
+            i for i in result.data["away"]["injuries"] if i["player"] == "Kyrie Irving"
+        ][0]
+        self.assertEqual(irving["status"], "QUESTIONABLE")
+        self.assertEqual(irving["sources"], ["Official NBA Injury Report"])
+        self.assertNotIn("conflict", irving)
+        # Davis (hanya ada di ESPN) tidak ada.
+        away_names = [i["player"] for i in result.data["away"]["injuries"]]
+        self.assertNotIn("Anthony Davis", away_names)
+        self.assertIn("injuries_espn", result.data["missing"])
+        self.assertNotIn("away.injuries", result.data["missing"])
+        self.assertNotIn("injuries_konflik:Kyrie Irving", result.data["missing"])
+
+    def test_baris_tanpa_status_normalized_dinormalisasi_merge(self):
+        # Baris bentuk lama (tanpa status_normalized, misal sumber lain)
+        # tetap dinormalisasi lewat _normalize_status di merge.
+        espn_rows = [
+            {
+                "player": "Dan Lama",
+                "team": "Utah Jazz",
+                "status": "Day-To-Day",
+                "detail": "Back",
+            }
+        ]
+        with _PatchSemua(
+            fetch_report=_ok("Official NBA Injury Report", 1, []),
+            fetch_injuries_nba=_ok("ESPN", 2, espn_rows),
+        ):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        dan = result.data["home"]["injuries"][0]
+        self.assertEqual(dan["player"], "Dan Lama")
+        self.assertEqual(dan["status"], "QUESTIONABLE")
+        self.assertEqual(dan["status_asli"], "Day-To-Day")
+
+    def test_b2_dua_sumber_terpenuhi(self):
+        # Cedera yang ada di kedua sumber membawa kedua nama sumber —
+        # bukti cek silang B2 bekerja.
+        with _PatchSemua():
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        kessler = result.data["home"]["injuries"][0]
+        self.assertEqual(kessler["sources"], ["Official NBA Injury Report", "ESPN"])
+        kinds = [(s["data_kind"], s["source"]) for s in result.data["sources"]]
+        self.assertIn(("nba_injuries", "Official NBA Injury Report"), kinds)
+        self.assertIn(("nba_injuries", "ESPN"), kinds)
+
+
 class TestNormalizeStatus(unittest.TestCase):
     def test_status_eksak(self):
         for raw, expected in (
@@ -839,6 +1037,93 @@ class TestNormalizeStatus(unittest.TestCase):
         status, asli = nba_brain._normalize_status(None)
         self.assertIsNone(status)
         self.assertIsNone(asli)
+
+
+class TestTambahPartisipasi(unittest.TestCase):
+    """Wiring partisipasi game log (patch 1b, koreksi tumpang-tindih)."""
+
+    def _blok(self):
+        return {
+            "tricode": "DET",
+            "players": [
+                {"player": "Jalen Duren", "bpm": 8.8, "mp_per_game": 19.0},
+                {"player": "Cade Cunningham", "bpm": 5.0, "mp_per_game": 35.0},
+                {"player": "Pemain Tanpa Slug", "bpm": 1.0, "mp_per_game": 10.0},
+            ],
+            "injuries": [
+                {"player": "Jalen Duren", "status": "OUT"},
+                {"player": "Pemain Tanpa Slug", "status": "OUT"},
+            ],
+        }
+
+    def _rows(self):
+        return [
+            {"player": "Jalen Duren", "bbref_slug": "d/durenja01"},
+            {"player": "Cade Cunningham", "bbref_slug": "c/cunnica01"},
+            {"player": "Pemain Tanpa Slug", "bbref_slug": None},
+        ]
+
+    def test_out_mendapat_missed_last10(self):
+        blok = self._blok()
+        missing: list = []
+        errors: dict = {}
+        panggilan: list = []
+
+        def palsu(targets, season=None, client=None):
+            panggilan.append((targets, season))
+            return {
+                "Jalen Duren": {"missed_last10": 10, "games_considered": 10},
+                "Pemain Tanpa Slug": {
+                    "missed_last10": None,
+                    "error": "tanpa slug",
+                },
+            }
+
+        with patch.object(nba_brain, "fetch_missed_last10_many", palsu):
+            nba_brain._tambah_partisipasi(
+                blok, self._rows(), 2027, None, missing, errors
+            )
+        # Hanya pemain OUT yang diambil game log-nya (Cade sehat).
+        self.assertEqual(len(panggilan), 1)
+        self.assertEqual(
+            {t["player"] for t in panggilan[0][0]},
+            {"Jalen Duren", "Pemain Tanpa Slug"},
+        )
+        self.assertEqual(panggilan[0][1], 2027)
+        pemain = {p["player"]: p for p in blok["players"]}
+        self.assertEqual(pemain["Jalen Duren"]["missed_last10"], 10)
+        self.assertNotIn("missed_last10", pemain["Cade Cunningham"])
+        self.assertNotIn("missed_last10", pemain["Pemain Tanpa Slug"])
+        self.assertIn("DET.participation:Pemain Tanpa Slug", missing)
+        self.assertEqual(errors, {})
+
+    def test_gagal_total_tidak_menggagalkan(self):
+        blok = self._blok()
+        missing: list = []
+        errors: dict = {}
+
+        def palsu_gagal(*args, **kwargs):
+            raise RuntimeError("jaringan putus")
+
+        with patch.object(nba_brain, "fetch_missed_last10_many", palsu_gagal):
+            nba_brain._tambah_partisipasi(
+                blok, self._rows(), 2027, None, missing, errors
+            )
+        self.assertIn("participation_DET", errors)
+        self.assertIn("DET.participation", missing)
+        for p in blok["players"]:
+            self.assertNotIn("missed_last10", p)
+
+    def test_tanpa_pemain_out_tidak_memanggil(self):
+        blok = {"tricode": "DET", "players": [{"player": "Cade Cunningham"}]}
+        missing: list = []
+        errors: dict = {}
+        with patch.object(
+            nba_brain, "fetch_missed_last10_many", side_effect=AssertionError
+        ):
+            nba_brain._tambah_partisipasi(blok, [], 2027, None, missing, errors)
+        self.assertEqual(missing, [])
+        self.assertEqual(errors, {})
 
 
 if __name__ == "__main__":

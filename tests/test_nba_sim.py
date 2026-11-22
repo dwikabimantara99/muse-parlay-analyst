@@ -31,6 +31,7 @@ def buat_cfg() -> dict:
                 "sigma_total_points": 17.5,
                 "t_nu": 6.0,
                 "bpm_scale": 1.0,
+                "bpm_replacement": -2.0,
                 "home_advantage_points": 2.5,
                 "back_to_back_penalty_points": -1.5,
                 "altitude_adjustment_points": 1.0,
@@ -274,11 +275,12 @@ class TestSimulate(unittest.TestCase):
         ml_m1 = per_skenario["missing_1"]["moneyline_home"]
         ml_m2 = per_skenario["missing_2"]["moneyline_home"]
         ml_m4 = per_skenario["missing_4"]["moneyline_home"]
-        # Bintang kandang (BPM 8, 36 menit = 6 poin) absen -> peluang
-        # kandang menang turun. missing_2 juga mengeluarkan bintang
-        # tandang (5,1 poin) -> peluang kandang naik kembali dibanding
-        # missing_1, tapi tetap di bawah full (net -0,9 poin).
-        # missing_4 menambah 2 pemain lapis kedua (net -1,3 vs full).
+        # Bintang kandang (BPM 8, 36 menit, replacement -2 -> 7,5 poin)
+        # absen -> peluang kandang menang turun. missing_2 juga
+        # mengeluarkan bintang tandang (6,56 poin) -> peluang kandang
+        # naik kembali dibanding missing_1, tapi tetap di bawah full
+        # (net -0,94 poin). missing_4 menambah 2 pemain lapis kedua
+        # (net -1,34 vs full).
         self.assertLess(ml_m1, ml_full)
         self.assertLess(ml_m1, ml_m2)
         self.assertLess(ml_m2, ml_full)
@@ -425,6 +427,236 @@ class TestSimulate(unittest.TestCase):
         self.assertEqual(hasil["iterations"], 100000)
         elapsed = hasil["inputs_summary"]["elapsed_seconds"]
         self.assertLess(elapsed, 120.0)
+
+
+class TestReplacementLevelDanOverlap(unittest.TestCase):
+    """Patch langkah 1b perbaikan 2 (temuan auditor 2): replacement
+    level + koreksi tumpang-tindih last10."""
+
+    def test_dampak_pemain_rumus_replacement(self):
+        # (BPM - (-2,0)) x mp/48 x skala x faktor (missed 0 -> 1,0).
+        dampak, note = nba_sim._dampak_pemain(
+            {"player": "A", "bpm": 8.8, "mp_per_game": 30.0, "missed_last10": 0},
+            1.0,
+            -2.0,
+            0.4,
+        )
+        self.assertAlmostEqual(dampak, (8.8 + 2.0) * 30 / 48, places=9)
+        self.assertIsNone(note)
+        # BPM negatif di atas replacement: dampak tetap POSITIF.
+        dampak, _ = nba_sim._dampak_pemain(
+            {"player": "B", "bpm": -1.0, "mp_per_game": 24.0, "missed_last10": 0},
+            1.0,
+            -2.0,
+            0.4,
+        )
+        self.assertAlmostEqual(dampak, 0.5, places=9)
+        # BPM di bawah replacement: dampak NEGATIF — penggantinya
+        # (level -2,0) lebih baik darinya. Jawaban jujur model.
+        dampak, _ = nba_sim._dampak_pemain(
+            {"player": "C", "bpm": -3.0, "mp_per_game": 24.0, "missed_last10": 0},
+            1.0,
+            -2.0,
+            0.4,
+        )
+        self.assertAlmostEqual(dampak, -0.5, places=9)
+        # Tanpa BPM/menit: dampak 0.
+        dampak, _ = nba_sim._dampak_pemain({"player": "D"}, 1.0, -2.0, 0.4)
+        self.assertEqual(dampak, 0.0)
+
+    def test_faktor_overlap_duren_7_dari_10(self):
+        # Gaya Duren: BPM 8,8, 30 menit, absen 7 dari 10 laga terakhir
+        # tim -> faktor (1 - 0,4 x 7/10) = 0,72; dampak 10,8 x 30/48
+        # x 0,72 = 4,86 (tanpa koreksi: 6,75).
+        dampak, note = nba_sim._dampak_pemain(
+            {
+                "player": "Duren",
+                "bpm": 8.8,
+                "mp_per_game": 30.0,
+                "missed_last10": 7,
+            },
+            1.0,
+            -2.0,
+            0.4,
+        )
+        self.assertAlmostEqual(dampak, 10.8 * 30 / 48 * 0.72, places=9)
+        self.assertAlmostEqual(dampak, 4.86, places=9)
+        self.assertIsNone(note)
+        # missed 0 -> faktor 1,0; missed 10 -> faktor 0,6.
+        dampak_0, _ = nba_sim._dampak_pemain(
+            {"player": "X", "bpm": 5.0, "mp_per_game": 24.0, "missed_last10": 0},
+            1.0,
+            -2.0,
+            0.4,
+        )
+        dampak_10, _ = nba_sim._dampak_pemain(
+            {"player": "X", "bpm": 5.0, "mp_per_game": 24.0, "missed_last10": 10},
+            1.0,
+            -2.0,
+            0.4,
+        )
+        self.assertAlmostEqual(dampak_0, 7.0 * 0.5, places=9)
+        self.assertAlmostEqual(dampak_10, 7.0 * 0.5 * 0.6, places=9)
+
+    def test_pemain_bpm_negatif_absen_tidak_menaikkan_proyeksi(self):
+        # Temuan auditor: 4 pemain cadangan BPM negatif MENAIKKAN total
+        # DET-ATL +3,67 dengan rumus lama. Dengan replacement level,
+        # pemain BPM -1 yang absen MENURUNKAN proyeksi timnya sebesar
+        # (-1 + 2) x 20/48 = 0,4167 poin.
+        inputs = buat_inputs()
+        inputs["home"]["players"].append(
+            {
+                "player": "Cadangan Negatif",
+                "bpm": -1.0,
+                "mp_per_game": 20.0,
+                "team_tricode": "ATL",
+            }
+        )
+        hasil_sehat = nba_sim.simulate(inputs, cfg=buat_cfg(), seed=9, iterations=500)
+        inputs["home"]["injuries"] = [
+            {
+                "player": "Cadangan Negatif",
+                "status": "OUT",
+                "team_tricode": "ATL",
+                "sources": ["tes"],
+            }
+        ]
+        hasil_cedera = nba_sim.simulate(inputs, cfg=buat_cfg(), seed=9, iterations=500)
+        self.assertAlmostEqual(
+            hasil_sehat["inputs_summary"]["projected_home_points"]
+            - hasil_cedera["inputs_summary"]["projected_home_points"],
+            0.4167,
+            delta=0.02,
+        )
+        self.assertLess(
+            hasil_cedera["inputs_summary"]["projected_total"],
+            hasil_sehat["inputs_summary"]["projected_total"],
+        )
+
+    def test_missed_last10_hilang_faktor_1_dan_catatan(self):
+        inputs = buat_inputs()
+        inputs["home"]["injuries"] = [
+            {
+                "player": "Bintang Home",
+                "status": "OUT",
+                "team_tricode": "ATL",
+                "sources": ["tes"],
+            }
+        ]
+        hasil = nba_sim.simulate(inputs, cfg=buat_cfg(), seed=9, iterations=500)
+        catatan = hasil["inputs_summary"]["notes"]
+        self.assertTrue(
+            any("missed_last10 Bintang Home tidak ada" in c for c in catatan)
+        )
+        # Faktor 1,0: proyeksi kandang turun penuh 7,5 poin vs sehat.
+        hasil_sehat = nba_sim.simulate(
+            buat_inputs(), cfg=buat_cfg(), seed=9, iterations=500
+        )
+        self.assertAlmostEqual(
+            hasil_sehat["inputs_summary"]["projected_home_points"]
+            - hasil["inputs_summary"]["projected_home_points"],
+            7.5,
+            delta=0.02,
+        )
+
+    def test_missed_last10_mengurangi_dampak_di_simulasi(self):
+        # Bintang Home OUT dengan missed 7/10 -> dampak 7,5 x 0,72 = 5,4
+        # (bukan 7,5); tidak ada catatan missed_last10 untuknya.
+        inputs = buat_inputs()
+        inputs["home"]["players"][0]["missed_last10"] = 7
+        inputs["home"]["injuries"] = [
+            {
+                "player": "Bintang Home",
+                "status": "OUT",
+                "team_tricode": "ATL",
+                "sources": ["tes"],
+            }
+        ]
+        hasil = nba_sim.simulate(inputs, cfg=buat_cfg(), seed=9, iterations=500)
+        self.assertFalse(
+            any("Bintang Home" in c for c in hasil["inputs_summary"]["notes"])
+        )
+        hasil_sehat = nba_sim.simulate(
+            buat_inputs(), cfg=buat_cfg(), seed=9, iterations=500
+        )
+        self.assertAlmostEqual(
+            hasil_sehat["inputs_summary"]["projected_home_points"]
+            - hasil["inputs_summary"]["projected_home_points"],
+            5.4,
+            delta=0.02,
+        )
+
+    def test_missed_last10_tidak_valid_faktor_1_dan_catatan(self):
+        for buruk in (11, -1, "tujuh", True, 2.5):
+            with self.subTest(missed_last10=buruk):
+                dampak, note = nba_sim._dampak_pemain(
+                    {
+                        "player": "X",
+                        "bpm": 5.0,
+                        "mp_per_game": 24.0,
+                        "missed_last10": buruk,
+                    },
+                    1.0,
+                    -2.0,
+                    0.4,
+                )
+                self.assertAlmostEqual(dampak, 7.0 * 0.5, places=9)
+                self.assertIsNotNone(note)
+                self.assertIn("tidak valid", note)
+
+    def test_tiga_bintang_vs_dua_bintang(self):
+        # Skenario arbitrer: 3 pemain inti kandang absen vs 2 inti
+        # tandang. Dampak eksplisit (replacement -2,0, faktor 1,0):
+        # kandang 7,5 + 3,125 + 2,0417 = 12,6667; tandang 6,5625 +
+        # 2,71875 = 9,28125; net margin -3,3854 vs full.
+        inputs = buat_inputs()
+        dampak_kandang = sum(
+            nba_sim._dampak_pemain(p, 1.0, -2.0, 0.4)[0]
+            for p in inputs["home"]["players"][:3]
+        )
+        dampak_tandang = sum(
+            nba_sim._dampak_pemain(p, 1.0, -2.0, 0.4)[0]
+            for p in inputs["away"]["players"][:2]
+        )
+        self.assertAlmostEqual(dampak_kandang, 12.6667, places=4)
+        self.assertAlmostEqual(dampak_tandang, 9.28125, places=4)
+        self.assertAlmostEqual(dampak_kandang - dampak_tandang, 3.3854, places=4)
+        # Arah + besaran di peluang: kandang jauh lebih kecil dari full.
+        hasil = nba_sim.simulate(
+            buat_inputs(),
+            cfg=buat_cfg(),
+            scenarios=[
+                {"name": "full", "home_out": [], "away_out": []},
+                {
+                    "name": "tiga_vs_dua",
+                    "home_out": ["Bintang Home", "Starter Home 2", "Starter Home 3"],
+                    "away_out": ["Bintang Away", "Starter Away 2"],
+                },
+            ],
+            seed=9,
+            iterations=20000,
+        )
+        per_skenario = {s["scenario"]: s["markets"] for s in hasil["squad_scenarios"]}
+        ml_full = per_skenario["full"]["moneyline_home"]
+        ml_sken = per_skenario["tiga_vs_dua"]["moneyline_home"]
+        self.assertLess(ml_sken, ml_full)
+        # Selisih margin -3,39 pada sigma margin 13,5 -> peluang kandang
+        # turun > 5 poin persentase (seed tetap, deterministik).
+        self.assertLess(ml_sken, ml_full - 0.05)
+
+    def test_p74_hadir_di_output(self):
+        hasil = nba_sim.simulate(buat_inputs(), cfg=buat_cfg(), seed=9, iterations=5000)
+        total = hasil["score_distribution"]["total"]
+        self.assertIn("p74", total)
+        self.assertLessEqual(total["median"], total["p74"])
+        self.assertLessEqual(total["p74"], total["p75"])
+
+    def test_bpm_replacement_null_melempar_config_error(self):
+        cfg = buat_cfg()
+        cfg["simulation"]["nba"]["bpm_replacement"] = None
+        with self.assertRaises(config_mod.ConfigError) as ctx:
+            nba_sim.simulate(buat_inputs(), cfg=cfg, iterations=100)
+        self.assertIn("parameter_belum_difit", str(ctx.exception))
 
 
 if __name__ == "__main__":

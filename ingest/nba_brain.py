@@ -36,25 +36,38 @@ ATURAN GAGAL (sesuai DECISIONS.md B):
   "missing" terisi. Data selalu berbentuk kontrak (kecuali input tidak
   valid -> ok=False, data=None).
 - Nama di "missing" memakai jalur field bertitik ("home.stats_season",
-  "h2h_last5", "league.avg_pace"), kecuali tiga yang memakai nama
-  khusus: "tournament_flag_tidak_dapat_ditentukan",
-  "injuries_konflik:<pemain>", "injuries_status_tidak_dikenal:<pemain>".
+  "h2h_last5", "league.avg_pace"), kecuali yang memakai nama khusus:
+  "tournament_flag_tidak_dapat_ditentukan",
+  "injuries_konflik:<pemain>", "injuries_status_tidak_dikenal:<pemain>",
+  "injuries_tim_tidak_dikenal", "injuries_bukan_cedera:<pemain>",
+  "injuries_komentar_konflik:<pemain>".
 - rest_days = jumlah hari istirahat penuh antar laga: selisih hari dari
   laga terakhir sebelum game_date dikurangi 1 (main kemarin -> 0).
   back_to_back = rest_days == 0. Tanpa laga sebelumnya -> keduanya None.
 - Statistik musim: tier 1 stats.nba.com dulu; bila gagal, fallback ke
   Basketball-Reference (tier 2, hanya musim — tidak ada fallback
   10-laga-terakhir). Sumber yang dipakai dicatat di "sources".
-- Cedera (B2): PDF resmi (tier 1) + Rotowire (tier 2). Status
-  dinormalisasi ke OUT/DOUBTFUL/QUESTIONABLE/PROBABLE/AVAILABLE;
+- Cedera (B2): PDF resmi (tier 1) + ESPN (tier 2, sejak 2026-11-22;
+  Rotowire dicopot — versi gratisnya hanya 5 entri + paywall).
+  Status dinormalisasi ke OUT/DOUBTFUL/QUESTIONABLE/PROBABLE/AVAILABLE;
   "Day-To-Day"/"GTD" dipetakan ke QUESTIONABLE (perkiraan terdekat,
   status asli disimpan di "status_asli"); status yang tidak bisa
-  dipetakan -> None + dicatat di "missing". Bila dua sumber berbeda
-  status, yang dipakai adalah status tier tertinggi (B1) dan konfliknya
-  dicatat di "missing" + kunci "conflict" di entri cedera (B2: jangan
-  pilih diam-diam). Bila status tier 1 tidak terbaca tapi tier 2
-  terbaca, status tier 2 yang dipakai (status yang diketahui mengalahkan
-  status yang tidak terbaca).
+  dipetakan -> None + dicatat di "missing". Baris ESPN yang sudah
+  membawa "status_normalized" dipakai apa adanya (pemetaan ESPN di
+  ingest/espn.py, selaras dengan _normalize_status di sini); baris
+  tanpa field itu (PDF) dinormalisasi dengan _normalize_status.
+  Bila dua sumber berbeda status, yang dipakai adalah status tier
+  tertinggi (B1) dan konfliknya dicatat di "missing" + kunci
+  "conflict" di entri cedera (B2: jangan pilih diam-diam). Bila status
+  tier 1 tidak terbaca tapi tier 2 terbaca, status tier 2 yang dipakai
+  (status yang diketahui mengalahkan status yang tidak terbaca).
+  Entri ESPN dengan is_injury False (bukan cedera: kontrak two-way,
+  rest, personal, dst — lihat ingest/espn.py) TIDAK dihitung sebagai
+  konfirmasi cedera: tidak masuk daftar cedera, dicatat di "missing"
+  sebagai "injuries_bukan_cedera:<pemain>". Entri ESPN dengan
+  status_comment_conflict True (status vs komentar bertentangan)
+  diteruskan ke entri gabung sebagai kunci "status_comment_conflict"
+  + dicatat di "missing" sebagai "injuries_komentar_konflik:<pemain>".
 - tournament: None sampai ada sumber yang bisa menentukannya — tanggal
   NBA Cup/Playoff TIDAK ditebak.
 - altitude_home: True bila tricode tim ini DEN/UTA (fakta arena).
@@ -68,8 +81,9 @@ from datetime import date
 from ingest import matching
 from ingest.bbref import fetch_player_advanced, fetch_team_advanced
 from ingest.common import FetchResult, HttpClient, now_iso
+from ingest.espn import fetch_injuries_nba
 from ingest.nba_injury_pdf import fetch_report
-from ingest.rotowire import fetch_injuries
+from ingest.player_gamelog import fetch_missed_last10_many
 from ingest.stats_nba import (
     TEAM_TRICODES,
     fetch_league_games,
@@ -309,7 +323,7 @@ def _normalize_status(raw: object) -> tuple[str | None, str | None]:
 
 def _merge_injuries(
     pdf_result: FetchResult,
-    rotowire_result: FetchResult,
+    espn_result: FetchResult,
     tricodes: tuple[str, str],
     missing: list,
 ) -> dict[str, list[dict]]:
@@ -318,11 +332,18 @@ def _merge_injuries(
     Hanya pemain dari kedua tim yang dikembalikan. Konflik status antar
     sumber dan status yang tidak bisa dipetakan dicatat ke `missing`
     (daftar diubah di tempat). Sumber diproses berurutan tier 1 dulu
-    (PDF resmi), lalu tier 2 (Rotowire).
+    (PDF resmi), lalu tier 2 (ESPN). Baris dengan is_injury False
+    (entri ESPN non-cedera) dilewati dan dicatat di `missing` sebagai
+    "injuries_bukan_cedera:<pemain>"; baris tanpa field is_injury (PDF)
+    dianggap cedera. Baris ESPN yang membawa "status_normalized"
+    dipakai apa adanya; baris tanpa field itu dinormalisasi dengan
+    _normalize_status. Flag "status_comment_conflict" dari ESPN
+    diteruskan ke entri gabung + dicatat di `missing`.
     """
     work: dict[str, dict[str, dict]] = {tri: {} for tri in tricodes}
     unknown_team_seen = False
-    for result in (pdf_result, rotowire_result):
+    bukan_cedera: set[str] = set()
+    for result in (pdf_result, espn_result):
         if result is None or not result.ok:
             continue
         for row in result.data or []:
@@ -339,6 +360,11 @@ def _merge_injuries(
             norm_name = _normalize_player_name(row.get("player"))
             if not norm_name:
                 continue
+            if row.get("is_injury") is False:
+                # Entri non-cedera (two-way, rest, personal, dst) —
+                # bukan konfirmasi cedera, jangan masuk daftar.
+                bukan_cedera.add(str(row.get("player")))
+                continue
             entry = work[team_tri].setdefault(
                 norm_name,
                 {
@@ -346,18 +372,28 @@ def _merge_injuries(
                     "statuses": {},
                     "raw": {},
                     "sources": [],
+                    "comment_conflict": False,
                 },
             )
             if entry["player"] is None:
                 entry["player"] = row.get("player")
             if result.source not in entry["sources"]:
                 entry["sources"].append(result.source)
-            status, raw = _normalize_status(row.get("status"))
+            if "status_normalized" in row:
+                # Baris ESPN: pemetaan sudah dilakukan fetcher.
+                status = row.get("status_normalized")
+                raw = row.get("status_asli")
+            else:
+                status, raw = _normalize_status(row.get("status"))
             entry["statuses"][result.source] = status
             if raw is not None:
                 entry["raw"][result.source] = raw
+            if row.get("status_comment_conflict") is True:
+                entry["comment_conflict"] = True
     if unknown_team_seen:
         missing.append("injuries_tim_tidak_dikenal")
+    for player in sorted(bukan_cedera):
+        missing.append(f"injuries_bukan_cedera:{player}")
     merged: dict[str, list[dict]] = {}
     for tri in tricodes:
         entries = []
@@ -392,6 +428,9 @@ def _merge_injuries(
                 missing.append(f"injuries_konflik:{item['player']}")
             if any(value is None for value in item["statuses"].values()):
                 missing.append(f"injuries_status_tidak_dikenal:{item['player']}")
+            if item["comment_conflict"]:
+                injury["status_comment_conflict"] = True
+                missing.append(f"injuries_komentar_konflik:{item['player']}")
             entries.append(injury)
         entries.sort(key=lambda entry: str(entry["player"] or ""))
         merged[tri] = entries
@@ -488,6 +527,75 @@ def _build_team_block(
     else:
         block["injuries"] = injuries
     return block
+
+
+def _tambah_partisipasi(
+    block: dict,
+    players_rows: list | None,
+    bbref_season: int,
+    client: HttpClient | None,
+    missing: list,
+    fetch_errors: dict,
+) -> None:
+    """Tambahkan missed_last10 ke pemain OUT di blok tim (patch 1b).
+
+    Koreksi tumpang-tindih (temuan auditor 2): sim membutuhkan jumlah
+    dari 10 laga terakhir tim yang tidak dimainkan tiap pemain OUT,
+    diambil dari game log BBRef (ingest.player_gamelog). Hanya pemain
+    OUT di blok ini yang diambil game log-nya (hemat request).
+
+    players_rows: baris mentah fetch_player_advanced tim ini (membawa
+    bbref_slug). Best-effort: gagal total -> dicatat di fetch_errors +
+    missing, field tidak ditambahkan (sim memakai faktor 1,0 + notes —
+    perilaku lama, bukan karangan). Gagal per pemain (tanpa slug /
+    fetch gagal) -> dicatat di missing per pemain, field tidak
+    ditambahkan.
+    """
+    injuries = block.get("injuries") or []
+    out_names = {
+        _normalize_player_name(i.get("player"))
+        for i in injuries
+        if str(i.get("status") or "").upper() == "OUT"
+    }
+    players = block.get("players") or []
+    slug_by_name = {
+        _normalize_player_name(row.get("player")): row.get("bbref_slug")
+        for row in players_rows or []
+    }
+    targets = [
+        {
+            "player": p.get("player"),
+            "bbref_slug": slug_by_name.get(_normalize_player_name(p.get("player"))),
+            "team_tricode": block.get("tricode"),
+        }
+        for p in players
+        if _normalize_player_name(p.get("player")) in out_names
+    ]
+    if not targets:
+        return
+    tricode = block.get("tricode") or "?"
+    try:
+        hasil = fetch_missed_last10_many(targets, season=bbref_season, client=client)
+    except Exception as exc:  # noqa: BLE001 — best-effort enrichment
+        fetch_errors[f"participation_{tricode}"] = f"{type(exc).__name__}: {exc}"
+        missing.append(f"{tricode}.participation")
+        return
+    by_name = {
+        _normalize_player_name(nama): entri for nama, entri in (hasil or {}).items()
+    }
+    for p in players:
+        entri = by_name.get(_normalize_player_name(p.get("player")))
+        if not isinstance(entri, dict):
+            continue
+        missed = entri.get("missed_last10")
+        if (
+            isinstance(missed, int)
+            and not isinstance(missed, bool)
+            and 0 <= missed <= 10
+        ):
+            p["missed_last10"] = missed
+        else:
+            missing.append(f"{tricode}.participation:{p.get('player')}")
 
 
 def fetch_match_inputs(
@@ -647,7 +755,7 @@ def fetch_match_inputs(
     else:
         fetch_errors["player_advanced"] = players_result.error or "gagal"
 
-    # 5+6. Cedera: PDF resmi (tier 1) + Rotowire (tier 2).
+    # 5+6. Cedera: PDF resmi (tier 1) + ESPN (tier 2).
     pdf_result = _safe_fetch(fetch_report, date=game_date, client=client)
     if pdf_result.ok:
         sources.append(_source_entry("nba_injuries", pdf_result))
@@ -655,17 +763,17 @@ def fetch_match_inputs(
     else:
         fetch_errors["injuries_official_pdf"] = pdf_result.error or "gagal"
         missing.append("injuries_official_pdf")
-    rotowire_result = _safe_fetch(fetch_injuries, client=client)
-    if rotowire_result.ok:
-        sources.append(_source_entry("nba_injuries", rotowire_result))
+    espn_result = _safe_fetch(fetch_injuries_nba, client=client)
+    if espn_result.ok:
+        sources.append(_source_entry("nba_injuries", espn_result))
         n_ok += 1
     else:
-        fetch_errors["injuries_rotowire"] = rotowire_result.error or "gagal"
-        missing.append("injuries_rotowire")
+        fetch_errors["injuries_espn"] = espn_result.error or "gagal"
+        missing.append("injuries_espn")
     injuries_by_team: dict[str, list] | None = None
-    if pdf_result.ok or rotowire_result.ok:
+    if pdf_result.ok or espn_result.ok:
         injuries_by_team = _merge_injuries(
-            pdf_result, rotowire_result, (home, away), missing
+            pdf_result, espn_result, (home, away), missing
         )
 
     # Rakit blok tim.
@@ -692,6 +800,27 @@ def fetch_match_inputs(
         players_by_team.get(away) if players_by_team is not None else None,
         injuries_by_team.get(away) if injuries_by_team is not None else None,
         missing,
+    )
+
+    # 7. Partisipasi 10 laga terakhir untuk pemain OUT (patch 1b,
+    #    koreksi tumpang-tindih): game log BBRef per pemain OUT.
+    #    Best-effort: gagal -> missed_last10 tidak ada, sim memakai
+    #    faktor 1,0 + notes (lihat _tambah_partisipasi).
+    _tambah_partisipasi(
+        home_block,
+        players_by_team.get(home) if players_by_team is not None else None,
+        bbref_season,
+        client,
+        missing,
+        fetch_errors,
+    )
+    _tambah_partisipasi(
+        away_block,
+        players_by_team.get(away) if players_by_team is not None else None,
+        bbref_season,
+        client,
+        missing,
+        fetch_errors,
     )
 
     # H2H 5 pertemuan terakhir musim ini (terbaru dulu).

@@ -29,11 +29,24 @@ musim penuh (bias look-ahead, sama seperti fit); last10 per tanggal
 + cedera per tanggal TIDAK tersedia untuk laga lama, jadi simulate()
 fallback ke statistik musim dan tanpa penyesuaian pemain absen.
 
+MODE ROLLING (--rolling; patch 1b, temuan auditor 1): backtest
+memakai rating rolling point-in-time dari
+scripts/fit_nba_params.py (bangun_rating_rolling) — stats_season +
+stats_last10 per laga dari box score sebelum tanggal laga, prior
+rating BBRef musim sebelumnya, lg_avg per tanggal. Dalam mode ini
+keterbatasan look-ahead HILANG dan bobot resensi 60/40 beroperasi
+(last10 statistik tim tersedia); yang TETAP tidak tersedia adalah
+cedera per tanggal (backtest tetap tanpa penyesuaian pemain absen).
+Subset laga SAMA dengan run v1 (50 terbaru/musim) agar Brier
+sebanding. Uji kepekaan tidak berubah (inputs live, bukan historis).
+
 Hasil ditulis ke out/validation_nba.json (gitignored) + ringkasan
 di-print. TIDAK memanggil Odds API / API jup.ag. Satu-satunya
 panggilan network: SATU kali ingest.nba_brain.fetch_match_inputs
 (sumber gratis keyless, ter-cache) untuk inputs uji kepekaan — dan
 hanya bila cache out/sensitivity_inputs_det_atl.json belum ada.
+Mode rolling menambah fetch box score + prior BBRef BILA cache
+data/nba_history/ belum ada (gratis, keyless).
 """
 
 from __future__ import annotations
@@ -69,6 +82,28 @@ KETERBATASAN = [
     "stats_last10 per tanggal TIDAK tersedia untuk laga historis — "
     "simulate() fallback ke statistik musim saja (bobot resensi 60/40 "
     "tidak beroperasi; efektif 100% musim).",
+    "Cedera per tanggal TIDAK tersedia untuk laga historis — backtest "
+    "tanpa penyesuaian pemain absen (tidak ada pemain OUT di input).",
+    "B2B dari tanggal kalender saja (main sehari sebelumnya) — tidak "
+    "membedakan B2B kandang/tandang/perjalanan jauh.",
+    "Brier pasar DATA_INCOMPLETE: tidak ada harga pasar historis "
+    "(sportsbook/bursa) untuk laga-laga backtest, jadi Brier model "
+    "tidak bisa dibandingkan dengan Brier pasar.",
+    "sigma_total mencakup varians OT (lihat LAPORAN-FIT-NBA.md §4) — "
+    "sedikit konservatif untuk Under.",
+    "Subset ~150 laga: tiap bucket kalibrasi berisi sedikit laga, "
+    "jadi frekuensi aktual per bucket punya ketidakpastian besar — "
+    "hasil ini gambaran, bukan bukti kalibrasi.",
+]
+
+# Keterbatasan mode rolling (--rolling): look-ahead hilang dan last10
+# statistik tim tersedia; cedera per tanggal tetap tidak tersedia.
+KETERBATASAN_ROLLING = [
+    "TANPA bias look-ahead: rating rolling point-in-time (hanya laga "
+    "sebelum tanggal laga; prior = rating BBRef musim sebelumnya, "
+    "shrinkage K=10 laga; last10 di-shrink ke rating musim).",
+    "Bobot resensi 60/40 BEROPERASI (stats_last10 statistik tim "
+    "tersedia dari box score) — berbeda dari run v1 (100% musim).",
     "Cedera per tanggal TIDAK tersedia untuk laga historis — backtest "
     "tanpa penyesuaian pemain absen (tidak ada pemain OUT di input).",
     "B2B dari tanggal kalender saja (main sehari sebelumnya) — tidak "
@@ -161,19 +196,36 @@ def bangun_inputs(
     rating_musim: dict[str, dict[str, float]],
     lg_avg_off_rtg: float,
     b2b: dict[str, bool],
+    rolling_laga: dict | None = None,
 ) -> dict:
     """Bangun inputs minimal simulate() untuk satu laga historis.
 
-    stats_season dari rating musim penuh; stats_last10 TIDAK ADA
-    (simulate fallback ke musim — lihat KETERBATASAN); tanpa pemain
-    dan tanpa cedera (data per tanggal tidak tersedia). B2B dari peta
-    deteksi tanggal; altitude otomatis dari tricode kandang di engine.
+    Mode v1 (rolling_laga=None): stats_season dari rating musim
+    penuh; stats_last10 TIDAK ADA (simulate fallback ke musim —
+    lihat KETERBATASAN); tanpa pemain dan tanpa cedera (data per
+    tanggal tidak tersedia). B2B dari peta deteksi tanggal; altitude
+    otomatis dari tricode kandang di engine.
+    Mode rolling (rolling_laga dari bangun_rating_rolling): stats_season
+    + stats_last10 dari rating rolling per laga (bobot resensi
+    beroperasi); rating_musim/lg_avg_off_rtg diabaikan — lg_avg
+    diambil dari rolling_laga.
     """
     home = game["home_tricode"]
     away = game["away_tricode"]
     game_id = str(game.get("game_id"))
 
     def _blok(tricode: str) -> dict:
+        if rolling_laga is not None:
+            sisi = "home" if tricode == home else "away"
+            data_tim = rolling_laga[sisi]
+            return {
+                "tricode": tricode,
+                "stats_season": dict(data_tim["stats_season"]),
+                "stats_last10": dict(data_tim["stats_last10"]),
+                "back_to_back": bool(b2b.get(f"{game_id}:{tricode}", False)),
+                "players": [],
+                "injuries": [],
+            }
         rating = rating_musim[tricode]
         return {
             "tricode": tricode,
@@ -187,10 +239,13 @@ def bangun_inputs(
             "injuries": [],
         }
 
+    lg_avg = (
+        rolling_laga["lg_avg_off_rtg"] if rolling_laga is not None else lg_avg_off_rtg
+    )
     return {
         "home": _blok(home),
         "away": _blok(away),
-        "league": {"avg_off_rtg": lg_avg_off_rtg},
+        "league": {"avg_off_rtg": lg_avg},
         "match": {
             "game_date": game.get("game_date"),
             "season": game.get("season"),
@@ -260,44 +315,74 @@ def jalankan_backtest(
     ratings: dict[str, dict[str, dict[str, float]]],
     cfg: dict,
     iterations: int,
+    rolling: dict | None = None,
 ) -> dict:
     """Jalankan backtest atas subset laga; kembalikan hasil + waktu tempuh.
 
     games_semua dipakai untuk deteksi B2B (butuh jadwal penuh tiap
     tim). Seed per laga = int(game_id) — deterministik, beda tiap laga.
     Laga tanpa rating/skor dilewati + dicatat alasannya.
+    rolling: bila diberikan (dict game_id -> data dari
+    bangun_rating_rolling), inputs memakai rating rolling per laga
+    dan `ratings` diabaikan.
     """
     modul_fit = _muat_modul_fit()
     b2b = modul_fit.detect_back_to_back(games_semua)
     lg_avg: dict[str, float] = {}
-    for musim, per_tim in ratings.items():
-        nilai = [r["off_rtg"] for r in per_tim.values() if r.get("off_rtg") is not None]
-        lg_avg[musim] = statistics.fmean(nilai) if nilai else None
+    if rolling is None:
+        for musim, per_tim in ratings.items():
+            nilai = [
+                r["off_rtg"] for r in per_tim.values() if r.get("off_rtg") is not None
+            ]
+            lg_avg[musim] = statistics.fmean(nilai) if nilai else None
     hasil_per_laga: list[dict] = []
     dilewati: list[dict] = []
     mulai = time.perf_counter()
     for game in games_subset:
         musim = str(game.get("season"))
-        rating_musim = ratings.get(musim)
         home = game.get("home_tricode")
         away = game.get("away_tricode")
         alasan = None
-        if rating_musim is None:
-            alasan = f"rating musim {musim} tidak ada"
-        elif home not in rating_musim or away not in rating_musim:
-            alasan = f"rating tim hilang ({home}/{away})"
-        elif game.get("home_pts") is None or game.get("away_pts") is None:
-            alasan = "skor aktual hilang"
-        elif any(
-            rating_musim[t].get(k) is None
-            for t in (home, away)
-            for k in ("off_rtg", "def_rtg", "pace")
-        ):
-            alasan = f"rating tidak lengkap ({home}/{away})"
+        data_rolling = None
+        if rolling is not None:
+            data_rolling = rolling.get(str(game.get("game_id")))
+            if data_rolling is None:
+                alasan = "rating rolling tidak ada"
+            elif game.get("home_pts") is None or game.get("away_pts") is None:
+                alasan = "skor aktual hilang"
+            inputs = (
+                bangun_inputs(
+                    game,
+                    {},
+                    data_rolling["lg_avg_off_rtg"],
+                    b2b,
+                    rolling_laga=data_rolling,
+                )
+                if alasan is None
+                else None
+            )
+        else:
+            rating_musim = ratings.get(musim)
+            if rating_musim is None:
+                alasan = f"rating musim {musim} tidak ada"
+            elif home not in rating_musim or away not in rating_musim:
+                alasan = f"rating tim hilang ({home}/{away})"
+            elif game.get("home_pts") is None or game.get("away_pts") is None:
+                alasan = "skor aktual hilang"
+            elif any(
+                rating_musim[t].get(k) is None
+                for t in (home, away)
+                for k in ("off_rtg", "def_rtg", "pace")
+            ):
+                alasan = f"rating tidak lengkap ({home}/{away})"
+            inputs = (
+                bangun_inputs(game, rating_musim, lg_avg[musim], b2b)
+                if alasan is None
+                else None
+            )
         if alasan is not None:
             dilewati.append({"game_id": str(game.get("game_id")), "alasan": alasan})
             continue
-        inputs = bangun_inputs(game, rating_musim, lg_avg[musim], b2b)
         try:
             seed = int(str(game.get("game_id")))
         except (ValueError, TypeError):
@@ -340,19 +425,36 @@ def _ringkas_kalibrasi(ringkasan: dict) -> dict:
     }
 
 
-def _dampak_pemain(pemain: dict, bpm_scale: float) -> float:
-    """Dampak poin satu pemain (rumus yang sama dengan engine.nba_sim)."""
-    bpm = pemain.get("bpm")
-    mp = pemain.get("mp_per_game")
-    if bpm is None or mp is None:
-        return 0.0
-    return float(bpm) * (float(mp) / 48.0) * bpm_scale
+def _dampak_pemain(
+    pemain: dict, bpm_scale: float, bpm_replacement: float, w_last10: float
+) -> float:
+    """Dampak poin satu pemain — DELEGASI ke engine.nba_sim._dampak_pemain.
+
+    Rumus tunggal di engine (patch langkah 1b, perbaikan 2): dampak =
+    (BPM - bpm_replacement) x (mp_per_game/48) x bpm_scale x
+    faktor_overlap, faktor_overlap = 1 - w_last10 x missed_last10/10
+    (missed_last10 None -> faktor 1,0). Skrip ini SENGAJA tidak punya
+    salinan rumus sendiri: memakai fungsi engine yang sama berarti
+    pemeringkatan bintang di sini TIDAK BISA drift dari sim (bila
+    engine mengubah signature-nya, skrip ini gagal LOUD di sini,
+    bukan diam-diam memakai rumus lama). Hanya nilai dampak yang
+    dipakai (catatan overlap dibuang — pemeringkatan hanya butuh
+    nilainya). w_last10 = bobot resensi last10 yang SUDAH
+    dinormalisasi (sama seperti yang dipakai simulate()).
+    """
+    dampak, _catatan = nba_sim._dampak_pemain(
+        pemain, bpm_scale, bpm_replacement, w_last10
+    )
+    return dampak
 
 
-def _bintang_teratas(inputs: dict, bpm_scale: float) -> dict[str, str | None]:
+def _bintang_teratas(
+    inputs: dict, bpm_scale: float, bpm_replacement: float, w_last10: float
+) -> dict[str, str | None]:
     """Bintang teratas tiap tim yang masih tersedia (dampak terbesar).
 
     Tersedia = ada di daftar pemain dan tidak berstatus OUT.
+    Dampak memakai rumus engine (lihat _dampak_pemain).
     Mengembalikan {"home": nama|None, "away": nama|None}.
     """
     hasil: dict[str, str | None] = {}
@@ -369,7 +471,7 @@ def _bintang_teratas(inputs: dict, bpm_scale: float) -> dict[str, str | None]:
             nama = pemain.get("player")
             if not isinstance(nama, str) or nama in status_out:
                 continue
-            dampak = _dampak_pemain(pemain, bpm_scale)
+            dampak = _dampak_pemain(pemain, bpm_scale, bpm_replacement, w_last10)
             if dampak > dampak_terbaik:
                 dampak_terbaik = dampak
                 terbaik = nama
@@ -427,6 +529,19 @@ def jalankan_kepekaan(inputs: dict, cfg: dict, seed: int, iterations: int) -> di
     agar terlihat perubahan peluang pada garis yang sama.
     """
     bpm_scale = float(config_mod.get_value(cfg, "simulation", "nba", "bpm_scale"))
+    bpm_replacement = float(
+        config_mod.get_value(cfg, "simulation", "nba", "bpm_replacement")
+    )
+    # Bobot resensi dinormalisasi seperti simulate() — w_last10 yang
+    # masuk faktor overlap adalah bobot TERNORMALISASI (0,4).
+    w_musim = float(config_mod.get_value(cfg, "simulation", "nba", "recency", "season"))
+    w_terakhir = float(
+        config_mod.get_value(cfg, "simulation", "nba", "recency", "last10")
+    )
+    total_bobot = w_musim + w_terakhir
+    if total_bobot <= 0:
+        raise config_mod.ConfigError("bobot recency harus berjumlah > 0")
+    w_last10 = w_terakhir / total_bobot
 
     def _jalankan(inputs_var: dict, cfg_var: dict) -> dict:
         """Satu variasi, pass 1: median total + peluang kandang menang."""
@@ -458,7 +573,7 @@ def jalankan_kepekaan(inputs: dict, cfg: dict, seed: int, iterations: int) -> di
     # Daftar variasi: (nama, deskripsi, inputs, cfg).
     variasi_def: list[tuple[str, str, dict, dict]] = []
     variasi_dilewati: list[dict] = []
-    bintang = _bintang_teratas(inputs, bpm_scale)
+    bintang = _bintang_teratas(inputs, bpm_scale, bpm_replacement, w_last10)
     if bintang["home"] is None and bintang["away"] is None:
         variasi_dilewati.append(
             {
@@ -657,6 +772,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="lewati uji kepekaan (hanya backtest + kalibrasi)",
     )
+    parser.add_argument(
+        "--rolling",
+        action="store_true",
+        help="mode rolling point-in-time (patch 1b): backtest memakai "
+        "rating rolling dari box score, bukan rating musim penuh",
+    )
+    parser.add_argument(
+        "--boxscores-file",
+        default=None,
+        help="JSON box score gabungan (mode rolling; bila tidak ada, "
+        "cache/fetch per musim dari data dir)",
+    )
     args = parser.parse_args(argv)
     data_dir = REPO_ROOT / args.data_dir
     out_path = REPO_ROOT / args.out
@@ -669,7 +796,26 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         games_semua = load_games(data_dir)
-        ratings = load_ratings(data_dir, args.seasons)
+        rolling_data = None
+        info_rolling = None
+        if args.rolling:
+            modul_fit = _muat_modul_fit()
+            w_musim = float(
+                config_mod.get_value(cfg, "simulation", "nba", "recency", "season")
+            )
+            w_last10 = float(
+                config_mod.get_value(cfg, "simulation", "nba", "recency", "last10")
+            )
+            boxscores = modul_fit.load_boxscores(
+                args.seasons, args.boxscores_file, data_dir
+            )
+            priors = modul_fit.load_prior_ratings(args.seasons, data_dir)
+            rolling_data, info_rolling = modul_fit.bangun_rating_rolling(
+                games_semua, boxscores, priors, w_musim, w_last10
+            )
+            ratings = {}
+        else:
+            ratings = load_ratings(data_dir, args.seasons)
     except (RuntimeError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"validasi dibatalkan: {exc}", file=sys.stderr)
         return 2
@@ -679,8 +825,11 @@ def main(argv: list[str] | None = None) -> int:
         f"backtest: {len(subset)} laga "
         f"({args.per_musim} terbaru per musim: {', '.join(args.seasons)}), "
         f"{args.iterations} iterasi, base case saja"
+        + (" [rating rolling point-in-time]" if args.rolling else "")
     )
-    backtest = jalankan_backtest(subset, games_semua, ratings, cfg, args.iterations)
+    backtest = jalankan_backtest(
+        subset, games_semua, ratings, cfg, args.iterations, rolling=rolling_data
+    )
     print(
         f"backtest selesai: {backtest['n_laga']} laga, "
         f"dilewati {backtest['n_dilewati']}, "
@@ -716,10 +865,19 @@ def main(argv: list[str] | None = None) -> int:
     hasil = {
         "generated_at": datetime.now(UTC).isoformat(),
         "engine": {"name": "nba_sim", "version": nba_sim.ENGINE_VERSION},
+        "ratings_mode": "rolling" if args.rolling else "musim_penuh",
         "metode": {
             "subset": (
                 f"{args.per_musim} laga terbaru per musim "
                 f"({', '.join(args.seasons)})"
+            ),
+            "ratings": (
+                "rolling point-in-time: stats musim-berjalan + "
+                "last10-berjalan dari box score sebelum tanggal laga; "
+                "prior rating BBRef musim sebelumnya, shrinkage K=10; "
+                "lg_avg per tanggal"
+                if args.rolling
+                else "rating musim penuh BBRef (bias look-ahead)"
             ),
             "iterations": args.iterations,
             "scenarios": "base case saja (scenarios=[])",
@@ -735,7 +893,8 @@ def main(argv: list[str] | None = None) -> int:
                 "yang sama (noise sama)"
             ),
         },
-        "keterbatasan": KETERBATASAN,
+        "keterbatasan": KETERBATASAN_ROLLING if args.rolling else KETERBATASAN,
+        "rolling_info": info_rolling,
         "backtest": backtest,
         "kalibrasi": {
             "kandang_menang": _ringkas_kalibrasi(kal_home),

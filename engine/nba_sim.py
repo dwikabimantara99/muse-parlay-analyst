@@ -32,7 +32,24 @@ untuk memproyeksikan laga historis):
      disimpan BERTANDA (hasil fit = selisih residual, negatif bila tim
      B2B mencetak lebih sedikit), jadi ditambahkan, bukan dikurang.
    - pemain absen: mu_tim -= jumlah dampak pemain absen tim itu,
-     dampak = BPM x (mp_per_game / 48) x bpm_scale (Blueprint §5a).
+     dampak = (BPM - BPM_replacement) x (mp_per_game / 48) x bpm_scale
+     x faktor_overlap (patch langkah 1b, temuan auditor 2).
+     BPM_replacement = simulation.nba.bpm_replacement (-2,0 dari
+     literatur Basketball-Reference: pemain absen diganti pemain level
+     pengganti, bukan pemain nol — tanpa ini, pemain cadangan BPM
+     negatif yang absen justru MENAIKKAN proyeksi tim).
+     faktor_overlap = 1 - w_last10 x (missed_last10 / 10), dengan
+     w_last10 = bobot resensi last10 yang sudah dinormalisasi dan
+     missed_last10 = jumlah dari 10 laga terakhir TIM yang tidak
+     dimainkan pemain itu (field opsional `missed_last10` per dict
+     pemain, diisi ingest.player_gamelog). Alasan: rating tim sudah
+     mengandung 40% last10, jadi pemain yang sudah absen di last10
+     terhitung ganda bila dampaknya dikurangi penuh. Bila
+     missed_last10 hilang/tidak valid -> faktor 1,0 (perilaku lama) +
+     catatan di inputs_summary.notes (hanya untuk pemain yang memang
+     absen di base case). Pemain skenario hipotetis yang saat ini
+     sehat: faktor 1,0 — asumsi yang didokumentasikan (mereka bermain
+     di last10, jadi missed_last10-nya ~0).
 
 SEBARAN (per iterasi, sebelum OT):
      skor_kandang = mu_kandang + s_umum * Tc + s_tim * Th
@@ -61,8 +78,9 @@ simulation.nba.squad_scenarios):
   - "missing_2": teratas kandang + teratas tandang absen.
   - "missing_4": 2 teratas tiap tim absen.
   missing_N selalu DI ATAS pemain yang memang sudah OUT (base case).
-  "Pemain inti teratas" = dampak (BPM x menit) terbesar, bukan menit
-  terbanyak. "Tersedia" = ada di daftar pemain dan tidak berstatus OUT.
+  "Pemain inti teratas" = dampak terbesar ((BPM - replacement) x menit
+  x faktor overlap), bukan menit terbanyak. "Tersedia" = ada di daftar
+  pemain dan tidak berstatus OUT.
   Base case (markets utama): pemain OUT absen; QUESTIONABLE/DOUBTFUL
   bermain, TAPI bila ada pemain inti QUESTIONABLE/DOUBTFUL, dibuatkan
   skenario tambahan "doubtful_out" (mereka absen di atas base case).
@@ -93,7 +111,7 @@ from datetime import UTC, datetime
 import config as config_mod
 from engine import markets
 
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.1.0"
 
 # Tim yang kandangnya di ketinggian (Denver ~1600 m, Salt Lake City
 # ~1300 m). Dipakai hanya bila flag altitude_home tidak ada di input.
@@ -211,33 +229,74 @@ def _combined_stats(
     return gabung
 
 
-def _dampak_pemain(pemain: dict, bpm_scale: float) -> float:
-    """Dampak poin satu pemain: BPM x (mp_per_game / 48) x bpm_scale.
+def _faktor_overlap(pemain: dict, w_last10: float) -> tuple[float, str | None]:
+    """Faktor koreksi tumpang-tindih last10: 1 - w_last10 x missed/10.
 
-    BPM/menit yang hilang dihitung 0 (pemain tanpa data tidak
-    memengaruhi proyeksi).
+    missed_last10 = jumlah dari 10 laga terakhir tim yang tidak
+    dimainkan pemain itu (int 0-10, field opsional per dict pemain).
+    Bila hilang/tidak valid -> faktor 1,0 (perilaku lama) + catatan
+    (str) yang harus diteruskan pemanggil ke inputs_summary.notes;
+    bila valid -> (faktor, None).
+    """
+    nama = pemain.get("player") or "pemain_tidak_dikenal"
+    missed = pemain.get("missed_last10")
+    if missed is None:
+        return 1.0, (
+            f"missed_last10 {nama} tidak ada — koreksi tumpang-tindih "
+            "tidak diterapkan (faktor 1,0)"
+        )
+    if isinstance(missed, bool) or not isinstance(missed, int) or not 0 <= missed <= 10:
+        return 1.0, (
+            f"missed_last10 {nama} tidak valid ({missed!r}) — koreksi "
+            "tumpang-tindih tidak diterapkan (faktor 1,0)"
+        )
+    return 1.0 - w_last10 * (missed / 10.0), None
+
+
+def _dampak_pemain(
+    pemain: dict, bpm_scale: float, bpm_replacement: float, w_last10: float
+) -> tuple[float, str | None]:
+    """Dampak poin satu pemain absen + catatan overlap (bila ada).
+
+    dampak = (BPM - BPM_replacement) x (mp_per_game / 48) x bpm_scale
+    x faktor_overlap. Pemain di bawah replacement level (BPM < -2,0)
+    berdampak NEGATIF: absennya justru sedikit menaikkan proyeksi,
+    karena penggantinya (level -2,0) lebih baik darinya — itu jawaban
+    jujur model, bukan bug. BPM/menit yang hilang dihitung 0 (pemain
+    tanpa data tidak memengaruhi proyeksi).
     """
     bpm = pemain.get("bpm")
     mp = pemain.get("mp_per_game")
     if bpm is None or mp is None:
-        return 0.0
-    return float(bpm) * (float(mp) / 48.0) * bpm_scale
+        return 0.0, None
+    faktor, catatan = _faktor_overlap(pemain, w_last10)
+    dampak = (float(bpm) - bpm_replacement) * (float(mp) / 48.0) * bpm_scale * faktor
+    return dampak, catatan
 
 
-def _pemain_inti(blok: dict, bpm_scale: float) -> list[tuple[str, float]]:
-    """Pemain inti tim, urut dampak (BPM x menit) menurun.
+def _pemain_inti(
+    blok: dict, bpm_scale: float, bpm_replacement: float, w_last10: float
+) -> tuple[list[tuple[str, float]], dict[str, str]]:
+    """Pemain inti tim, urut dampak menurun + catatan overlap per nama.
 
     "Inti teratas" = dampak terbesar, bukan menit terbanyak — bintang
     adalah pemain yang ketidakhadirannya paling mengubah proyeksi.
+    Catatan dikembalikan terpisah (dict nama -> catatan) agar pemanggil
+    hanya mencatatnya untuk pemain yang memang absen, bukan semua
+    pemain di daftar.
     """
     inti: list[tuple[str, float]] = []
+    catatan: dict[str, str] = {}
     for pemain in blok.get("players") or []:
         nama = pemain.get("player")
         if not isinstance(nama, str) or not nama:
             continue
-        inti.append((nama, _dampak_pemain(pemain, bpm_scale)))
+        dampak, note = _dampak_pemain(pemain, bpm_scale, bpm_replacement, w_last10)
+        inti.append((nama, dampak))
+        if note is not None:
+            catatan[nama] = note
     inti.sort(key=lambda item: item[1], reverse=True)
-    return inti
+    return inti, catatan
 
 
 def _status_cedera(blok: dict) -> dict[str, str]:
@@ -397,6 +456,7 @@ def simulate(
     sigma_total = _param_numerik(cfg, "simulation", "nba", "sigma_total_points")
     nu = _param_numerik(cfg, "simulation", "nba", "t_nu")
     bpm_scale = _param_numerik(cfg, "simulation", "nba", "bpm_scale")
+    bpm_replacement = _param_numerik(cfg, "simulation", "nba", "bpm_replacement")
     home_adv = _param_numerik(cfg, "simulation", "nba", "home_advantage_points")
     b2b_penalty = _param_numerik(
         cfg, "simulation", "nba", "back_to_back_penalty_points"
@@ -488,8 +548,12 @@ def simulate(
         mu_tandang += b2b_penalty
 
     # Pemain inti + cedera.
-    inti_kandang = _pemain_inti(blok_kandang, bpm_scale)
-    inti_tandang = _pemain_inti(blok_tandang, bpm_scale)
+    inti_kandang, catatan_kandang = _pemain_inti(
+        blok_kandang, bpm_scale, bpm_replacement, w_terakhir
+    )
+    inti_tandang, catatan_tandang = _pemain_inti(
+        blok_tandang, bpm_scale, bpm_replacement, w_terakhir
+    )
     dampak_kandang = dict(inti_kandang)
     dampak_tandang = dict(inti_tandang)
     cedera_kandang = _status_cedera(blok_kandang)
@@ -502,6 +566,12 @@ def simulate(
                 f"pemain OUT tanpa data BPM/menit: {nama} "
                 "(dampak absen tidak bisa dihitung, dihitung 0)"
             )
+        # Catatan overlap hanya untuk pemain yang memang absen di base
+        # case (bukan semua pemain di daftar — pemain sehat tidak
+        # memengaruhi proyeksi lewat jalur ini).
+        note = catatan_kandang.get(nama) or catatan_tandang.get(nama)
+        if note is not None:
+            catatan.append(note)
     diragukan_kandang = [
         nama
         for nama, _d in inti_kandang
@@ -635,6 +705,9 @@ def simulate(
         "median": round(_kuantil(total, 0.5), 2),
         "p5": round(_kuantil(total, 0.05), 2),
         "p25": round(_kuantil(total, 0.25), 2),
+        # p74: KONTRAK modul cushion (patch 1b perbaikan 3) — garis Alt
+        # Under Asuransi = garis market terkecil dengan P(Under) >= 74%.
+        "p74": round(_kuantil(total, 0.74), 2),
         "p75": round(_kuantil(total, 0.75), 2),
         "p95": round(_kuantil(total, 0.95), 2),
     }
@@ -712,6 +785,7 @@ def simulate(
             "sigma_total_points": sigma_total,
             "t_nu": nu,
             "bpm_scale": bpm_scale,
+            "bpm_replacement": bpm_replacement,
             "base_absent_players": sorted(absen_kandang | absen_tandang),
             "elapsed_seconds": round(selesai - mulai, 3),
             "notes": catatan,

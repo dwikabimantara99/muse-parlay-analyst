@@ -28,6 +28,10 @@ Baris "League Average" (di <tbody>, tanpa tim) dan baris "TOT" (agregat
 pemain yang pindah tim — baris per timnya ada terpisah) dilewati.
 Tricode BBRef berbeda dari stats.nba.com untuk 3 tim (BRK=BKN,
 CHO=CHA, PHO=PHX) — dipetakan di BBREF_TRICODE_MAP.
+Slug pemain (patch langkah 1b, perbaikan 2): sel name_display memuat
+tautan /players/<huruf>/<slug>.html (misal /players/d/durenja01.html);
+parser menangkapnya sebagai field "bbref_slug" ("d/durenja01") untuk
+dipakai ingest.player_gamelog. Pemain tanpa tautan -> bbref_slug None.
 """
 
 from __future__ import annotations
@@ -113,6 +117,16 @@ def _default_client() -> HttpClient:
         _LIMITER,
         cache=DiskCache(default_cache_dir(), CACHE_TTL_SECONDS),
     )
+
+
+def shared_client() -> HttpClient:
+    """HttpClient BBRef bersama untuk modul lain (misal player_gamelog).
+
+    Memakai limiter yang SAMA dengan modul ini (_LIMITER, 4 dtk), jadi
+    request dari semua modul BBRef tetap terjeda satu sama lain —
+    membuat limiter baru per modul berarti tidak ada jeda antar modul.
+    """
+    return _default_client()
 
 
 def _to_number(text: str) -> int | float | None:
@@ -267,7 +281,9 @@ class _PlayerAdvancedTableParser(HTMLParser):
     """Parser tabel advanced pemain BBRef (hanya <tbody>, per data-stat).
 
     Cerminan _AdvancedTableParser untuk tabel id="advanced" di halaman
-    leagues/NBA_YYYY_advanced.html.
+    leagues/NBA_YYYY_advanced.html. Tambahan: menangkap href tautan di
+    sel name_display (/players/<huruf>/<slug>.html) sebagai kunci
+    "bbref_href" di baris — dipakai untuk field bbref_slug.
     """
 
     def __init__(self) -> None:
@@ -279,6 +295,7 @@ class _PlayerAdvancedTableParser(HTMLParser):
         self.table_found = False
         self.current_stat: str | None = None
         self.current_text: list[str] = []
+        self.current_href: str | None = None
         self.current_row: dict[str, str] = {}
         self.rows: list[dict[str, str]] = []
 
@@ -298,6 +315,14 @@ class _PlayerAdvancedTableParser(HTMLParser):
             self.in_cell = True
             self.current_stat = attrs_dict.get("data-stat")
             self.current_text = []
+            self.current_href = None
+        elif (
+            tag == "a"
+            and self.in_cell
+            and self.current_stat == "name_display"
+            and self.current_href is None
+        ):
+            self.current_href = attrs_dict.get("href")
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "table" and self.in_table:
@@ -316,12 +341,30 @@ class _PlayerAdvancedTableParser(HTMLParser):
             self.in_cell = False
             if self.current_stat:
                 self.current_row[self.current_stat] = "".join(self.current_text)
+                if self.current_stat == "name_display" and self.current_href:
+                    self.current_row["bbref_href"] = self.current_href
             self.current_stat = None
             self.current_text = []
+            self.current_href = None
 
     def handle_data(self, data: str) -> None:
         if self.in_cell:
             self.current_text.append(data)
+
+
+def _slug_dari_href(href: str | None) -> str | None:
+    """Ubah href pemain BBRef jadi slug jalur gamelog ("d/durenja01").
+
+    href = /players/<huruf>/<slug>.html. None bila href tidak sesuai
+    pola (pemain tanpa tautan).
+    """
+    if not href:
+        return None
+    if href.startswith("/players/") and href.endswith(".html"):
+        slug = href[len("/players/") : -len(".html")]
+        if "/" in slug and all(bagian for bagian in slug.split("/")):
+            return slug
+    return None
 
 
 def _parse_player_table_once(html: str) -> list[dict]:
@@ -360,6 +403,7 @@ def _parse_player_table_once(html: str) -> list[dict]:
                 "mp": mp,
                 "mp_per_game": mp_per_game,
                 "bpm": _to_number(row.get("bpm", "")),
+                "bbref_slug": _slug_dari_href(row.get("bbref_href")),
             }
         )
     return players
@@ -371,7 +415,9 @@ def parse_player_advanced(html: str) -> list[dict]:
     Setiap pemain: player, team (tricode stats.nba.com — BRK/CHO/PHO
     dipetakan ke BKN/CHA/PHX; tricode lain apa adanya), mp (total
     menit), mp_per_game (mp / games; None bila games tidak ada atau 0),
-    bpm. Baris "League Average" dan "TOT" dilewati. ValueError
+    bpm, bbref_slug (jalur gamelog "huruf/slug", misal "d/durenja01";
+    None bila sel nama tidak memuat tautan). Baris "League Average"
+    dan "TOT" dilewati. ValueError
     ("bbref_format_changed") bila tabel id="advanced" tidak ada atau
     kolom wajib (name_display/team_name_abbr/mp/bpm) hilang — termasuk
     setelah mencoba membuka komentar HTML (BBRef kadang membungkus

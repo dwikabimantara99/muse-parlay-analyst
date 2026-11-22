@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 5
+  version: 6
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup)"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22"
   last_reviewed: "2026-11-22"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -153,6 +153,13 @@ filters:
     min_cushion_points: 8
     min_cushion_points_close_spread: 12
     close_spread_threshold: 2.5
+    # Bantalan Asuransi dari target peluang (keputusan user 2026-11-22,
+    # patch langkah 1b perbaikan 3): garis terkecil dari tangga yang
+    # P_model(Under) >= insurance_target_probability DAN
+    # >= garis market + market_cushion_floor_points. Bila re-fit
+    # mengubah sebaran, bantalan ikut menyesuaikan otomatis.
+    insurance_target_probability: 0.74
+    market_cushion_floor_points: 8
   football_btts_yes:
     min_combined_xg: 2.45           # §7a: total xG gabungan < 2,45 -> coret
   football_lineup:
@@ -225,6 +232,18 @@ simulation:
     # ASUMSI AWAL 1.0 — BELUM DIFIT (tidak ada literatur internal);
     # berlaku sebagai asumsi yang didokumentasikan, bukan hasil fit.
     bpm_scale: 1.0
+    # Level pengganti (replacement level) BPM: pemain absen diganti
+    # pemain level pengganti, BUKAN pemain nol — dampak absen =
+    # (BPM - bpm_replacement) x menit/48 x bpm_scale x faktor overlap.
+    # NILAI -2,0 DARI LITERATUR, bukan hasil fit: Basketball-Reference
+    # mendefinisikan -2,0 sebagai "replacement level"
+    # (http://basketball-reference.com/about/bpm.html: "-2.0 is a bench
+    # player (this is also defined as 'replacement level')"; rumus
+    # VORP = [BPM - (-2.0)] x %menit, https://www.sports-reference.com
+    # /blog/2014/10/introducing-box-plusminus-bpm-2/).
+    # Berlaku sebagai asumsi yang didokumentasikan, bukan hasil fit
+    # (seperti bpm_scale); kalibrasi ulang atas data PAPER bila perlu.
+    bpm_replacement: -2.0
     # Bobot resensi statistik tim (musim vs 10 laga terakhir).
     # ASUMSI AWAL mengikuti pola §5b bola (60/40) — BELUM DIFIT.
     recency:

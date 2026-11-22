@@ -1,0 +1,1125 @@
+{
+  "_meta": {
+    "source": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/injuries",
+    "fetched_at": "2026-11-22T13:12:00+00:00",
+    "note": "Tangkapan respons live ESPN SEKALI (22 Nov 2026, HTTP 200, 30 tim, 110 cedera). DIPANGKAS untuk fixture: hanya 7 tim disimpan (Detroit Pistons + Atlanta Hawks lengkap — laga DET@ATL 2026-11-22 — ditambah Boston Celtics, Memphis Grizzlies, Brooklyn Nets, New York Knicks, Charlotte Hornets karena memuat kasus uji: konflik status-vs-komentar, entri non-cedera two-way/kontrak, Rest, Personal, illness). Field athlete dipangkas ke 4 nama (displayName/firstName/lastName/shortName) — parser hanya memakai displayName; semua field lain (status, date, shortComment, longComment, details, id, source, type) VERBATIM dari respons live.",
+    "teams_kept": [
+      "Atlanta Hawks",
+      "Boston Celtics",
+      "Brooklyn Nets",
+      "Charlotte Hornets",
+      "Detroit Pistons",
+      "Memphis Grizzlies",
+      "New York Knicks"
+    ],
+    "teams_total_live": 30,
+    "injuries_total_live": 110
+  },
+  "injuries": [
+    {
+      "id": "1",
+      "displayName": "Atlanta Hawks",
+      "injuries": [
+        {
+          "id": "540375",
+          "longComment": "Flemings has missed the past three games, but it looks like there's a chance he could return Sunday. If he's cleared to play, Aaron Wiggins would likely head back to the second unit.",
+          "shortComment": "Flemings (back) is questionable to play Sunday against the Pistons.",
+          "status": "Out",
+          "date": "2026-11-21T22:16Z",
+          "athlete": {
+            "displayName": "Kingston Flemings",
+            "firstName": "Kingston",
+            "lastName": "Flemings",
+            "shortName": "K. Flemings"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Back",
+            "location": "Torso",
+            "detail": "Strain",
+            "returnDate": "2026-11-22"
+          }
+        },
+        {
+          "id": "540374",
+          "longComment": "This will be Landale's fourth consecutive game on the inactive list. His next chance to play will come Friday in Boston.",
+          "shortComment": "Landale (hip) won't play Sunday against the Pistons.",
+          "status": "Out",
+          "date": "2026-11-21T22:12Z",
+          "athlete": {
+            "displayName": "Jock Landale",
+            "firstName": "Jock",
+            "lastName": "Landale",
+            "shortName": "J. Landale"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Hip",
+            "location": "Torso",
+            "detail": "Inflammation",
+            "side": "Right",
+            "returnDate": "2026-11-27"
+          }
+        },
+        {
+          "id": "539622",
+          "longComment": "Newell suffered the toe injury in the Nov. 4 win over Washington and is now set to miss an extended period. With Mouhamed Gueye (foot) expected to miss at least three more weeks, Aaron Wiggins and Corey Kispert could see a slight bump in minutes moving forward.",
+          "shortComment": "Newell underwent surgery Tuesday for a plantar plate tear in his left great toe, and he will be re-evaluated in approximately four months, Brad Rowland of the Locked On Podcast Network reports.",
+          "status": "Out",
+          "date": "2026-11-17T21:16Z",
+          "athlete": {
+            "displayName": "Asa Newell",
+            "firstName": "Asa",
+            "lastName": "Newell",
+            "shortName": "A. Newell"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Toe",
+            "location": "Leg",
+            "side": "Left",
+            "returnDate": "2027-03-17"
+          }
+        },
+        {
+          "id": "539621",
+          "longComment": "The veteran combo guard has been diagnosed with a left calf strain, and he's in line to miss the next month or so. Once rookie first-rounder Kingston Flemings (back) is healthy, he'll have a long runway as Atlanta's top point guard. Aaron Wiggins remains worth holding in nearly all fantasy leagues as well.",
+          "shortComment": "McCollum (calf) will miss at least four weeks, per Brad Rowland of the Locked On Podcast Network.",
+          "status": "Out",
+          "date": "2026-11-17T21:08Z",
+          "athlete": {
+            "displayName": "CJ McCollum",
+            "firstName": "CJ",
+            "lastName": "McCollum",
+            "shortName": "C. McCollum"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Calf",
+            "location": "Leg",
+            "detail": "Strain",
+            "side": "Left",
+            "returnDate": "2026-12-19"
+          }
+        },
+        {
+          "id": "538842",
+          "longComment": "The team stated in July that the big man would remain sidelined for the next 3-to-4 months after undergoing surgery to repair a fractured left foot, and he's continuing to make progress in his rehab. A timetable for Gueye's 2026-27 debut has yet to be established, thought a date could come into focus following his next evaluation in mid-December.",
+          "shortComment": "Gueye (foot) is ready to begin on-court activities and will be re-evaluated in four weeks, Brad Rowland of the Locked On Podcast Network reports.",
+          "status": "Out",
+          "date": "2026-11-13T00:06Z",
+          "athlete": {
+            "displayName": "Mouhamed Gueye",
+            "firstName": "Mouhamed",
+            "lastName": "Gueye",
+            "shortName": "M. Gueye"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Foot",
+            "location": "Leg",
+            "detail": "Fracture",
+            "side": "Left",
+            "returnDate": "2026-12-12"
+          }
+        },
+        {
+          "id": "-57577",
+          "longComment": "Veesaar suffered the injury during a workout on Sept. 15, and an MRI confirmed the diagnosis. The No. 52 overall pick in the 2026 NBA Draft, Veesaar was expected to spend a lot of time with Atlanta's G League affiliate this season.",
+          "shortComment": "Veesaar was diagnosed with a torn right ACL and is expected to miss the 2026-27 season, the Hawks announced Monday.",
+          "status": "Out",
+          "date": "2026-09-21T19:50Z",
+          "athlete": {
+            "displayName": "Henri Veesaar",
+            "firstName": "Henri",
+            "lastName": "Veesaar",
+            "shortName": "H. Veesaar"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OFS",
+              "abbreviation": "OFS"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "side": "Right",
+            "returnDate": "2027-07-01"
+          }
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "displayName": "Boston Celtics",
+      "injuries": [
+        {
+          "id": "540370",
+          "longComment": "Robinson is under the weather and will not play in the front end of Boston's back-to-back set, but he could be available for Sunday night's game against the Warriors. With Robinson sidelined, Luka Garza and Chris Cenac should both see a bump in minutes behind starting center Neemias Queta.",
+          "shortComment": "Robinson (illness) has been ruled out for Saturday's game against the Kings, Keith Smith of Spotrac.com reports.",
+          "status": "Out",
+          "date": "2026-11-21T20:55Z",
+          "athlete": {
+            "displayName": "Mitchell Robinson",
+            "firstName": "Mitchell",
+            "lastName": "Robinson",
+            "shortName": "M. Robinson"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Illness",
+            "location": "Other",
+            "returnDate": "2026-11-22"
+          }
+        },
+        {
+          "id": "540369",
+          "longComment": "White drew the questionable tag for Saturday's game due to left AC joint sprain in his shoulder. The veteran guard will be in street clothes for the first leg of the Celtics' back-to-back set, but he could make his return Sunday against the Warriors. With Jayson Tatum (rest) also out, Payton Pritchard and Paul George will carry the workload for the Celtics, and there will be more opportunities for the likes of Sam Hauser, Hugo Gonzalez, Baylor Scheierman and Jordan Walsh.",
+          "shortComment": "White (shoulder) has been ruled out for Saturday's game against Sacramento.",
+          "status": "Out",
+          "date": "2026-11-21T20:53Z",
+          "athlete": {
+            "displayName": "Derrick White",
+            "firstName": "Derrick",
+            "lastName": "White",
+            "shortName": "D. White"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Shoulder",
+            "location": "Arm",
+            "side": "Left",
+            "returnDate": "2026-11-22"
+          }
+        },
+        {
+          "id": "540368",
+          "longComment": "Tatum will be rested for the first leg of the Celtics' back-to-back set, so he should be back on the floor for Sunday's game against the Warriors. With both Tatum and Derrick White (shoulder) sidelined, the Celtics will rely more heavily on Paul George, Payton Pritchard, Baylor Scheierman, Hugo Gonzalez and Sam Hauser to carry the scoring load against Sacramento.",
+          "shortComment": "Tatum (rest) has been ruled out for Saturday's game against the Kings.",
+          "status": "Out",
+          "date": "2026-11-21T20:51Z",
+          "athlete": {
+            "displayName": "Jayson Tatum",
+            "firstName": "Jayson",
+            "lastName": "Tatum",
+            "shortName": "J. Tatum"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Rest",
+            "location": "Other",
+            "returnDate": "2026-11-22"
+          }
+        }
+      ]
+    },
+    {
+      "id": "17",
+      "displayName": "Brooklyn Nets",
+      "injuries": [
+        {
+          "id": "-61233",
+          "longComment": "After a drive to the rim in the fourth quarter, Traore was observed holding the back of his right hamstring in obvious discomfort. He limped to the locker room and was subsequently ruled out for the remainder of the contest. Mikel Brown and Egor Demin are in line for more minutes the rest of the way.",
+          "shortComment": "Traore (hamstring) won't return to Friday's game against Orlando, Meghan Triplett of YES Network reports. He finished with four points (2-6 FG, 0-2 3Pt) and two assists over 18 minutes.",
+          "status": "Day-To-Day",
+          "date": "2026-11-21T14:51Z",
+          "athlete": {
+            "displayName": "Nolan Traore",
+            "firstName": "Nolan",
+            "lastName": "Traore",
+            "shortName": "N. Traore"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "6",
+            "name": "INJURY_STATUS_DAYTODAY",
+            "description": "day-to-day",
+            "abbreviation": "DD"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Hamstring",
+            "location": "Leg",
+            "side": "Right",
+            "returnDate": "2026-11-23"
+          }
+        },
+        {
+          "id": "-61232",
+          "longComment": "Nelson will hit the inactive list due to a sprained right ankle. The two-way player's absence shouldn't affect the rotation.",
+          "shortComment": "Nelson (ankle) has been ruled out for Friday's game against Orlando.",
+          "status": "Day-To-Day",
+          "date": "2026-11-21T14:51Z",
+          "athlete": {
+            "displayName": "Grant Nelson",
+            "firstName": "Grant",
+            "lastName": "Nelson",
+            "shortName": "G. Nelson"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "6",
+            "name": "INJURY_STATUS_DAYTODAY",
+            "description": "day-to-day",
+            "abbreviation": "DD"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Ankle",
+            "location": "Leg",
+            "detail": "Sprain",
+            "side": "Right",
+            "returnDate": "2026-11-23"
+          }
+        }
+      ]
+    },
+    {
+      "id": "30",
+      "displayName": "Charlotte Hornets",
+      "injuries": [
+        {
+          "id": "-61230",
+          "longComment": "Williams started in Tuesday's 118-114 loss to the Lakers, but he will sit out Friday to rest. With Grayson Allen (concussion) also sidelined, Royce O'Neale could find his way into the starting lineup.",
+          "shortComment": "Williams (hamstring) is listed as out for Friday's game versus the Hawks.",
+          "status": "Day-To-Day",
+          "date": "2026-11-21T14:49Z",
+          "athlete": {
+            "displayName": "Grant Williams",
+            "firstName": "Grant",
+            "lastName": "Williams",
+            "shortName": "G. Williams"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "6",
+            "name": "INJURY_STATUS_DAYTODAY",
+            "description": "day-to-day",
+            "abbreviation": "DD"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Hamstring",
+            "location": "Leg",
+            "side": "Right",
+            "returnDate": "2026-11-23"
+          }
+        },
+        {
+          "id": "-61229",
+          "longComment": "Allen is currently dealing with concussion-like symptoms and is in line for a second straight absence. Sion James and Royce O'Neale should continue to see an uptick in playing time until Allen is cleared to return.",
+          "shortComment": "Allen (concussion) has been ruled out for Friday's game against Atlanta.",
+          "status": "Day-To-Day",
+          "date": "2026-11-21T14:49Z",
+          "athlete": {
+            "displayName": "Grayson Allen",
+            "firstName": "Grayson",
+            "lastName": "Allen",
+            "shortName": "G. Allen"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "6",
+            "name": "INJURY_STATUS_DAYTODAY",
+            "description": "day-to-day",
+            "abbreviation": "DD"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Concussion",
+            "location": "Head",
+            "returnDate": "2026-11-23"
+          }
+        },
+        {
+          "id": "538194",
+          "longComment": "Knueppel missed the first eight games of the 2026-27 campaign. He returned for the 114-104 loss to Brooklyn on Wednesday, though he exited the contest after just six minutes of work and didn't return. With Knueppel out of commission for at least a month, Grayson Allen and Sion James are candidates to replace him in the starting lineup, especially with Dennis Schroder (hamstring) sidelined for a minimum of two weeks.",
+          "shortComment": "Knueppel (hamstring) was diagnosed with a left hamstring strain Sunday and will be re-evaluated in four weeks.",
+          "status": "Out",
+          "date": "2026-11-08T22:31Z",
+          "athlete": {
+            "displayName": "Kon Knueppel",
+            "firstName": "Kon",
+            "lastName": "Knueppel",
+            "shortName": "K. Knueppel"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Hamstring",
+            "location": "Leg",
+            "detail": "Strain",
+            "side": "Left",
+            "returnDate": "2026-12-12"
+          }
+        },
+        {
+          "id": "538192",
+          "longComment": "Schroder, who missed Friday's game due to what was described as a left thigh injury, has been diagnosed with a hamstring strain. He is set to be reevaluated in two weeks, suggesting he will miss at least the next five games. Christian Anderson and Sion James could see extra minutes with Schroder sidelined.",
+          "shortComment": "Schroder has been diagnosed with a left hamstring strain and will be reevaluated in two weeks, Michael Scotto of HoopsHype.com reports.",
+          "status": "Out",
+          "date": "2026-11-08T22:26Z",
+          "athlete": {
+            "displayName": "Dennis Schroder",
+            "firstName": "Dennis",
+            "lastName": "Schroder",
+            "shortName": "D. Schroder"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Hamstring",
+            "location": "Leg",
+            "detail": "Strain",
+            "side": "Left",
+            "returnDate": "2026-11-25"
+          }
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "displayName": "Detroit Pistons",
+      "injuries": [
+        {
+          "id": "540386",
+          "longComment": "Holland has missed the last three games due to a bone bruise in his left knee. If he remains sidelined versus the Hawks, Isaiah Joe, Chaz Lanier and Javonte Green are candidates for more minutes.",
+          "shortComment": "Holland (knee) is listed as questionable for Sunday's game against Atlanta.",
+          "status": "Out",
+          "date": "2026-11-21T23:05Z",
+          "athlete": {
+            "displayName": "Ronald Holland II",
+            "firstName": "Ronald",
+            "lastName": "Holland II",
+            "shortName": "R. Holland II"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "detail": "Bruise",
+            "side": "Left",
+            "returnDate": "2026-11-22"
+          }
+        },
+        {
+          "id": "540382",
+          "longComment": "This will be Okorie's second straight game on the inactive list due to injury. His next chance to play will come Tuesday in Orlando.",
+          "shortComment": "Okorie (oblique) is out for Sunday's game in Atlanta.",
+          "status": "Out",
+          "date": "2026-11-21T22:34Z",
+          "athlete": {
+            "displayName": "Ebuka Okorie",
+            "firstName": "Ebuka",
+            "lastName": "Okorie",
+            "shortName": "E. Okorie"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Oblique",
+            "location": "Torso",
+            "detail": "Strain",
+            "side": "Left",
+            "returnDate": "2026-11-24"
+          }
+        },
+        {
+          "id": "540377",
+          "longComment": "Cunningham is dealing with some minor soreness in his right knee, but he's planning to play through it. Cunningham is averaging 25.6 points, 5.1 rebounds, 7.9 assists, 2.0 triples, 1.4 steals and 0.9 blocks per game this season.",
+          "shortComment": "Cunningham (knee) is probable to play Sunday in Atlanta.",
+          "status": "Day-To-Day",
+          "date": "2026-11-21T22:23Z",
+          "athlete": {
+            "displayName": "Cade Cunningham",
+            "firstName": "Cade",
+            "lastName": "Cunningham",
+            "shortName": "C. Cunningham"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "6",
+            "name": "INJURY_STATUS_DAYTODAY",
+            "description": "day-to-day",
+            "abbreviation": "DD"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "detail": "Soreness",
+            "side": "Right",
+            "returnDate": "2026-11-22"
+          }
+        },
+        {
+          "id": "540207",
+          "longComment": "With Detroit still without a return timetable for Prince after right knee surgery, he appears set for an extended absence well beyond Friday's tilt against Toronto. Prince hasn't been a significant part of the Pistons' rotation this season, so his continued absence is unlikely to create a major fantasy ripple effect.",
+          "shortComment": "Prince (knee) underwent surgery to address lingering issues and has no timeline for a return, Hunter Patterson of The Athletic reports.",
+          "status": "Out",
+          "date": "2026-11-20T23:02Z",
+          "athlete": {
+            "displayName": "Taurean Prince",
+            "firstName": "Taurean",
+            "lastName": "Prince",
+            "shortName": "T. Prince"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Right",
+            "returnDate": "2026-12-13"
+          }
+        },
+        {
+          "id": "-61148",
+          "longComment": "The No. 53 overall pick in the 2026 NBA Draft, Onyenso appears poised to see run in the G League after putting pen to paper on a two-way deal. He'll likely face an uphill battle to carve out a role in the rotation, so Detroit will presumably allow him to continue his development with Motor City.",
+          "shortComment": "Onyenso agreed to a two-way contract with the Pistons on Thursday.",
+          "status": "Day-To-Day",
+          "date": "2026-11-19T16:15Z",
+          "athlete": {
+            "displayName": "Ugonna Onyenso",
+            "firstName": "Ugonna",
+            "lastName": "Onyenso",
+            "shortName": "U. Onyenso"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "6",
+            "name": "INJURY_STATUS_DAYTODAY",
+            "description": "day-to-day",
+            "abbreviation": "DD"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Foot",
+            "location": "Leg",
+            "side": "Left",
+            "returnDate": "2026-11-21"
+          }
+        },
+        {
+          "id": "539572",
+          "longComment": "Robinson has gotten off to a strong start this season, though he's now expected to miss at least the next week after appearing in each of Detroit's first 12 regular-season games. The sharpshooter is averaging 17.4 points in 30.5 minutes per contest, and his absence will open up additional minutes for Kevin Huerter and Javonte Green.",
+          "shortComment": "Robinson will be re-evaluated in one week due to a left quadriceps strain, Coty M. Davis of The Detroit News reports.",
+          "status": "Out",
+          "date": "2026-11-17T16:25Z",
+          "athlete": {
+            "displayName": "Duncan Robinson",
+            "firstName": "Duncan",
+            "lastName": "Robinson",
+            "shortName": "D. Robinson"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Quadriceps",
+            "location": "Leg",
+            "detail": "Strain",
+            "side": "Left",
+            "returnDate": "2026-11-27"
+          }
+        },
+        {
+          "id": "538124",
+          "longComment": "Duren is progressing in his rehab after suffering a right hamstring strain Oct. 23, though he'll remain on the inactive list for at least the next two weeks while ramping up toward a return to game action. Paul Reed should continue to play a sizable role in Duren's stead.",
+          "shortComment": "Duren (hamstring) has begun on-court activity and will be re-evaluated in two weeks, Hunter Patterson of The Athletic reports.",
+          "status": "Out",
+          "date": "2026-11-08T16:05Z",
+          "athlete": {
+            "displayName": "Jalen Duren",
+            "firstName": "Jalen",
+            "lastName": "Duren",
+            "shortName": "J. Duren"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Hamstring",
+            "location": "Leg",
+            "detail": "Strain",
+            "side": "Right",
+            "returnDate": "2026-11-24"
+          }
+        }
+      ]
+    },
+    {
+      "id": "29",
+      "displayName": "Memphis Grizzlies",
+      "injuries": [
+        {
+          "id": "540281",
+          "longComment": "Grant went down early in Thursday's win over the Warriors, and he's now dealing with a strained left calf that could cost him multiple contests. With Cameron Boozer (ankle) also sidelined, Taylor Hendricks and Olivier-Maxence Prosper are both worthy of streaming consideration in fantasy leagues.",
+          "shortComment": "Grant (calf) is out for Saturday's game against the Timberwolves.",
+          "status": "Out",
+          "date": "2026-11-21T08:08Z",
+          "athlete": {
+            "displayName": "Jerami Grant",
+            "firstName": "Jerami",
+            "lastName": "Grant",
+            "shortName": "J. Grant"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Calf",
+            "location": "Leg",
+            "detail": "Not Specified",
+            "side": "Left",
+            "returnDate": "2026-11-23"
+          }
+        },
+        {
+          "id": "540212",
+          "longComment": "It's unclear exactly what Small is dealing with, but for now, he can be considered questionable for Monday's meeting in Charlotte. With Small out, Cam Spencer and Jahmai Mashack will fill the minutes behind Ty Jerome.",
+          "shortComment": "Small won't play Saturday against the Timberwolves due to personal reasons.",
+          "status": "Out",
+          "date": "2026-11-20T23:14Z",
+          "athlete": {
+            "displayName": "Javon Small",
+            "firstName": "Javon",
+            "lastName": "Small",
+            "shortName": "J. Small"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Personal",
+            "location": "Other",
+            "returnDate": "2026-11-23"
+          }
+        },
+        {
+          "id": "540210",
+          "longComment": "The rookie sensation is sitting out for the first time this year and can be deemed day-to-day for the time being. His absence puts a ton of pressure on Ty Jerome (hip), who's set to return from a three-game layoff, and opens up a spot in the starting lineup likely for Isaiah Stewart.",
+          "shortComment": "Boozer is out for Saturday's game against Minnesota due to a right ankle sprain.",
+          "status": "Out",
+          "date": "2026-11-20T23:12Z",
+          "athlete": {
+            "displayName": "Cameron Boozer",
+            "firstName": "Cameron",
+            "lastName": "Boozer",
+            "shortName": "C. Boozer"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Ankle",
+            "location": "Leg",
+            "returnDate": "2026-11-23"
+          }
+        },
+        {
+          "id": "539654",
+          "longComment": "Jackson suffered a foot injury in Saturday's 129-110 win over the Nets. Head coach Tuomas Iisalo indicated after the game that the injury was \"relatively serious,\" though it is now confirmed he will miss extended time. While Jackson is out of commission, Taylor Hendricks and Jerami Grant should receive more playing time.",
+          "shortComment": "Jackson underwent a procedure Wednesday to repair a broken fifth metatarsal in his left foot. He is expected to recover fully and will be re-evaluated in approximately three months.",
+          "status": "Out",
+          "date": "2026-11-17T23:18Z",
+          "athlete": {
+            "displayName": "GG Jackson",
+            "firstName": "GG",
+            "lastName": "Jackson",
+            "shortName": "G. Jackson"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Foot",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Left",
+            "returnDate": "2027-01-18"
+          }
+        },
+        {
+          "id": "539414",
+          "longComment": "Pippen hasn't played since Oct. 29 due to a lumbar disc herniation and remains without a firm timetable to return.  Cam Spencer and Javon Small will likely continue seeing increased playing time in Pippen's absence.",
+          "shortComment": "Pippen (back) is progressing in his recovery but is still considered week-to-week.",
+          "status": "Out",
+          "date": "2026-11-16T17:16Z",
+          "athlete": {
+            "displayName": "Scotty Pippen Jr.",
+            "firstName": "Scotty",
+            "lastName": "Pippen Jr.",
+            "shortName": "S. Pippen Jr."
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Back",
+            "location": "Torso",
+            "detail": "Soreness",
+            "returnDate": "2026-11-25"
+          }
+        },
+        {
+          "id": "537982",
+          "longComment": "Saunders is still on the mend from a torn right ACL that he suffered during his final year at BYU. However, he has been cleared for on-court activities and will be allowed to practice with the Grizzlies now that he's officially signed with the team.",
+          "shortComment": "Saunders signed a two-way contract with the Grizzlies on Saturday, Shams Charania of ESPN reports.",
+          "status": "Out",
+          "date": "2026-11-07T17:24Z",
+          "athlete": {
+            "displayName": "Richie Saunders",
+            "firstName": "Richie",
+            "lastName": "Saunders",
+            "shortName": "R. Saunders"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "4",
+            "name": "INJURY_STATUS_OUT",
+            "description": "out",
+            "abbreviation": "O"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "OUT",
+              "abbreviation": "OUT"
+            },
+            "type": "Knee",
+            "location": "Leg",
+            "detail": "Surgery",
+            "side": "Right",
+            "returnDate": "2026-12-01"
+          }
+        }
+      ]
+    },
+    {
+      "id": "18",
+      "displayName": "New York Knicks",
+      "injuries": [
+        {
+          "id": "-61276",
+          "longComment": "Towns was initially listed as questionable. However, he has since been ruled out, marking his first absence of the 2026-27 campaign. Towns' next opportunity to play will come Sunday against Indiana. In the meantime, Andre Drummond is in line to start.",
+          "shortComment": "Towns (illness) won't play in Saturday's game versus the Trail Blazers.",
+          "status": "Day-To-Day",
+          "date": "2026-11-22T03:05Z",
+          "athlete": {
+            "displayName": "Karl-Anthony Towns",
+            "firstName": "Karl-Anthony",
+            "lastName": "Towns",
+            "shortName": "K. Towns"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "6",
+            "name": "INJURY_STATUS_DAYTODAY",
+            "description": "day-to-day",
+            "abbreviation": "DD"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Illness",
+            "location": "Other",
+            "returnDate": "2026-11-22"
+          }
+        },
+        {
+          "id": "-61275",
+          "longComment": "Clarkson is battling a case of plantar fasciitis in his right foot, so he will miss a second consecutive contest. Without Clarkson on the floor, Landry Shamet is in line for more playing time.",
+          "shortComment": "Clarkson (foot) won't play in Saturday's game against Portland.",
+          "status": "Day-To-Day",
+          "date": "2026-11-22T03:05Z",
+          "athlete": {
+            "displayName": "Jordan Clarkson",
+            "firstName": "Jordan",
+            "lastName": "Clarkson",
+            "shortName": "J. Clarkson"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "6",
+            "name": "INJURY_STATUS_DAYTODAY",
+            "description": "day-to-day",
+            "abbreviation": "DD"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Foot",
+            "location": "Leg",
+            "detail": "Plantar Fasciitis",
+            "side": "Right",
+            "returnDate": "2026-11-22"
+          }
+        },
+        {
+          "id": "-61274",
+          "longComment": "Anunoby will miss his first game of the 2026-27 regular season due to left calf tightness, although he could be back on the floor for the second leg of the Knicks' back-to-back set against the Pacers on Sunday. Landry Shamet and Miles McBride are both in line for elevated roles in Anunoby's absence.",
+          "shortComment": "Anunoby (calf) has been ruled out for Saturday's game against the Trail Blazers.",
+          "status": "Day-To-Day",
+          "date": "2026-11-22T03:04Z",
+          "athlete": {
+            "displayName": "OG Anunoby",
+            "firstName": "OG",
+            "lastName": "Anunoby",
+            "shortName": "O. Anunoby"
+          },
+          "source": {
+            "id": "1",
+            "description": "basic/manual",
+            "state": "basic"
+          },
+          "type": {
+            "id": "6",
+            "name": "INJURY_STATUS_DAYTODAY",
+            "description": "day-to-day",
+            "abbreviation": "DD"
+          },
+          "details": {
+            "fantasyStatus": {
+              "description": "GTD",
+              "abbreviation": "GTD"
+            },
+            "type": "Calf",
+            "location": "Leg",
+            "returnDate": "2026-11-22"
+          }
+        }
+      ]
+    }
+  ]
+}

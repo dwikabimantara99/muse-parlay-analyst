@@ -226,11 +226,13 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_5(self):
-        # Versi 5: integrasi Langkah 1 (2026-11-22) — bagian
-        # market_line_check + polymarket_ladder + jup markup di fees.
+    def test_meta_versi_6(self):
+        # Versi 6: patch langkah 1b (2026-11-22) — bpm_replacement
+        # di simulation.nba + bantalan Asuransi target peluang di
+        # filters.nba_alt_under (di atas versi 5: market_line_check +
+        # polymarket_ladder + jup markup).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 5)
+        self.assertEqual(meta["version"], 6)
         self.assertEqual(meta["last_reviewed"], "2026-11-22")
 
     def test_fees_kalshi(self):

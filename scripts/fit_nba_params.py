@@ -10,6 +10,8 @@ Metode (didokumentasikan di sini + LAPORAN-FIT-NBA.md):
       musim itu, termasuk laga yang sedang diproyeksikan. Akibatnya
       residual sedikit TERLALU KECIL dan sigma sedikit underestimate.
       Perbaikan ke depan: rating rolling sampai sebelum tanggal laga.
+      Perbaikan itu SUDAH DIBUAT (patch 1b, temuan auditor 1) — lihat
+      "MODE ROLLING" di bawah.
   (b) SIGMA. sigma_margin & sigma_total = simpangan baku residual
       (aktual - proyeksi) margin dan total.
   (c) HOME ADVANTAGE. Regresi OLS sederhana: margin_aktual ~ a +
@@ -27,7 +29,53 @@ Metode (didokumentasikan di sini + LAPORAN-FIT-NBA.md):
       nu yang memaksimalkan log-likelihood Student-t, grid 3.0-30.0
       langkah 0.5. Kurtosis lebih sampel dilaporkan sebagai cek silang.
 
+MODE ROLLING (--rolling; patch 1b, temuan auditor 1 — validasi
+out-of-sample). Proyeksi memakai rating ROLLING POINT-IN-TIME:
+untuk tiap laga, rating tiap tim dihitung HANYA dari laga sebelum
+tanggal laga itu (musim-berjalan + last10-berjalan), dari box score
+game log leaguegamefinder (kolom FGA/FTA/OREB/TOV/PTS/MIN dari
+respons mentah endpoint yang sama dengan fetch_league_games —
+parser kontrak hanya menyimpan PTS, jadi skrip ini mem-parse
+respons mentahnya sendiri; lihat parse_boxscores_leaguegamefinder).
+Rumus possessions Dean Oliver: POSS = FGA + 0,44*FTA - OREB + TOV.
+off_rtg = 100*PTS/POSS sendiri; def_rtg = 100*PTS_lawan/POSS_lawan;
+pace = 240*POSS/MIN_tim (POSS per 48 menit; MIN_tim = jumlah menit
+pemain, 240 untuk laga regulasi).
+
+Keputusan desain rolling (D-R1 s.d. D-R5; didokumentasikan juga di
+LAPORAN-FIT-NBA.md §12):
+  D-R1 PRIOR = rating BBRef musim SEBELUMNYA untuk tim itu (data
+      masa lalu, bukan look-ahead). Untuk 2024-25, priornya rating
+      BBRef 2023-24 (di-fetch sekali, di-cache).
+  D-R2 SHRINKAGE awal musim: rating = (n*obs + K*prior)/(n+K),
+      K = 10 laga (SHRINKAGE_K_GAMES). n=0 -> prior persis; n=10 ->
+      50/50; n=82 -> ~89% observasi.
+  D-R3 Last10 di-shrink ke RATING MUSIM (bukan ke prior) — hirarki
+      prior -> musim -> last10, agar prior musim lalu tidak
+      dihitung ganda di komponen last10.
+  D-R4 Jendela reset tiap musim (musim-berjalan + last10-berjalan
+      hanya dalam musim yang sama); carryover antar musim hanya
+      lewat prior D-R1.
+  D-R5 Rata-rata liga (lg_avg) juga point-in-time: rata-rata
+      off_rtg efektif ke-30 tim pada tanggal laga itu (tim yang
+      belum main menyumbang priornya). Rating efektif yang masuk
+      project_points = gabungan 60% musim + 40% last10 (bobot
+      recency dari config — SAMA seperti yang dipakai sim, jadi fit
+      rolling mengukur persis rumus yang dipakai mesin; fit v1
+      memakai 100% rating musim penuh).
+  Keterbatasan yang TETAP ADA di mode rolling: last10/cedera per
+  tanggal untuk laga historis tetap tidak tersedia di tingkat
+  PEMAIN (tidak ada data cedera per tanggal) — backtest tetap tanpa
+  penyesuaian pemain absen; last10 di sini adalah last10 STATISTIK
+  TIM, bukan skuad.
+
 Data:
+  - Box score (mode rolling saja): via fetch mentah leaguegamefinder
+    (3 panggilan keyless, gratis, 0 kredit Odds API), di-cache ke
+    data/nba_history/boxscores_{musim}.json (+ boxscores_all.json).
+    Bila file cache sudah ada, tidak ada panggilan network.
+  - Prior (mode rolling saja): rating BBRef musim sebelumnya, cache
+    ratings_bbref_{musim-sebelumnya}.json (lihat load_prior_ratings).
   - Game log via ingest.stats_nba.fetch_league_games (kontrak worker
     data Tahap 3): FetchResult dengan data = list dict per laga:
     {"game_date" (YYYY-MM-DD), "game_id", "home_tricode",
@@ -50,6 +98,10 @@ Jalankan dari root repo:
   python3 scripts/fit_nba_params.py [--seasons 2024-25 2025-26 2026-27]
       [--games-file data/nba_history/games_all.json]
       [--out out/fit_nba_params.json]
+  Mode rolling (patch 1b):
+  python3 scripts/fit_nba_params.py --rolling
+      [--boxscores-file data/nba_history/boxscores_all.json]
+      [--out out/fit_nba_params_rolling.json]
 """
 
 from __future__ import annotations
@@ -111,6 +163,16 @@ ALTITUDE_TRICODES = frozenset({"DEN", "UTA"})
 NU_GRID_MIN = 3.0
 NU_GRID_MAX = 50.0
 NU_GRID_STEP = 0.5
+
+# --- Rating rolling point-in-time (patch 1b) ---
+# Bobot prior shrinkage, setara K laga (keputusan desain D-R2).
+SHRINKAGE_K_GAMES = 10
+# Ukuran jendela last10 (sama seperti definisi last10 di sim).
+LAST10_N = 10
+# Koefisien possessions Dean Oliver: POSS = FGA + 0,44*FTA - OREB + TOV.
+POSS_FTA_COEF = 0.44
+# Menit tim satu laga regulasi (5 pemain x 48 menit) — penyebut pace.
+TEAM_MINUTES_REGULATION = 240.0
 
 
 def _parse_tanggal(teks: str) -> date | None:
@@ -215,11 +277,492 @@ def _fit_nu(residual_terstandar: list[float]) -> tuple[float, float, float]:
     return nu_terbaik, ll_terbaik, kurtosis_lebih
 
 
+# ---------------------------------------------------------------------------
+# Rating rolling point-in-time (patch 1b, temuan auditor 1)
+# ---------------------------------------------------------------------------
+
+
+def hitung_possessions(fga, fta, oreb, tov) -> float | None:
+    """Possessions Dean Oliver: FGA + 0,44*FTA - OREB + TOV.
+
+    Mengembalikan None bila ada input bukan angka (bool bukan angka).
+    """
+    nilai = (fga, fta, oreb, tov)
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in nilai):
+        return None
+    return float(fga) + POSS_FTA_COEF * float(fta) - float(oreb) + float(tov)
+
+
+def _pecah_matchup(matchup: str) -> tuple[str, str] | None:
+    """Pecah MATCHUP leaguegamefinder jadi (tricode_kandang, tricode_tandang).
+
+    Disalin dari logika ingest.stats_nba._split_matchup agar skrip ini
+    mandiri: "SAS vs. NOP" -> ("SAS", "NOP"); "BOS @ DET" -> ("DET", "BOS").
+    """
+    if " vs. " in matchup:
+        home, away = matchup.split(" vs. ", 1)
+        return home.strip(), away.strip()
+    if " @ " in matchup:
+        away, home = matchup.split(" @ ", 1)
+        return home.strip(), away.strip()
+    return None
+
+
+def _pasangkan_baris_boxscore(rows: list[dict]) -> tuple[dict, dict] | None:
+    """Pasangkan 2 baris satu laga -> (baris_kandang, baris_tandang).
+
+    Logika yang sama dengan ingest.stats_nba._pair_game_rows (tahan
+    terhadap anomali data stats.nba.com: laga 0022600189 menulis
+    "DEN @ IND" di kedua baris — string "@ IND" tetap menunjuk IND
+    sebagai kandang). None bila tidak bisa dipasangkan.
+    """
+    if len(rows) != 2:
+        return None
+    by_tricode = {row.get("TEAM_ABBREVIATION"): row for row in rows}
+    if len(by_tricode) != 2 or None in by_tricode:
+        return None
+    for row in rows:
+        split = _pecah_matchup(str(row.get("MATCHUP") or ""))
+        if split is None:
+            continue
+        home_tri, away_tri = split
+        if {home_tri, away_tri} != set(by_tricode):
+            continue
+        return by_tricode[home_tri], by_tricode[away_tri]
+    return None
+
+
+def _angka_atau_none(nilai) -> float | None:
+    """Ubah nilai jadi float; None bila bukan angka (bool bukan angka)."""
+    if isinstance(nilai, bool) or not isinstance(nilai, (int, float)):
+        return None
+    return float(nilai)
+
+
+def parse_boxscores_leaguegamefinder(
+    data: dict, season: str
+) -> tuple[list[dict], dict]:
+    """Ubah respons mentah leaguegamefinder jadi record box score per tim-laga.
+
+    Tiap record: season, game_id, game_date, tricode, opp_tricode,
+    is_home, pts, poss (Dean Oliver), pts_lawan, poss_lawan, minutes
+    (menit tim; None bila tidak ada — laga itu tetap dipakai untuk
+    off/def, tapi tidak untuk pace). Laga yang tidak bisa dipasangkan
+    atau possessions-nya tidak bisa dihitung dilewati + dicatat di
+    info (bukan dikarang). Raise ValueError("stats_nba_format_changed")
+    bila resultSet LeagueGameFinderResults tidak ada.
+    """
+    sets = {
+        rs.get("name"): rs
+        for rs in data.get("resultSets") or []
+        if isinstance(rs, dict)
+    }
+    if "LeagueGameFinderResults" not in sets:
+        raise ValueError("stats_nba_format_changed")
+    rs = sets["LeagueGameFinderResults"]
+    headers = rs.get("headers") or []
+    by_game: dict[str, list[dict]] = {}
+    for row in rs.get("rowSet") or []:
+        record = dict(zip(headers, row, strict=False))
+        game_id = record.get("GAME_ID")
+        if game_id is None:
+            continue
+        by_game.setdefault(str(game_id), []).append(record)
+    records: list[dict] = []
+    n_tidak_berpasangan = 0
+    n_tanpa_possessions = 0
+    for game_rows in by_game.values():
+        pasangan = _pasangkan_baris_boxscore(game_rows)
+        if pasangan is None:
+            n_tidak_berpasangan += 1
+            continue
+        home_row, away_row = pasangan
+        poss_home = hitung_possessions(
+            home_row.get("FGA"),
+            home_row.get("FTA"),
+            home_row.get("OREB"),
+            home_row.get("TOV"),
+        )
+        poss_away = hitung_possessions(
+            away_row.get("FGA"),
+            away_row.get("FTA"),
+            away_row.get("OREB"),
+            away_row.get("TOV"),
+        )
+        pts_home = _angka_atau_none(home_row.get("PTS"))
+        pts_away = _angka_atau_none(away_row.get("PTS"))
+        if (
+            poss_home is None
+            or poss_away is None
+            or pts_home is None
+            or pts_away is None
+        ):
+            n_tanpa_possessions += 1
+            continue
+        game_date = str(home_row.get("GAME_DATE") or "")[:10]
+        game_id = str(home_row.get("GAME_ID"))
+        for row, tri, opp, is_home, pts, poss, pts_lawan, poss_lawan in (
+            (
+                home_row,
+                home_row.get("TEAM_ABBREVIATION"),
+                away_row.get("TEAM_ABBREVIATION"),
+                True,
+                pts_home,
+                poss_home,
+                pts_away,
+                poss_away,
+            ),
+            (
+                away_row,
+                away_row.get("TEAM_ABBREVIATION"),
+                home_row.get("TEAM_ABBREVIATION"),
+                False,
+                pts_away,
+                poss_away,
+                pts_home,
+                poss_home,
+            ),
+        ):
+            records.append(
+                {
+                    "season": season,
+                    "game_id": game_id,
+                    "game_date": game_date,
+                    "tricode": tri,
+                    "opp_tricode": opp,
+                    "is_home": is_home,
+                    "pts": pts,
+                    "poss": poss,
+                    "pts_lawan": pts_lawan,
+                    "poss_lawan": poss_lawan,
+                    "minutes": _angka_atau_none(row.get("MIN")),
+                }
+            )
+    info = {
+        "season": season,
+        "n_laga_mentah": len(by_game),
+        "n_record": len(records),
+        "n_laga_tidak_berpasangan": n_tidak_berpasangan,
+        "n_laga_tanpa_possessions": n_tanpa_possessions,
+    }
+    return records, info
+
+
+def fetch_boxscores(seasons: list[str], data_dir: Path) -> list[dict]:
+    """Ambil box score leaguegamefinder per musim (cache per musim).
+
+    Satu panggilan keyless gratis per musim (0 kredit Odds API);
+    hasilnya di-cache ke data_dir/boxscores_{musim}.json — bila file
+    cache sudah ada, musim itu tidak di-fetch lagi. Raise RuntimeError
+    bila fetch gagal (pesan jelas).
+    """
+    from ingest.common import (
+        DiskCache,
+        HttpClient,
+        RateLimiter,
+        default_cache_dir,
+        parse_json_body,
+    )
+    from ingest.stats_nba import LEAGUE_GAMES_URL, STATS_HEADERS
+
+    client = HttpClient(
+        RateLimiter(1.0),
+        cache=DiskCache(default_cache_dir(), 600),
+        extra_headers=STATS_HEADERS,
+    )
+    records_semua: list[dict] = []
+    data_dir.mkdir(parents=True, exist_ok=True)
+    for musim in seasons:
+        cache_path = data_dir / f"boxscores_{musim}.json"
+        if cache_path.exists():
+            data_cache = json.loads(cache_path.read_text(encoding="utf-8"))
+            if not isinstance(data_cache, list):
+                raise RuntimeError(f"cache box score bukan list: {cache_path}")
+            records_semua.extend(data_cache)
+            continue
+        url = (
+            f"{LEAGUE_GAMES_URL}?LeagueID=00&Season={musim}"
+            "&SeasonType=Regular%20Season&PlayerOrTeam=T"
+        )
+        resp = client.get(url, use_cache=False)
+        if resp.get("status") != 200:
+            raise RuntimeError(
+                f"box score musim {musim} gagal: http_{resp.get('status')}: "
+                f"{resp.get('error') or 'leaguegamefinder gagal'}"
+            )
+        data = parse_json_body(resp)
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                f"box score musim {musim} gagal: stats_nba_format_changed"
+            )
+        try:
+            records, _info = parse_boxscores_leaguegamefinder(data, musim)
+        except ValueError as exc:
+            raise RuntimeError(f"box score musim {musim} gagal: {exc}") from exc
+        cache_path.write_text(
+            json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        records_semua.extend(records)
+    return records_semua
+
+
+def load_boxscores(
+    seasons: list[str], boxscores_file: str | None, data_dir: Path
+) -> list[dict]:
+    """Muat box score: dari --boxscores-file, atau cache/fetch per musim.
+
+    Bila lewat cache/fetch, file gabungan boxscores_all.json juga
+    ditulis ke data_dir (cermin games_all.json). Raise RuntimeError
+    bila sumber tidak tersedia.
+    """
+    if boxscores_file:
+        path = Path(boxscores_file)
+        if not path.exists():
+            raise RuntimeError(f"file box score tidak ditemukan: {path}")
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            raise RuntimeError(f"file box score harus berisi list: {path}")
+        return data
+    records = fetch_boxscores(seasons, data_dir)
+    gabung = data_dir / "boxscores_all.json"
+    gabung.write_text(
+        json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return records
+
+
+def _musim_sebelumnya(musim: str) -> str:
+    """Ubah "2024-25" -> "2023-24" (musim sebelumnya)."""
+    try:
+        awal, akhir = musim.split("-")
+        return f"{int(awal) - 1}-{int(akhir) - 1:02d}"
+    except (ValueError, AttributeError) as exc:
+        raise ValueError(f"format musim tidak valid: {musim!r}") from exc
+
+
+def load_prior_ratings(seasons: list[str], data_dir: Path) -> dict:
+    """Rating prior per musim = rating BBRef musim SEBELUMNYA (D-R1).
+
+    Data masa lalu, bukan look-ahead. Cache: ratings_bbref_{musim
+    sebelumnya}.json; bila belum ada, di-fetch via load_ratings
+    (satu panggilan BBRef per musim yang belum ter-cache).
+    Mengembalikan {musim: {tricode: {off_rtg, def_rtg, net_rtg, pace}}}.
+    """
+    priors: dict[str, dict[str, dict[str, float]]] = {}
+    for musim in seasons:
+        musim_lalu = _musim_sebelumnya(musim)
+        path = data_dir / f"ratings_bbref_{musim_lalu}.json"
+        if path.exists():
+            mentah = json.loads(path.read_text(encoding="utf-8"))
+            per_tim: dict[str, dict[str, float]] = {}
+            for tim in mentah:
+                tricode = BBREF_TEAM_TRICODES.get(tim.get("team"))
+                if tricode is None:
+                    continue
+                per_tim[tricode] = {
+                    "off_rtg": tim.get("off_rtg"),
+                    "def_rtg": tim.get("def_rtg"),
+                    "net_rtg": tim.get("net_rtg"),
+                    "pace": tim.get("pace"),
+                }
+            priors[musim] = per_tim
+        else:
+            priors[musim] = load_ratings([musim_lalu], data_dir)[musim_lalu]
+    return priors
+
+
+def _agregat_jendela(
+    jendela: list[dict],
+) -> tuple[float | None, float | None, float | None, int, int]:
+    """Agregat satu jendela team-game -> (off, def, pace, n, n_pace).
+
+    off = 100*PTS/POSS sendiri; def = 100*PTS_lawan/POSS_lawan;
+    pace = 240*POSS/MIN (hanya laga dengan menit valid). Nilai None
+    bila jendela kosong / tidak ada possessions / tidak ada menit
+    valid. n = jumlah laga jendela; n_pace = jumlah laga bermenit valid.
+    """
+    n = len(jendela)
+    if n == 0:
+        return None, None, None, 0, 0
+    pts = poss = pts_lawan = poss_lawan = 0.0
+    poss_menit = menit = 0.0
+    n_pace = 0
+    for rec in jendela:
+        pts += rec["pts"]
+        poss += rec["poss"]
+        pts_lawan += rec["pts_lawan"]
+        poss_lawan += rec["poss_lawan"]
+        menit_rec = rec.get("minutes")
+        if isinstance(menit_rec, (int, float)) and menit_rec > 0:
+            poss_menit += rec["poss"]
+            menit += menit_rec
+            n_pace += 1
+    off = 100.0 * pts / poss if poss > 0 else None
+    deff = 100.0 * pts_lawan / poss_lawan if poss_lawan > 0 else None
+    pace = TEAM_MINUTES_REGULATION * poss_menit / menit if menit > 0 else None
+    return off, deff, pace, n, n_pace
+
+
+def _shrink(nilai_obs: float | None, n: int, nilai_prior: float, k: int) -> float:
+    """Shrinkage: (n*obs + k*prior)/(n+k) (D-R2).
+
+    n=0 atau observasi None -> prior persis.
+    """
+    if nilai_obs is None or n <= 0:
+        return float(nilai_prior)
+    return (n * nilai_obs + k * nilai_prior) / (n + k)
+
+
+def bangun_rating_rolling(
+    games: list[dict],
+    boxscores: list[dict],
+    priors: dict[str, dict[str, dict[str, float]]],
+    w_musim: float = 0.6,
+    w_last10: float = 0.4,
+    k_prior: int = SHRINKAGE_K_GAMES,
+) -> tuple[dict, dict]:
+    """Bangun rating rolling point-in-time untuk tiap laga di `games`.
+
+    Untuk tiap laga, rating tiap tim dihitung HANYA dari laga sebelum
+    tanggal laga itu (musim-berjalan + last10-berjalan, D-R4). Proses
+    berjalan tanggal demi tanggal (gabungan tanggal laga + tanggal
+    box score, menaik): snapshot rating semua laga tanggal itu DULU,
+    baru update state dengan box score tanggal itu — jadi box score
+    satu tanggal tidak pernah memengaruhi laga tanggal yang sama.
+
+    Mengembalikan (per_laga, info). per_laga: {game_id: {
+      "home"/"away": {"stats_season": {off_rtg, def_rtg, pace},
+                      "stats_last10": {off_rtg, def_rtg, pace},
+                      "n_musim": int, "n_last10": int},
+      "home_efektif"/"away_efektif": {off_rtg, def_rtg, pace, net_rtg}
+        (gabungan w_musim/w_last10 — yang masuk project_points),
+      "lg_avg_off_rtg": float (rata-rata off_rtg efektif ke-30 tim
+        pada tanggal itu, D-R5),
+    }}. Laga yang salah satu timnya tanpa prior lengkap dilewati +
+    dicatat di info["n_laga_tanpa_prior"] (bukan dikarang).
+    """
+    w_total = w_musim + w_last10
+    if w_total <= 0:
+        raise ValueError("bobot recency harus berjumlah > 0")
+    box_per_tanggal: dict[tuple[str, str], list[dict]] = {}
+    for rec in boxscores:
+        kunci = (str(rec.get("season")), str(rec.get("game_date") or "")[:10])
+        box_per_tanggal.setdefault(kunci, []).append(rec)
+    laga_per_tanggal: dict[tuple[str, str], list[dict]] = {}
+    for game in games:
+        kunci = (str(game.get("season")), str(game.get("game_date") or "")[:10])
+        laga_per_tanggal.setdefault(kunci, []).append(game)
+    # State per (musim, tricode): team-game SEBELUM tanggal berjalan.
+    state: dict[tuple[str, str], list[dict]] = {}
+    # Rating efektif saat ini per (musim, tricode); awal = prior (n=0).
+    efektif: dict[tuple[str, str], dict[str, float]] = {}
+    for musim, per_tim in priors.items():
+        for tricode, rating in per_tim.items():
+            if any(rating.get(k) is None for k in ("off_rtg", "def_rtg", "pace")):
+                continue
+            efektif[(musim, tricode)] = {
+                "off_rtg": float(rating["off_rtg"]),
+                "def_rtg": float(rating["def_rtg"]),
+                "pace": float(rating["pace"]),
+            }
+
+    def _rating_tim(musim: str, tricode: str):
+        """Rating tim saat ini dari state.
+
+        Mengembalikan (stats_musim, stats_last10, efektif, n_musim,
+        n_last10), atau None bila prior tim tidak lengkap.
+        """
+        prior = (priors.get(musim) or {}).get(tricode)
+        if prior is None or any(
+            prior.get(k) is None for k in ("off_rtg", "def_rtg", "pace")
+        ):
+            return None
+        jendela = state.get((musim, tricode), [])
+        off, deff, pace, n, n_pace = _agregat_jendela(jendela)
+        stats_musim = {
+            "off_rtg": _shrink(off, n, prior["off_rtg"], k_prior),
+            "def_rtg": _shrink(deff, n, prior["def_rtg"], k_prior),
+            "pace": _shrink(pace, n_pace, prior["pace"], k_prior),
+        }
+        j10 = jendela[-LAST10_N:]
+        off10, def10, pace10, n10, n10_pace = _agregat_jendela(j10)
+        stats_last10 = {
+            "off_rtg": _shrink(off10, n10, stats_musim["off_rtg"], k_prior),
+            "def_rtg": _shrink(def10, n10, stats_musim["def_rtg"], k_prior),
+            "pace": _shrink(pace10, n10_pace, stats_musim["pace"], k_prior),
+        }
+        rating_efektif = {
+            field: (w_musim * stats_musim[field] + w_last10 * stats_last10[field])
+            / w_total
+            for field in ("off_rtg", "def_rtg", "pace")
+        }
+        rating_efektif["net_rtg"] = (
+            rating_efektif["off_rtg"] - rating_efektif["def_rtg"]
+        )
+        return stats_musim, stats_last10, rating_efektif, n, n10
+
+    per_laga: dict[str, dict] = {}
+    info = {
+        "n_laga": len(games),
+        "n_laga_tanpa_prior": 0,
+        "n_laga_tanpa_lg_avg": 0,
+        "n_boxscore": len(boxscores),
+        "k_prior": k_prior,
+        "w_musim": w_musim,
+        "w_last10": w_last10,
+    }
+    semua_tanggal = sorted(set(laga_per_tanggal) | set(box_per_tanggal))
+    for musim, tanggal in semua_tanggal:
+        for game in laga_per_tanggal.get((musim, tanggal), []):
+            home = game.get("home_tricode")
+            away = game.get("away_tricode")
+            r_home = _rating_tim(musim, home)
+            r_away = _rating_tim(musim, away)
+            if r_home is None or r_away is None:
+                info["n_laga_tanpa_prior"] += 1
+                continue
+            off_liga = [
+                efektif[(musim, tri)]["off_rtg"]
+                for tri in (priors.get(musim) or {})
+                if (musim, tri) in efektif
+            ]
+            if not off_liga:
+                info["n_laga_tanpa_lg_avg"] += 1
+                continue
+            lg_avg = statistics.fmean(off_liga)
+            per_laga[str(game.get("game_id"))] = {
+                "home": {
+                    "stats_season": r_home[0],
+                    "stats_last10": r_home[1],
+                    "n_musim": r_home[3],
+                    "n_last10": r_home[4],
+                },
+                "away": {
+                    "stats_season": r_away[0],
+                    "stats_last10": r_away[1],
+                    "n_musim": r_away[3],
+                    "n_last10": r_away[4],
+                },
+                "home_efektif": r_home[2],
+                "away_efektif": r_away[2],
+                "lg_avg_off_rtg": lg_avg,
+            }
+        for rec in box_per_tanggal.get((musim, tanggal), []):
+            kunci_state = (musim, rec["tricode"])
+            state.setdefault(kunci_state, []).append(rec)
+            rating_baru = _rating_tim(musim, rec["tricode"])
+            if rating_baru is not None:
+                efektif[kunci_state] = rating_baru[2]
+    info["n_laga_dengan_rating"] = len(per_laga)
+    return per_laga, info
+
+
 def fit_parameters(
     games: list[dict],
     ratings: dict[str, dict[str, dict[str, float]]],
     min_games_total: int = 100,
     min_group_n: int = 30,
+    rolling: dict | None = None,
 ) -> dict:
     """Fit semua parameter NBA dari game log + rating musim penuh.
 
@@ -228,19 +771,31 @@ def fit_parameters(
     min_games_total/min_group_n: ambang minimum data (dari config
     simulation.fitting bila dipanggil lewat main; default di sini
     hanya untuk pemakaian langsung/fixture).
+    rolling: bila diberikan (dict game_id -> data dari
+    bangun_rating_rolling), proyeksi memakai rating rolling
+    point-in-time + lg_avg per laga, dan `ratings` diabaikan.
     Mengembalikan dict hasil fit; tiap parameter berisi value (atau
     null + reason), n, dan bukti statistiknya.
     """
+    mode_rolling = rolling is not None
     hasil: dict = {
         "method": "lihat docstring scripts/fit_nba_params.py + LAPORAN-FIT-NBA.md",
+        "ratings_mode": "rolling" if mode_rolling else "musim_penuh",
         "look_ahead_bias": (
-            "rating musim penuh melihat masa depan (termasuk laga yang "
-            "diproyeksikan) — residual sedikit terlalu kecil, sigma "
-            "sedikit underestimate"
+            "tidak ada — rating rolling point-in-time (hanya laga "
+            "sebelum tanggal laga; prior = rating BBRef musim "
+            "sebelumnya)"
+            if mode_rolling
+            else (
+                "rating musim penuh melihat masa depan (termasuk laga yang "
+                "diproyeksikan) — residual sedikit terlalu kecil, sigma "
+                "sedikit underestimate"
+            )
         ),
         "n_games_input": len(games),
         "n_games_used": 0,
         "n_games_skipped_no_rating": 0,
+        "n_games_skipped_no_rolling": 0,
         "games_per_season": {},
         "parameters": {},
     }
@@ -262,31 +817,43 @@ def fit_parameters(
     dipakai_per_musim: dict[str, int] = {}
     for game in games:
         musim = str(game.get("season"))
-        rating_musim = ratings.get(musim)
         home = game.get("home_tricode")
         away = game.get("away_tricode")
         home_pts = game.get("home_pts")
         away_pts = game.get("away_pts")
-        if (
-            rating_musim is None
-            or home not in rating_musim
-            or away not in rating_musim
-            or home_pts is None
-            or away_pts is None
-        ):
+        if home_pts is None or away_pts is None:
             hasil["n_games_skipped_no_rating"] += 1
             continue
-        rating_home = rating_musim[home]
-        rating_away = rating_musim[away]
-        if any(
-            rating_home.get(k) is None or rating_away.get(k) is None
-            for k in ("off_rtg", "def_rtg", "pace")
-        ):
-            hasil["n_games_skipped_no_rating"] += 1
-            continue
-        lg_avg = statistics.fmean(
-            r["off_rtg"] for r in rating_musim.values() if r.get("off_rtg") is not None
-        )
+        if mode_rolling:
+            data_rolling = rolling.get(str(game.get("game_id")))
+            if data_rolling is None:
+                hasil["n_games_skipped_no_rolling"] += 1
+                continue
+            rating_home = data_rolling["home_efektif"]
+            rating_away = data_rolling["away_efektif"]
+            lg_avg = data_rolling["lg_avg_off_rtg"]
+        else:
+            rating_musim = ratings.get(musim)
+            if (
+                rating_musim is None
+                or home not in rating_musim
+                or away not in rating_musim
+            ):
+                hasil["n_games_skipped_no_rating"] += 1
+                continue
+            rating_home = rating_musim[home]
+            rating_away = rating_musim[away]
+            if any(
+                rating_home.get(k) is None or rating_away.get(k) is None
+                for k in ("off_rtg", "def_rtg", "pace")
+            ):
+                hasil["n_games_skipped_no_rating"] += 1
+                continue
+            lg_avg = statistics.fmean(
+                r["off_rtg"]
+                for r in rating_musim.values()
+                if r.get("off_rtg") is not None
+            )
         mu_home, mu_away, _pace = project_points(rating_home, rating_away, lg_avg)
         margin = float(home_pts) - float(away_pts)
         total = float(home_pts) + float(away_pts)
@@ -553,6 +1120,18 @@ def main(argv: list[str] | None = None) -> int:
         default="out/fit_nba_params.json",
         help="file JSON hasil fit (default: out/fit_nba_params.json)",
     )
+    parser.add_argument(
+        "--rolling",
+        action="store_true",
+        help="mode rolling point-in-time (patch 1b): proyeksi memakai "
+        "rating rolling dari box score, bukan rating musim penuh",
+    )
+    parser.add_argument(
+        "--boxscores-file",
+        default=None,
+        help="JSON box score gabungan (mode rolling; bila tidak ada, "
+        "cache/fetch per musim dari data dir)",
+    )
     args = parser.parse_args(argv)
     repo_root = Path(__file__).resolve().parent.parent
     data_dir = repo_root / args.data_dir
@@ -571,15 +1150,40 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         games = load_games(args.seasons, args.games_file, data_dir)
-        ratings = load_ratings(args.seasons, data_dir)
+        if args.rolling:
+            w_musim = float(
+                config_mod.get_value(cfg, "simulation", "nba", "recency", "season")
+            )
+            w_last10 = float(
+                config_mod.get_value(cfg, "simulation", "nba", "recency", "last10")
+            )
+            boxscores = load_boxscores(args.seasons, args.boxscores_file, data_dir)
+            priors = load_prior_ratings(args.seasons, data_dir)
+            rolling_data, info_rolling = bangun_rating_rolling(
+                games, boxscores, priors, w_musim, w_last10
+            )
+            hasil = fit_parameters(
+                games, {}, min_games, min_group, rolling=rolling_data
+            )
+            hasil["rolling_info"] = info_rolling
+            hasil["boxscores_source"] = (
+                args.boxscores_file or "leaguegamefinder mentah (cache/fetch)"
+            )
+            hasil["priors_source"] = "rating BBRef musim sebelumnya (cache/fetch)"
+            hasil["ratings_source"] = (
+                "rating rolling point-in-time dari box score "
+                "leaguegamefinder + prior BBRef musim sebelumnya"
+            )
+        else:
+            ratings = load_ratings(args.seasons, data_dir)
+            hasil = fit_parameters(games, ratings, min_games, min_group)
+            hasil["ratings_source"] = "ingest.bbref.fetch_team_advanced (BBRef)"
     except (RuntimeError, ValueError, OSError) as exc:
         print(f"fit dibatalkan: {exc}", file=sys.stderr)
         return 2
 
-    hasil = fit_parameters(games, ratings, min_games, min_group)
     hasil["seasons"] = args.seasons
     hasil["games_source"] = args.games_file or "ingest.stats_nba.fetch_league_games"
-    hasil["ratings_source"] = "ingest.bbref.fetch_team_advanced (BBRef)"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(hasil, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -587,8 +1191,17 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"laga dipakai: {hasil['n_games_used']} "
-        f"(dilewati tanpa rating: {hasil['n_games_skipped_no_rating']})"
+        f"(dilewati tanpa rating: {hasil['n_games_skipped_no_rating']}"
+        f", tanpa rolling: {hasil['n_games_skipped_no_rolling']})"
     )
+    if args.rolling:
+        info_r = hasil["rolling_info"]
+        print(
+            f"rolling: {info_r['n_laga_dengan_rating']} laga dengan rating, "
+            f"{info_r['n_boxscore']} record box score, "
+            f"k_prior={info_r['k_prior']}, "
+            f"bobot {info_r['w_musim']}/{info_r['w_last10']}"
+        )
     for nama, param in hasil["parameters"].items():
         nilai = param.get("value")
         if nilai is None:

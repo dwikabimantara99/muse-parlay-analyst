@@ -88,8 +88,10 @@ sources:
         notes: "PDF resmi, terverifikasi probe 2a (D4 TERJAWAB): halaman official.nba.com/nba-injury-report-2026-27-season/, PDF per 15 menit di ak-static.cms.nba.com/referee/injury/. Tim wajib lapor hari pertandingan 11 am-1 pm waktu lokal. Wajib dicek ulang dekat tip-off."
       - name: "ESPN injuries"
         tier: 2
+        notes: "UTAMA cek silang (B2) bersama PDF resmi sejak 2026-11-22: endpoint JSON publik, 110 cedera 30 tim terverifikasi live 22 Nov 2026. Status ternormalisasi + flag konflik status-vs-komentar + filter entri non-cedera di ingest/espn.py."
       - name: "Rotowire"
         tier: 2
+        notes: "CADANGAN sejak 2026-11-22: versi gratis hanya mengembalikan 5 entri + 'Subscribers Only' (paywall, terverifikasi live 22 Nov 2026) — tidak bisa mengonfirmasi cedera. Dipakai hanya bila ESPN gagal."
     env_key: null
 
   nba_player_impact:
