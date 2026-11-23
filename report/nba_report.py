@@ -13,7 +13,10 @@ data tim, pemain kunci, proyeksi total, kabar pemain
 (cedera/ketersediaan), bursa & harga pasar, kaki Asuransi & Utama
 (Tahap 4: alasan bantalan adaptif + volume/tipis/naik tangga per
 kaki), 5 laga terakhir, 5 pertemuan terakhir, kandang vs tandang,
-simulasi 100.000 pertandingan (+ skenario skuad), anomali, "Kenapa
+simulasi 100.000 pertandingan (+ skenario skuad), skenario panas
+(banjir 3 poin / banjir lemparan bebas / konservatif + garis
+tahan-banjir per kaki — dihitung dari artefak bila belum ada di
+artefak, tanpa fetch dan tanpa simulasi ulang), anomali, "Kenapa
 beda?" (bila |model - pasar| > 8 poin — ambang dari playstyle.yaml
 lewat engine/anomaly.py — atau artefak menandai kenapa_beda_required),
 cek ulang (bila recheck diberikan), sumber data, dan daftar yang
@@ -64,6 +67,7 @@ import math
 from datetime import datetime
 
 from engine import anomaly as anomaly_mod
+from engine import stress as stress_mod
 
 FORMAT = "nba_report"
 FORMAT_VERSION = 1
@@ -378,6 +382,7 @@ class _Laporan:
         self._bagian_h2h()
         self._bagian_kandang_tandang()
         self._bagian_simulasi()
+        self._bagian_skenario_panas()
         self._bagian_anomali()
         self._bagian_kenapa_beda()
         if self.r is not None:
@@ -1425,6 +1430,131 @@ class _Laporan:
             "(skenario hanya membawa peluang)."
         )
         self._tambah("Skenario skuad", baris)
+
+    def _bagian_skenario_panas(self) -> None:
+        """Skenario panas: peluang Under per kaki bila laga memanas.
+
+        Membaca ``analysis["stress"]`` bila ada (format nba_stress v1);
+        bila tidak ada, menghitungnya dari artefak lewat
+        engine/stress.py — tanpa fetch, tanpa simulasi ulang, tanpa
+        Odds API (pola yang sama dengan pemakaian engine/anomaly.py
+        di laporan ini). Bila tidak bisa dihitung, ditulis alasannya.
+        """
+        baris: list[str] = []
+        data = self.a.get("stress")
+        if not isinstance(data, dict) or data.get("format") != "nba_stress":
+            try:
+                data = stress_mod.skenario_panas(self.a)
+            except Exception as exc:  # Alasan tampil di laporan, bukan crash.
+                baris.append(f"Skenario panas: tidak bisa dihitung ({exc}).")
+                self._celah(f"Skenario panas: tidak bisa dihitung ({exc}).")
+                self._tambah("Skenario panas", baris)
+                return
+        skenario = data.get("skenario") or {}
+        geser: dict[str, str] = {}
+        for kunci, label in (
+            ("banjir_3p", "banjir tripoin"),
+            ("banjir_ft", "banjir lemparan bebas"),
+            ("konservatif", "konservatif (selaras garis market)"),
+        ):
+            blok = skenario.get(kunci) if isinstance(skenario, dict) else None
+            nilai = (
+                _fmt_poin(blok.get("geser_points"), 2)
+                if isinstance(blok, dict)
+                else None
+            )
+            if nilai is not None:
+                geser[label] = nilai
+        if geser:
+            baris.append(
+                "Kalau laga memanas, total poin naik: "
+                + "; ".join(f"{label} +{nilai} poin" for label, nilai in geser.items())
+                + "."
+            )
+        terburuk = data.get("banjir_terburuk")
+        label_terburuk = {
+            "banjir_3p": "banjir tripoin",
+            "banjir_ft": "banjir lemparan bebas",
+        }.get(str(terburuk), str(terburuk or "?"))
+        baris.append(f"Skenario banjir terburuk: {label_terburuk}.")
+        kaki_list = data.get("kaki") or []
+        if not kaki_list:
+            baris.append("Tidak ada kaki Under bergaris untuk diuji.")
+        for kaki in kaki_list:
+            if not isinstance(kaki, dict):
+                continue
+            garis = _fmt_poin(kaki.get("line"))
+            nama_kaki = _TIKET.get(kaki.get("ticket"), str(kaki.get("ticket") or "?"))
+            harga = _fmt_sen(kaki.get("price_cents"))
+            peluang = kaki.get("p_under") or {}
+            normal = _fmt_persen(peluang.get("normal"))
+            p_3p = _fmt_persen(peluang.get("banjir_3p"))
+            p_ft = _fmt_persen(peluang.get("banjir_ft"))
+            p_kons = _fmt_persen(peluang.get("konservatif"))
+            target = _fmt_persen(kaki.get("target_probability"))
+            teks = (
+                f"Under {garis} ({nama_kaki}" + (f", {harga}" if harga else "") + "): "
+            )
+            teks += (
+                f"normal {normal or '?'}; banjir tripoin {p_3p or '?'}; "
+                f"banjir lemparan bebas {p_ft or '?'}; "
+                f"konservatif {p_kons or '?'}."
+            )
+            baris.append(f"- {teks}")
+            if kaki.get("tahan_banjir"):
+                baris.append(
+                    f"  Tahan banjir (target {target or '?'} tercapai di "
+                    f"skenario {label_terburuk})."
+                )
+            else:
+                baris.append(
+                    f"  TIDAK tahan banjir (target {target or '?'} tidak "
+                    f"tercapai di skenario {label_terburuk})."
+                )
+            tahan = kaki.get("garis_tahan_banjir")
+            if isinstance(tahan, dict):
+                garis_tahan = _fmt_poin(tahan.get("line"))
+                harga_tahan = _fmt_sen(tahan.get("price_cents"))
+                jup_tahan = _fmt_sen(tahan.get("jup_estimated_cents"))
+                teks_tahan = f"  Garis tahan banjir: {garis_tahan}"
+                if harga_tahan:
+                    teks_tahan += f" ({harga_tahan}"
+                    if jup_tahan:
+                        teks_tahan += f", jup.ag ~{jup_tahan}"
+                    teks_tahan += ")"
+                if tahan.get("thin"):
+                    teks_tahan += " — PERHATIAN: volume garis ini tipis"
+                    volume = _fmt_usd(tahan.get("volume_usd"))
+                    teks_tahan += (
+                        f" ({volume})" if volume else " (volume tidak tercatat)"
+                    )
+                baris.append(teks_tahan + ".")
+            else:
+                alasan = kaki.get("alasan_tidak_tahan_banjir") or "tidak diketahui"
+                baris.append(f"  Tidak ada garis tahan banjir: {alasan}.")
+        for cek in data.get("cek_harga") or []:
+            if not isinstance(cek, dict):
+                continue
+            harga_cek = _fmt_sen(cek.get("harga_cents"))
+            garis_cek = _fmt_poin(cek.get("line"))
+            peluang_cek = cek.get("p_under") or {}
+            p_banjir = _fmt_persen(
+                peluang_cek.get(str(terburuk))
+                if isinstance(peluang_cek, dict)
+                else None
+            )
+            if harga_cek and garis_cek and p_banjir:
+                baris.append(
+                    f"- Di harga {harga_cek} (garis {garis_cek}): kalau banjir "
+                    f"terburuk, peluang Under {p_banjir}."
+                )
+        baris.append(
+            "Catatan: banjir di sini artinya 1 dari 10 laga terpanas "
+            "(persentil 90 musim 2026-27); banjir separah DEN@CHI 23 Nov "
+            "2026 (di atas persentil 99) tidak tercakup — garis "
+            "tahan-banjir belum tentu tahan banjir seperti itu."
+        )
+        self._tambah("Skenario panas", baris)
 
     # -- bagian: anomali + "Kenapa beda?" + recheck + sumber ------------
 

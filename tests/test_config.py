@@ -24,19 +24,27 @@ class TestPlaystyle(unittest.TestCase):
     # §6a — dua tiket
     def test_tiket_asuransi(self):
         ins = self.cfg["tickets"]["insurance"]
-        # Filosofi user 2026-11-23: Asuransi > x2,5 (x2,0 = impas BEP);
-        # rentang 2,5–3,0 USULAN (tidak tumpang tindih dengan Utama).
-        self.assertEqual(ins["multiplier_min"], 2.5)
-        self.assertEqual(ins["multiplier_max"], 3.0)
+        # Fondasi harga & pengali (keputusan user 2026-11-23 08:19
+        # WIB): Asuransi x2 atau lebih dikit; x2,0 tetap menutup
+        # total modal dengan split 50/50. Menggantikan rentang
+        # 2,5–3,0 (filosofi lama yang menuntut di atas x2,5).
+        self.assertEqual(ins["multiplier_min"], 2.0)
+        self.assertEqual(ins["multiplier_max"], 2.5)
         self.assertEqual(ins["min_leg_prob"], 0.74)
+        # Gate edge minimum Asuransi (insiden DEN 2026-11-23):
+        # NILAI PROPOSAL (pola D12) — menunggu persetujuan user.
+        self.assertEqual(ins["min_edge_pct"], 3.5)
         self.assertTrue(ins["must_cover_total_stake"])
 
     def test_tiket_utama(self):
         main = self.cfg["tickets"]["main"]
         # Profil user 2026-11-22 (Langkah 3): Utama x3–x4, maks x5.
+        # Target lunak 3,5 per fondasi harga & pengali (keputusan
+        # user 2026-11-23): Utama x3 atau lebih dikit; x4–x5 adalah
+        # keberuntungan, bukan target (menggantikan lunak 4,0).
         self.assertEqual(main["multiplier_min"], 3.0)
         self.assertEqual(main["multiplier_max"], 5.0)
-        self.assertEqual(main["target_multiplier_max"], 4.0)
+        self.assertEqual(main["target_multiplier_max"], 3.5)
         # Kriteria "yakin" Tahap 4 (USULAN): ambang p_final per kaki.
         self.assertEqual(main["yakin_min_leg_prob"], 0.75)
         self.assertEqual(main["min_leg_prob"], 0.65)
@@ -240,13 +248,13 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_13(self):
-        # Versi 13: perbaikan racik analis adaptif (2026-11-23) —
-        # bantalan adaptif + nilai wajar (section analis), Asuransi
-        # 2,5–3,0x, kunci bantalan kaku D10 + lantai market+8 dihapus
-        # (di atas versi 12: Langkah 6, belajar sendiri).
+    def test_meta_versi_14(self):
+        # Versi 14: fondasi harga & pengali (keputusan user
+        # 2026-11-23 08:19 WIB) — Asuransi 2,0–2,5x, target lunak
+        # Utama 3,5, gate edge Asuransi 3,5% (PROPOSAL, insiden DEN)
+        # — di atas versi 13 (perbaikan racik analis adaptif).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 13)
+        self.assertEqual(meta["version"], 14)
         self.assertEqual(meta["last_reviewed"], "2026-11-23")
 
     def test_analis_section(self):
@@ -327,9 +335,11 @@ class TestPlaystyle(unittest.TestCase):
 class TestGetValue(unittest.TestCase):
     def test_ambil_nilai_bersarang(self):
         cfg = config.load_playstyle()
+        # Nilai contoh: multiplier_min Asuransi (2,0 sejak fondasi
+        # harga & pengali 2026-11-23, dulu 2,5).
         self.assertEqual(
             config.get_value(cfg, "tickets", "insurance", "multiplier_min"),
-            2.5,
+            2.0,
         )
 
     def test_kunci_hilang_melempar(self):

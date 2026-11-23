@@ -18,8 +18,14 @@
         # Tahap 3 Langkah 3 ✓ — racik Tiket Asuransi + Utama.
         # Exit 0 = minimal satu tiket terracik, 1 = tidak ada tiket,
         # 2 = tidak bisa jalan.
+    python cli.py audit --ticket out/tickets_<tanggal>.json
+        --analysis out/analysis_<id>.json [out/analysis_<id2>.json ...]
+        [--output out/audit_<nama-tiket>_<tanggal>.json]
+        # Tahap 4 — audit tiket sebelum pasang (insiden DEN 23 Nov 2026).
+        # Exit 0 = semua tiket GO, 1 = ada tiket NO-GO (laporan tetap
+        # ditulis), 2 = tidak bisa jalan.
     python cli.py pantau --ticket out/tickets_<tanggal>.json
-        [--analysis out/analysis_<id>.json] [--match DET@ATL_2026-11-22]
+        [--analysis out/analysis_<id>.json ...] [--match DET@ATL_2026-11-22]
         [--date YYYY-MM-DD] [--output out/pantau_<tanggal>.json]
         # Tahap 3 Langkah 4 — pantau tiket live + deteksi anomali.
         # Exit 0 = aman, 1 = ada kaki TERANCAM/KALAH/anomali atau kaki
@@ -40,7 +46,9 @@ Exit code: 0 sukses, 1 error (input tidak valid / ledger gagal) —
 recheck: 0 = GO, 1 = NO-GO (laporan tetap ditulis), 2 = recheck tidak
 bisa berjalan (tidak ada laporan). laporan/tanya: 0 sukses, 2 = tidak
 bisa jalan. racik: 0 = minimal satu tiket terracik, 1 = tidak ada
-tiket yang bisa diracik, 2 = tidak bisa jalan. pantau: 0 = aman,
+tiket yang bisa diracik, 2 = tidak bisa jalan. audit: 0 = semua
+tiket GO, 1 = ada tiket NO-GO (laporan tetap ditulis), 2 = tidak
+bisa jalan. pantau: 0 = aman,
 1 = ada kaki TERANCAM/KALAH/anomali atau DATA_INCOMPLETE,
 2 = tidak bisa jalan. belajar: 0 sukses (termasuk belum ada data),
 2 = tidak bisa jalan (modul belajar / fixture tidak tersedia).
@@ -752,6 +760,68 @@ def cmd_racik(args: argparse.Namespace) -> int:
     return 0 if (hasil.get("insurance") or hasil.get("main")) else 1
 
 
+def cmd_audit(args: argparse.Namespace) -> int:
+    """Audit tiket sebelum pasang (Tahap 4 — insiden DEN 23 Nov 2026).
+
+    Input: file tiket (--ticket) — objek tiket tunggal, pasangan
+    {"insurance","main"}, atau {"tickets": [...]} — plus 1+ file
+    analisis (--analysis, boleh banyak; laga yang sama di dua file:
+    artefak terbaru menang). P_model tiap kaki dihitung dari sim
+    markets artefak analisis; angka p_model di file tiket (Gemini)
+    diabaikan untuk verdict. File tiket TIDAK diubah; hasil audit
+    ditulis ke --output (default
+    out/audit_<nama-tiket>_<tanggal>.json) + teks tercetak.
+    Exit code: 0 = semua tiket GO, 1 = ada tiket NO-GO (laporan
+    tetap ditulis), 2 = audit tidak bisa berjalan.
+    """
+    try:
+        dokumen_tiket = json.loads(Path(args.ticket).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"error: tidak bisa membaca {args.ticket}: {exc}", file=sys.stderr)
+        return 2
+    dokumen_analisis: list[dict] = []
+    for path in args.analysis:
+        try:
+            dokumen_analisis.append(json.loads(Path(path).read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError) as exc:
+            # Fail-closed: file analisis rusak -> audit batal, bukan
+            # jalan dengan data sebagian (kaki bisa lolos diam-diam).
+            print(f"error: tidak bisa membaca {path}: {exc}", file=sys.stderr)
+            return 2
+    from config import ConfigError, load_playstyle
+    from engine import ticket_audit as audit_mod
+
+    try:
+        cfg = load_playstyle()
+        hasil = audit_mod.audit_tickets(dokumen_tiket, dokumen_analisis, cfg)
+    except ConfigError as exc:
+        print(f"error: config tidak bisa dibaca: {exc}", file=sys.stderr)
+        return 2
+    if hasil.get("error"):
+        print(f"error: {hasil['error']}", file=sys.stderr)
+        return 2
+    hasil["ticket_file"] = args.ticket
+    hasil["analysis_files"] = list(args.analysis)
+    tanggal = (
+        dokumen_tiket.get("game_date") if isinstance(dokumen_tiket, dict) else None
+    ) or datetime.date.today().isoformat()
+    nama_tiket = Path(args.ticket).stem
+    out_path = Path(
+        args.output or (REPO_ROOT / "out" / f"audit_{nama_tiket}_{tanggal}.json")
+    )
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(hasil, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except OSError as exc:
+        print(f"error: tidak bisa menulis {out_path}: {exc}", file=sys.stderr)
+        return 2
+    print(audit_mod.render_audit_text(hasil))
+    print(f"output: {out_path}")
+    return 0 if all(t.get("verdict") == "GO" for t in hasil["tickets"]) else 1
+
+
 def _normalisasi_match_id(match_id: str) -> str:
     """Normalisasi match_id ke bentuk artefak "AWAY@HOME_YYYY-MM-DD".
 
@@ -832,28 +902,31 @@ def _musim_bbref(tanggal: str) -> int:
     return tahun + 1 if bulan >= 7 else tahun
 
 
-def _median_pra_laga(data: dict) -> tuple[dict[str, float], list[str]]:
-    """Median total pra-laga per match_id dari file analisis.
+def _muat_median_pra_laga(
+    paths: list[str],
+) -> tuple[dict[str, float], list[str]]:
+    """Median total pra-laga per match_id dari 1+ file analisis.
 
     Median = simulation.score_distribution.total.median tiap artefak
-    nba_analysis (dikumpulkan lewat _kumpulkan_nba_analysis).
-    Artefak tanpa median dilewati + dicatat; tidak ditebak.
+    nba_analysis. Laga yang sama di dua file: artefak TERBARU menang
+    (dedup di ``engine/ticket_audit.py`` — satu implementasi dengan
+    audit tiket). File yang tidak bisa dibaca dilewati + dicatat
+    (pantau tetap jalan dengan file yang bisa dibaca); artefak tanpa
+    median dilewati + dicatat; tidak ditebak.
     """
+    from engine import ticket_audit as audit_mod
+
     catatan: list[str] = []
-    median: dict[str, float] = {}
-    artefak, error = _kumpulkan_nba_analysis(data)
-    if error is not None:
-        catatan.append(f"file analisis tidak bisa dipakai: {error}")
-        return median, catatan
-    for art in artefak or []:
-        mid = art.get("match_id")
-        sim = art.get("simulation") or {}
-        total = (sim.get("score_distribution") or {}).get("total") or {}
-        nilai = total.get("median")
-        if isinstance(mid, str) and isinstance(nilai, (int, float)):
-            median[mid] = float(nilai)
-        elif isinstance(mid, str):
-            catatan.append(f"{mid}: median pra-laga tidak ada di analisis")
+    dokumen: list[dict] = []
+    for path in paths:
+        try:
+            dokumen.append(json.loads(Path(path).read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError) as exc:
+            catatan.append(f"file analisis {path} tidak bisa dibaca ({exc}) — dilewati")
+    artefak, cat_kumpul = audit_mod.kumpulkan_analisis(dokumen)
+    catatan.extend(cat_kumpul)
+    median, cat_median = audit_mod.median_pra_laga(artefak)
+    catatan.extend(cat_median)
     return median, catatan
 
 
@@ -862,9 +935,11 @@ def cmd_pantau(args: argparse.Namespace) -> int:
 
     Input: file tiket (--ticket) — objek tiket tunggal, pasangan
     {"insurance","main"} output racik, atau {"tickets": [...]}.
-    File analisis (--analysis) opsional: median total pra-laga
-    dipakai sebagai pembanding laju skor; tanpa median, proyeksi
-    berjalan tanpa pembanding pra-laga + dicatat.
+    File analisis (--analysis) opsional, boleh banyak: median total
+    pra-laga dipakai sebagai pembanding laju skor (metode proyeksi
+    "blend"); laga yang sama di dua file memakai artefak terbaru.
+    Laga tanpa median di artefak mana pun tetap diproyeksi dengan
+    laju live saja ("live_rate_only") + dicatat per laga.
     Alur: baca tiket -> tentukan tanggal dari match_id kaki (atau
     --date) -> fetch scoreboard per tanggal (ingest/live_nba.py,
     pekerja A) -> fetch stats per laga berjalan/selesai ->
@@ -960,18 +1035,15 @@ def cmd_pantau(args: argparse.Namespace) -> int:
             return 2
         tanggal_list = sorted(tanggal_set)
 
-    # -- Median pra-laga (opsional; file rusak -> lanjut tanpa median). --
+    # -- Median pra-laga (opsional; boleh banyak file, artefak terbaru
+    # menang; file rusak -> dilewati, lanjut dengan yang bisa dibaca).
+    # args.analysis bisa berupa str (pemanggil langsung, satu file)
+    # atau list (parser nargs="+"). --
     median: dict[str, float] = {}
     if args.analysis:
-        try:
-            data_an = json.loads(Path(args.analysis).read_text(encoding="utf-8"))
-            median, cat_an = _median_pra_laga(data_an)
-            catatan.extend(cat_an)
-        except (OSError, json.JSONDecodeError) as exc:
-            catatan.append(
-                f"file analisis tidak bisa dibaca ({exc}) — lanjut "
-                "tanpa median pra-laga"
-            )
+        paths = args.analysis if isinstance(args.analysis, list) else [args.analysis]
+        median, cat_an = _muat_median_pra_laga(paths)
+        catatan.extend(cat_an)
     else:
         catatan.append("tanpa file analisis — tanpa median pra-laga")
 
@@ -1084,6 +1156,14 @@ def cmd_pantau(args: argparse.Namespace) -> int:
     hilang: list[str] = [m for m in match_dipantau if m not in live]
     for m in hilang:
         catatan.append(f"{m}: tidak ada di scoreboard — kakinya DATA_INCOMPLETE")
+    # Laga tanpa median pra-laga: proyeksinya tetap live-rate-only
+    # (fail-closed, tidak ditebak) + dicatat eksplisit.
+    for m in match_dipantau:
+        if m not in median:
+            catatan.append(
+                f"{m}: tanpa median pra-laga — proyeksi hanya memakai "
+                "laju skor live (live_rate_only)"
+            )
 
     proyeksi: dict[str, dict] = {}
     anomali: dict[str, list[dict]] = {}
@@ -1184,6 +1264,7 @@ def cmd_pantau(args: argparse.Namespace) -> int:
                     "period": live[mid].get("period"),
                     "clock_display": live[mid].get("clock_display"),
                     "projected_total": proyeksi.get(mid, {}).get("projected_total"),
+                    "projection_method": proyeksi.get(mid, {}).get("method"),
                     "pregame_median_total": median.get(mid),
                 }
                 for mid in match_dipantau
@@ -1471,7 +1552,7 @@ def cmd_belajar(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Bangun parser argumen CLI (analyze / recheck / laporan / tanya / racik / pantau / log / recap / belajar)."""
+    """Bangun parser argumen CLI (analyze / recheck / laporan / tanya / racik / audit / pantau / log / recap / belajar)."""
     parser = argparse.ArgumentParser(
         prog="cli.py",
         description="muse-parlay-analyst — satu pintu masuk (Blueprint §10).",
@@ -1596,6 +1677,30 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_racik.set_defaults(func=cmd_racik)
 
+    p_audit = sub.add_parser(
+        "audit",
+        help="audit tiket sebelum pasang (Tahap 4 — insiden DEN 23 Nov 2026)",
+    )
+    p_audit.add_argument(
+        "--ticket",
+        required=True,
+        help="file tiket: objek tiket tunggal, pasangan "
+        "{'insurance','main'}, atau {'tickets': [...]}",
+    )
+    p_audit.add_argument(
+        "--analysis",
+        required=True,
+        nargs="+",
+        help="file JSON analisis (artefak nba_analysis atau output "
+        "analyze), boleh banyak; laga yang sama memakai artefak terbaru",
+    )
+    p_audit.add_argument(
+        "--output",
+        default=None,
+        help="file output JSON (default: " "out/audit_<nama-tiket>_<tanggal>.json)",
+    )
+    p_audit.set_defaults(func=cmd_audit)
+
     p_pantau = sub.add_parser(
         "pantau",
         help="pantau tiket yang sedang berjalan (Tahap 3 Langkah 4)",
@@ -1609,8 +1714,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_pantau.add_argument(
         "--analysis",
         default=None,
+        nargs="+",
         help="file JSON analisis (artefak nba_analysis atau output "
-        "analyze) untuk median total pra-laga (opsional)",
+        "analyze) untuk median total pra-laga, boleh banyak "
+        "(laga yang sama memakai artefak terbaru; opsional)",
     )
     p_pantau.add_argument(
         "--match",

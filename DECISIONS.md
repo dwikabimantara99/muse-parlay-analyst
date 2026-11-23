@@ -585,3 +585,27 @@ Model yang sama untuk sepak bola: proyeksi gol per tim (Dixon-Coles, §5b), simu
 - **DET@ATL sebelum/sesudah (offline, `scripts/bandingkan_racik.py`)**: bantalan +9,36 adaptif; Utama tetap 237,5 @ 75,5¢ (kini naik 235,5→237,5 karena harga minimum, tipisnya kini TERLIHAT); Asuransi 233,5 @ 68¢ → **249,5 @ 92,5¢, p 93,9%, vol $141** (naik 5 anak tangga dari 239,5 karena volume tipis); penilaian WAJAR (jarak 18,5 ≥ 9,36).
 - **Verifikasi live slate 3 laga (0 kredit)**: OKC@MIA OK (bantalan 11,14; Utama 244,5 @ 82¢; Asuransi 250,5 @ 89¢, naik 246,5→250,5); DEN@CHI + BOS@GSW HOLD (Asuransi gagal `tidak_ada_garis_lolos: volume_tipis` — fail-closed jujur); recheck OKC@MIA GO; racik tidak ada tiket (hanya 1 laga OK, maks x1,15 < x3).
 - **Tes 1.395, config v13, 0 kredit Odds API.** Field baru skema (`analisis_wajar`, `cushion_points`, `cushion_reason`, `volume_usd`, `thin`, `climb`) semua OPSIONAL — artefak lama tetap valid.
+
+## Fondasi harga & pengali (keputusan user 2026-11-23 08:19 WIB)
+
+Keputusan ini MENGGANTIKAN target pengali dari perbaikan racik (Asuransi
+2.5–3.0). Konfigurasi `playstyle.yaml` menunggu build yang menerapkan
+fondasi ini.
+
+- **Harga mahal BOLEH.** Kaki 89¢, bahkan Asuransi 94¢, tidak masalah asal
+  perhitungan statistik bilang angkanya bisa diterima. **Tidak ada batas
+  atas harga (price cap) untuk ladder climbing** — pertanyaan terbuka dari
+  perbaikan racik TERJAWAB: tanpa cap.
+- **Target pengali: Asuransi x2 atau lebih dikit; Utama x3 atau lebih
+  dikit.** x4–x5 adalah KEBERUNTUNGAN bila analisis menunjukkan bisa
+  tembus, bukan target.
+- **Prioritas utama: SEMUA tiket lolos.** Pengali nomor dua.
+- **Analisis mendalam sebelum pasang** harus menjawab per laga: apakah
+  masing-masing tim akan sangat-sangat panas? Bila panas, apakah harga
+  82¢ bisa tembus? Apakah 94¢ bisa tembus? Ini kebutuhan skenario panas
+  (stress scenario) + garis tahan-banjir per kaki.
+
+Build yang diusulkan (menunggu persetujuan user): (1) audit tiket sebelum
+pasang, (2) skenario panas, (3) edge jadi gate Asuransi, (4) sesuaikan
+target pengali dengan fondasi ini, (5) proyeksi live pakai median pra-laga
+untuk tiket nyata.

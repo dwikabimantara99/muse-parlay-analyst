@@ -43,10 +43,18 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
 - Hanya kaki TETAP_OK yang masuk tiket; PERHATIAN masuk hanya bila
   alasannya tercatat, dan ditandai di kaki (flag) + ringkasan.
 - MAHAL tidak masuk Asuransi; boleh masuk Utama dengan label MAHAL.
-- Target pengali dari config: Asuransi 2,5–3,0; Utama 3,0–5,0
-  (maks 5,0 profil user 2026-11-22) dengan target lunak ≤ 4,0. Bila
+- Target pengali dari config: Asuransi 2,0–2,5; Utama 3,0–5,0
+  (maks 5,0 profil user 2026-11-22) dengan target lunak ≤ 3,5
+  (fondasi harga & pengali, keputusan user 2026-11-23). Bila
   target tidak tercapai dengan kaki yang lolos, tiket menjadi None +
   alasan jujur — kaki yang tidak lolos TIDAK PERNAH dipaksakan masuk.
+- Gate edge minimum Asuransi (insiden DEN@CHI 2026-11-23): kaki
+  Asuransi dengan edge (p_final − harga venue/100 — definisi edge
+  yang sama dengan yang dipakai ``_rakit_tiket``) di bawah
+  ``tickets.insurance.min_edge_pct`` DITOLAK dari Asuransi (hard
+  gate, seperti thin), alasan tercatat ("edge_kecil" + nilainya).
+  Utama TIDAK kena gate ini. Nilai ambang adalah PROPOSAL (pola
+  D12) — menunggu persetujuan user; lihat komentar di config.
 - Lantai harga (filosofi user 2026-11-23): kaki NBA dengan harga
   venue (jup_estimated_cents, fallback price_cents) di bawah
   analis.harga_min_utama_cents (Utama) / analis.harga_min_asuransi_cents
@@ -60,7 +68,7 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   ditandai flag VOLUME_TIPIS + peringatan di warnings[] + ringkasan.
 - Kriteria "yakin" Utama di atas target lunak (USULAN — menunggu
   keberatan user/reviewer): pengali Utama boleh melewati target lunak
-  (≤ 4,0) sampai maks 5,0 HANYA bila SEMUA kaki p_final ≥ ambang yakin
+  (≤ 3,5) sampai maks 5,0 HANYA bila SEMUA kaki p_final ≥ ambang yakin
   (tickets.main.yakin_min_leg_prob: 0,75) DAN semua kaki TETAP_OK
   (tanpa recheck = tidak yakin) DAN tidak ada anomali di laga
   kaki-kakinya. Subset yakin di atas lunak DIUTAMAKAN atas subset
@@ -145,6 +153,12 @@ _EPS = 1e-9
 # angka ini tanpa persetujuan user.
 _DEFAULT_HARGA_MIN_CENTS = 75.0
 _DEFAULT_YAKIN_MIN_LEG_PROB = 0.75
+
+# Default gate edge minimum Asuransi (persen) — NILAI PROPOSAL yang
+# sama dengan tickets.insurance.min_edge_pct di config (insiden DEN
+# 2026-11-23; lihat komentar config). Dipakai hanya bila kuncinya
+# belum ada di config (sumber "default" dicatat di ringkasan).
+_DEFAULT_MIN_EDGE_INS_PCT = 3.5
 
 # Kunci wajib minimal tiket (dipakai bila jsonschema tidak tersedia).
 _KUNCI_WAJIB_TIKET = ("ticket_id", "type", "stake", "multiplier", "legs")
@@ -251,6 +265,23 @@ def _ambang_yakin(cfg: dict) -> tuple[float, str]:
         0.0,
         1.0,
     )
+
+
+def _ambang_edge_asuransi(cfg: dict) -> tuple[float, str]:
+    """Edge minimum kaki Asuransi (desimal) + sumbernya ("config"/"default").
+
+    Dibaca dari ``tickets.insurance.min_edge_pct`` (persen; 3,5 berarti
+    edge minimum +3,5 poin). Kunci hilang -> nilai proposal default
+    (pola yang sama dengan lantai harga / ambang yakin).
+    """
+    nilai_pct, sumber = _angka_config_atau_default(
+        cfg,
+        ("tickets", "insurance", "min_edge_pct"),
+        _DEFAULT_MIN_EDGE_INS_PCT,
+        0.0,
+        100.0,
+    )
+    return nilai_pct / 100.0, sumber
 
 
 def _parse_iso(teks) -> datetime | None:
@@ -526,6 +557,7 @@ def _kumpulkan_kandidat(
     recheck_per_laga: dict[str, dict],
     cfg: dict,
     lantai: dict[str, float] | None = None,
+    edge_min_ins: float | None = None,
 ) -> tuple[dict[str, list[dict]], dict[str, list[str]]]:
     """Saring kaki-kaki artefak menjadi kandidat per tiket.
 
@@ -538,7 +570,9 @@ def _kumpulkan_kandidat(
       untuk transparansi di ringkasan.
 
     ``lantai``: lantai harga per tiket (None = baca dari config di
-    sini via ``_lantai_harga``).
+    sini via ``_lantai_harga``). ``edge_min_ins``: edge minimum kaki
+    Asuransi dalam desimal (None = baca dari config di sini via
+    ``_ambang_edge_asuransi``).
     """
     ambang_gap = _ambang(cfg, "market_line_check", "total_gap_points")
     min_prob = {
@@ -547,6 +581,8 @@ def _kumpulkan_kandidat(
     }
     if lantai is None:
         lantai, _sumber_lantai = _lantai_harga(cfg)
+    if edge_min_ins is None:
+        edge_min_ins, _sumber_edge = _ambang_edge_asuransi(cfg)
     tolak_mahal_ins = bool(
         config_mod.get_value(cfg, "optimizer", "exclude_mahal_from_insurance")
     )
@@ -753,6 +789,22 @@ def _kumpulkan_kandidat(
                     )
                 coret[tiket].append(pesan)
                 continue
+            # --- Gate edge minimum Asuransi (insiden DEN 2026-11-23).
+            # Hard gate, hanya Asuransi — Utama tidak kena. Edge memakai
+            # definisi yang sama dengan _rakit_tiket: p_final dikurangi
+            # harga venue (jup.ag), BUKAN probabilitas keputusan
+            # (condong-ke-market tidak mengubah edge).
+            if tiket == "insurance":
+                edge = p_final - harga_venue / 100.0
+                if edge < edge_min_ins:
+                    coret[tiket].append(
+                        f"{match_id} ({label_kaki}): edge_kecil — edge "
+                        f"{edge * 100:+.1f}% di bawah minimum "
+                        f"{edge_min_ins * 100:.1f}% untuk Asuransi "
+                        f"(p_final {p_final * 100:.1f}% − harga "
+                        f"{harga_venue:g}¢)"
+                    )
+                    continue
             kandidat[tiket].append(
                 {
                     "leg": kaki,
@@ -1273,8 +1325,9 @@ def compose_tickets(
                 if mode_agresif
                 else _ambang(cfg, "tickets", "main", "multiplier_max")
             ),
-            # Target lunak (≤ 4,0 profil user); bila kunci belum ada di
-            # config lama, fallback ke multiplier_max (bukan angka baru).
+            # Target lunak (≤ 3,5 fondasi 2026-11-23); bila kunci belum
+            # ada di config lama, fallback ke multiplier_max (bukan
+            # angka baru).
             "soft": target_main_soft
             or _ambang(cfg, "tickets", "main", "multiplier_max"),
         },
@@ -1304,8 +1357,13 @@ def compose_tickets(
     recheck_per_laga = _terbaru_per_laga(rechecks or [], "recheck_at")
     lantai, sumber_lantai = _lantai_harga(cfg)
     ambang_yakin, sumber_yakin = _ambang_yakin(cfg)
+    ambang_edge, sumber_edge = _ambang_edge_asuransi(cfg)
     kandidat, coret = _kumpulkan_kandidat(
-        analisis_per_laga, recheck_per_laga, cfg, lantai=lantai
+        analisis_per_laga,
+        recheck_per_laga,
+        cfg,
+        lantai=lantai,
+        edge_min_ins=ambang_edge,
     )
 
     warnings: list[str] = []
@@ -1602,6 +1660,12 @@ def compose_tickets(
             f"x{target['main']['soft']:.2f}: tiap kaki p_final "
             f">= {_DEFAULT_YAKIN_MIN_LEG_PROB * 100:.0f}% (nilai default "
             "— kunci tickets.main.yakin_min_leg_prob belum ada di config)."
+        )
+    if sumber_edge == "default":
+        catatan_ringkas.append(
+            "Gate edge minimum Asuransi "
+            f"{_DEFAULT_MIN_EDGE_INS_PCT:g}% (nilai default — kunci "
+            "tickets.insurance.min_edge_pct belum ada di config)."
         )
     catatan_ringkas.append(
         "Hanya kaki Alt Under (NBA) dan kaki 1X2/O-U gol/BTTS (bola) "

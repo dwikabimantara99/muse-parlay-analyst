@@ -1154,5 +1154,96 @@ class TestTahap4GarisBandarDanBantalan(unittest.TestCase):
         self.assertNotIn("PERHATIAN", teks)
 
 
+class TestSkenarioPanas(unittest.TestCase):
+    """Bagian 'Skenario panas' di laporan (perbaikan pasca-Denver).
+
+    Angka ekspektasi dihitung tangan dari CDF fixture (garis 219 ->
+    0,5; 233,5 -> 0,77191; 237,5 -> 0,82964; interpolasi linear).
+    """
+
+    def test_hitung_otomatis_dari_artefak(self):
+        teks = nba_report_mod.render_nba_report(_artefak())
+        self.assertIn("Skenario panas", teks)
+        # Geser dari config (13,54 / 17,54) + konservatif (225,5-219).
+        self.assertIn("banjir tripoin +13,54 poin", teks)
+        self.assertIn("banjir lemparan bebas +17,54 poin", teks)
+        self.assertIn("konservatif (selaras garis market) +6,50 poin", teks)
+        self.assertIn("Skenario banjir terburuk: banjir lemparan bebas.", teks)
+        # Under 233,5: CDF(233,5-13,54)=CDF(219,96)=51,8%;
+        # CDF(233,5-17,54)=CDF(215,96) dijepit ke 50,0%;
+        # CDF(233,5-6,5)=CDF(227)=65,0%.
+        self.assertIn(
+            "Under 233,5 (Asuransi, 68¢): normal 77,2%; banjir tripoin "
+            "51,8%; banjir lemparan bebas 50,0%; konservatif 65,0%.",
+            teks,
+        )
+        self.assertIn("TIDAK tahan banjir", teks)
+        self.assertIn("1 dari 10 laga terpanas", teks)
+
+    def test_membaca_stress_tersimpan_bila_ada(self):
+        artefak = _artefak()
+        artefak["stress"] = {
+            "format": "nba_stress",
+            "format_version": 1,
+            "skenario": {
+                "banjir_3p": {"geser_points": 20.0},
+                "banjir_ft": {"geser_points": 10.0},
+                "konservatif": {"geser_points": 1.0},
+            },
+            "banjir_terburuk": "banjir_3p",
+            "kaki": [
+                {
+                    "line": 240.5,
+                    "ticket": "insurance",
+                    "price_cents": 85.0,
+                    "target_probability": 0.74,
+                    "p_under": {
+                        "normal": 0.9,
+                        "banjir_3p": 0.8,
+                        "banjir_ft": 0.85,
+                        "konservatif": 0.88,
+                    },
+                    "tahan_banjir": True,
+                    "garis_tahan_banjir": {
+                        "line": 240.5,
+                        "price_cents": 85.0,
+                        "jup_estimated_cents": 85.5,
+                        "thin": True,
+                        "volume_usd": None,
+                    },
+                }
+            ],
+            "cek_harga": [
+                {
+                    "harga_cents": 94.0,
+                    "line": 250.5,
+                    "p_under": {"banjir_3p": 0.92},
+                }
+            ],
+        }
+        teks = nba_report_mod.render_nba_report(artefak)
+        # Nilai tersimpan dipakai, bukan hitung otomatis (20, bukan
+        # 13,54 — _fmt_poin memangkas nol di belakang koma) — membuktikan
+        # jalur baca-artefak.
+        self.assertIn("banjir tripoin +20 poin", teks)
+        self.assertIn("Skenario banjir terburuk: banjir tripoin.", teks)
+        self.assertIn(
+            "Under 240,5 (Asuransi, 85¢): normal 90,0%; banjir tripoin "
+            "80,0%; banjir lemparan bebas 85,0%; konservatif 88,0%.",
+            teks,
+        )
+        self.assertIn("Tahan banjir (target 74,0% tercapai", teks)
+        self.assertIn(
+            "Garis tahan banjir: 240,5 (85¢, jup.ag ~85,5¢) "
+            "— PERHATIAN: volume garis ini tipis (volume tidak tercatat).",
+            teks,
+        )
+        self.assertIn(
+            "Di harga 94¢ (garis 250,5): kalau banjir terburuk, "
+            "peluang Under 92,0%.",
+            teks,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
