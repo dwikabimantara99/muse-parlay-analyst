@@ -1681,3 +1681,47 @@ konflik cedera bintang vs minor; (8) perbaiki parser PDF
 cedera + DBPM bek elit (OKC@IND); (10) perbaiki pemenang H2H +
 flag dataran tinggi (lokasi laga); (11) duplikat slate BKN@MIN +
 output build_slate tidak bisa langsung jadi input analyze.
+
+## Analisis segar 24 Nov (RUN SUNGGUHAN, 2026-11-24 04:23 WIB)
+
+User membatalkan jadwal 05:00 (cron slate-selasa-05-00 DIHAPUS)
+dan meminta jalan SEKARANG. DIVERIFIKASI main agent dari disk.
+Analyze 4m23d, Odds API 1 panggilan / 3 kredit (sisa 484/500).
+Vonis: HIJAU 2 (PHX, LAC) / MENENGAH 1 (UTA) / KUNING 4 (MEM,
+MIL, BKN, CLE) / TUNGGU 3 (POR, OKC, SAS).
+TIDAK ADA TIKET + TIDAK ADA FALLBACK (Utama maks x1,17 — hanya
+UTA yang lolos). Status: 7 HOLD + 1 DATA_INCOMPLETE (CLE, veto)
++ 2 OK (BKN MODEL_ONLY tanpa jangkar pasar; UTA).
+INFO BARU vs preview: SGA KEMBALI MAIN (tidak ada di daftar
+cedera OKC); gap OKC mengecil 21,5 -> 14,5 (median 200,0 -> 209,0;
+garis pasar 221,5 -> 223,5) dan TIDAK ADA penyusutan Vegas kali
+ini (gap punya penjelasan cedera); Official NBA report OKC@IND
+kini SUDAH SUBMIT; BKN HOLD -> OK (konflik Nelson terurai,
+volume_tipis hilang — tapi MODEL_ONLY); konflik terurai: Dieng,
+Nelson, McGowens, Murphy III; konflik baru: Jalen Smith (CLE);
+masih bertahan: Miller, Bona/Brown/Wade, Murray-Boyles, Tyson,
+Zion. Embiid (POR, USG 29%) + Siakam (OKC, USG 28%) Questionable
+— baru muncul di data segar. PHX KEHILANGAN EQ Utama (terbaik
+EV −3,2%; EQ Asuransi memburuk −1,6% -> −3,2%) — kontradiksi
+HIJAU Gemini MASIH ADA. LAC EQ Asuransi −10,8% -> −10,9%.
+SESUAI PREDIKSI GEMINI: volume_tipis MASIH memblokir 7 laga
+(MEM, POR, OKC, MIL, PHX, LAC, SAS) — Odds API TIDAK
+memperbaikinya; 4 laga MASIH tanpa jangkar pasar (MEM, MIL, BKN,
+SAS) — Odds API ter-fetch di semua laga tapi hanya 5 laga yang
+kakinya punya p_market (bandar belum memasang total di 4 laga
+itu pada jam ini); veto CLE tetap menyala (garis 240,5 -> 239,5;
+Mobley OUT + pace 103,03); bug H2H + flag dataran tinggi masih ada.
+KANDIDAT HIDUP UNTUK RECHECK (angka EQ saja, BUKAN tiket): OKC
+EQ Asuransi VALID (U245,5 @88,5¢, p_final 90,3%, EV 1,02) + EQ
+Utama (U237,5 @77¢, p 81,7%, EV 1,06) — terblokir Siakam
+Questionable + volume_tipis; UTA EQ Asuransi valid (U244,5 @86,5¢,
+p_final 86,6%, EV 1,00) tapi vonis MENENGAH (ke Utama); POR
+nyaris (terbaik U251,5 @86,5¢ EV −1,2% vs minimum −1,0%).
+RECHECK 30–40 menit sebelum tiap kloter tip-off masih diperlukan
+(3 laga TUNGGU_LINEUP + satu-satunya kesempatan volume/jangkar
+membaik). File: out/analysis_2026-11-24.json, out/tickets_2026-11-24.json,
+out/laporan_2026-11-24.txt (2.516 baris). Tidak ada commit /
+perubahan kode. Insiden build slate: dedupe pertama salah (kunci
+(None,None) meruntuhkan 11 laga jadi 1) — sudah di-rebuild dengan
+dedupe match_id, 10 laga unik terverifikasi; bukti mentah di
+out/slate_enriched_2026-11-24_raw.json.
