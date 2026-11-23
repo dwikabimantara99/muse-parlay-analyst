@@ -689,6 +689,13 @@ dipaksakan.
   gate edge: 0/10 kaki Asuransi lolos (satu-satunya yang lolos banjir,
   OKC U250,5 @89¢, gagal edge +1,3% < 3,5%). Angka ini untuk
   keputusan user, bukan untuk dilonggarkan diam-diam.
+- **Klarifikasi harga 10:14 WIB (dipatuhi):** tidak ada logika
+  prefer-harga-tinggi di komposer/gate (diverifikasi koordinator atas
+  diff build ini); garis tahan-banjir adalah garis TERMURAH yang
+  lolos banjir (by construction — iterasi tangga menaik, ambil
+  pertama yang lolos); komposer menyeimbangkan harga vs target
+  pengali dengan cara subset yang sudah ada. Lihat
+  LAPORAN-ATURAN-KERAS.md §2a.
 
 ## Koreksi: skenario setan adalah deteksi, bukan gate (keputusan user 2026-11-23 09:52 WIB)
 
@@ -709,3 +716,21 @@ Mengoreksi bagian "Skenario 'setan'" di atas (09:47 WIB):
 - **Strategi tumpuk:** pasang di harga tinggi (89¢/94¢) tidak masalah
   untuk menumpuk BANYAK laga dan menambah daya ungkit pengali — asal
   tiap kaki fundamentalnya kuat (lolos semua gate).
+
+## Klarifikasi: harga mengikuti statistik (keputusan user 2026-11-23 10:14 WIB)
+
+Angka 89–94¢ dari user adalah HIPERBOLA, bukan target. Jangan dorong
+semua kaki ke area 89–94¢ dan jangan tambahkan logika "prefer harga
+tinggi" ke komposer/gate mana pun.
+
+Prinsip: HARGA MENGIKUTI STATISTIK. Tiap kaki harus masuk akal secara
+statistik + lolos semua uji (min_leg_prob, edge, volume, banjir) +
+tahan anomali. Garis yang dipilih = garis terkecil (termurah) yang
+lolos SEMUA gate; naik garis hanya bila gate tidak lolos di garis
+bawah. Harga tinggi hanya terjadi bila statistik laga itu memang
+menuntutnya.
+
+Kendala matematika: dengan sedikit laga (mis. 5 laga), semua kaki di
+80¢+ tidak bisa mencapai x2/x3 — komposer menyeimbangkan harga vs
+target pengali dengan memilih subset kaki-kaki yang lolos gate hingga
+mencapai target.

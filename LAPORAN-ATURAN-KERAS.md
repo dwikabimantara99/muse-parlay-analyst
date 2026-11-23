@@ -1,7 +1,7 @@
 # LAPORAN — Aturan Keras Pasca-Denver: Gate Banjir, Skenario Setan, Sharp Move Bukan Diskon
 
 **Status: SELESAI, terverifikasi koordinator dari disk, commit + push ke main.**
-Commit: `c361a04` (feat) + `<hash-docs>` (docs hash). Remote HEAD terverifikasi
+Commit: `c361a04` (feat) + `1315ad5` (docs hash). Remote HEAD terverifikasi
 sama; tree bersih — config v15, **1.537 tes lulus**
 (dari 1.483, +54), ruff + black bersih, **0 kredit Odds API**.
 
@@ -63,6 +63,39 @@ nyata `out/analysis_verif_tahap4_2026-11-22.json`):**
 **Kaki Utama:** tidak kena gate; P banjir + P setan per kaki Utama
 tampil di laporan (bagian "Skenario panas") dan audit (baris
 "Kalau panas: …") — terverifikasi hidup pada DEN nyata.
+
+## §2a. Klarifikasi harga: harga mengikuti statistik (koreksi user 10:14 WIB)
+
+Angka 89–94¢ dari user adalah **HIPERBOLA, BUKAN target** (DECISIONS.md,
+"Klarifikasi: harga mengikuti statistik", 10:14 WIB). Prinsip yang
+benar: **HARGA MENGIKUTI STATISTIK, bukan sebaliknya.**
+
+- **Garis tahan-banjir adalah garis TERMURAH yang lolos banjir**
+  (bukan garis termahal). By construction: `garis_tahan_banjir`
+  mengiterasi tangga dari garis terkecil ke atas dan mengambil garis
+  PERTAMA yang P(Under) ≥ target di banjir. Naik garis hanya terjadi
+  bila gate tidak lolos di garis bawah. Harga tinggi (89¢/94¢) hanya
+  terjadi bila statistik laga itu memang menuntutnya (garis bawahnya
+  gagal uji) — angka-angka 89¢/94¢ di laporan ini (mis. garis
+  tahan-banjir DEN 264,5 @94¢, tabel §5) adalah HASIL pengukuran di
+  slate nyata, bukan rentang target.
+- **Tidak ada logika "prefer harga tinggi"** di komposer/gate banjir
+  (diverifikasi koordinator atas diff build ini — tidak ada). Cara
+  komposer menyeimbangkan harga vs target pengali TIDAK diubah: pilih
+  subset kaki-kaki yang lolos gate hingga mencapai target (preferensi
+  subset yang sudah ada memaksimalkan peluang menang lalu pengali —
+  pengali lebih besar justru datang dari kaki yang lebih murah).
+- **Kendala matematika** (dihitung tangan): 5 kaki @89¢ = (100/89)^5
+  ≈ x1,79 mentah, **x1,69 setelah potongan kombo 5,5%** — tidak
+  sampai x2. 5 kaki @85¢ ≈ x2,25 mentah, x2,13 setelah potongan.
+  Dengan sedikit laga, semua kaki di harga tinggi tidak bisa mencapai
+  target pengali — karena itu komposer TIDAK BOLEH mendorong semua
+  kaki ke harga tinggi.
+- **Interaksi dengan gate banjir (konsekuensi jujur):** gate banjir
+  menaikkan garis (harga) kaki yang gagal. Bila semua kaki naik ke
+  harga tinggi dan target pengali tidak tercapai dengan laga yang
+  ada, Asuransi tidak terbentuk — itu perilaku fail-closed yang
+  benar, bukan bug. Lihat §5 butir 2 untuk ukurannya di slate nyata.
 
 ## §3. Item 2 — Skenario "setan" (deviasi maksimal)
 
