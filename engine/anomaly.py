@@ -24,7 +24,8 @@ tinggi. Anomali tambahan:
     turun sebesar ambang sharp move.
 
 NILAI AWAL (BELUM DIKALIBRASI, menunggu validasi/persetujuan user):
-  market_line_check.total_gap_points = 5.0 (pertimbangan: kira-kira
+  calibration.lean_to_market_gap = 5.0 (v18 — dipindahkan dari
+  market_line_check.total_gap_points; pertimbangan: kira-kira
   setengah bantalan minimum D10 — bukan hasil fit);
   market_line_check.min_model_under_prob = 0.70 (pertimbangan:
   optimisme Under setinggi ini patut dicurigai bila harga melawan —
@@ -381,7 +382,8 @@ def check_total_line_vs_model(
     """Anomali bila |garis total market - median model| > ambang.
 
     gap = market_total_line - model_median_total. Ambang dari cfg
-    "market_line_check.total_gap_points" (NILAI AWAL yang diusulkan
+    "calibration.lean_to_market_gap" (v18, 5.0 — DIPINDAHKAN dari
+    market_line_check.total_gap_points; NILAI AWAL yang diusulkan
     5.0 — BELUM DIKALIBRASI, menunggu validasi/persetujuan user).
     Aturan "lebih dari": tepat di ambang BUKAN anomali.
 
@@ -399,8 +401,8 @@ def check_total_line_vs_model(
     garis = _validasi_garis_total(market_total_line, "market_total_line")
     cfg = cfg if cfg is not None else config.load_playstyle()
     ambang = _validasi_ambang(
-        config.get_value(cfg, "market_line_check", "total_gap_points"),
-        "market_line_check.total_gap_points",
+        config.get_value(cfg, "calibration", "lean_to_market_gap"),
+        "calibration.lean_to_market_gap",
     )
     # Dibulatkan supaya tepat di ambang tidak salah terpicu oleh float.
     gap = round(garis - median, 9)

@@ -46,7 +46,8 @@ Bila komponen tidak bisa dihitung (inputs hilang), bagian itu dijawab
 "KENAPA BEDA?" (intent kenapa_beda_model_market): mengikuti aturan
 DECISIONS.md — ambang selisih peluang 8 poin
 (anomaly.model_vs_market_points) dan ambang selisih median-garis
-5 poin (market_line_check.total_gap_points), keduanya dari config.
+5 poin (calibration.lean_to_market_gap — v18, dipindahkan dari
+market_line_check.total_gap_points), keduanya dari config.
 Kesimpulan mekanis dari data artefak saja: (b) "Model kemungkinan
 kurang data" bila ada kelemahan data yang tercatat (status HOLD /
 MODEL_ONLY / cedera 1 sumber), else (c) "Tidak ditemukan alasan".
@@ -1297,7 +1298,7 @@ def _jawab_kenapa_beda(pertanyaan: str, analysis: dict, cfg: dict) -> dict:
     garis_market = None
     if isinstance(market, dict):
         garis_market = _angka(market.get("main_total_line"))
-    ambang_gap = _ambang(cfg, 5.0, "market_line_check", "total_gap_points")
+    ambang_gap = _ambang(cfg, 5.0, "calibration", "lean_to_market_gap")
     ambang_diff = _ambang(cfg, 8.0, "anomaly", "model_vs_market_points")
     numbers: dict = {
         "ambang_gap_points": ambang_gap,

@@ -25,23 +25,45 @@ Tiga pemicu (SATU pemicu positif cukup untuk skip):
     (4) edge kecil pada garis acuan: edge implied (p_final − harga
         venue) < skip_awal.pola_denver.edge_kecil_pct (INITIAL 3,5 —
         cermin proposal D12).
+
+    CATATAN v18: syarat (4) DIPERTAHANKAN berbasis edge, BUKAN
+    diubah ke EV — alasan: (i) mengubahnya butuh ubah tes pola
+    Denver + test_config.py (di luar ruang lingkup worker A v18);
+    (ii) di dalam konjungsi 4-syarat, edge adalah sinyal lemah,
+    bukan gerbang — cacat edge-datar (pelajaran v18) paling
+    menggigit di gerbang, dan gerbang Asuransi SUDAH diganti ke
+    EV (max_negative_ev_pct). Konversi ke EV dicatat sebagai
+    tindak lanjut: EV = p_final x (100/harga) - 1 vs ambang
+    DISKON price_labels.diskon_min_ev_pct (+2%). KELEMAHAN JUJUR:
+    pada harga tinggi edge menyusut mekanis, jadi syarat (4)
+    hampir selalu benar untuk garis acuan mahal — konjungsi
+    efektif jadi 3 syarat di sana.
     "Volume tipis" juga terkandung di (2): garis tahan-banjir yang
     ada semuanya thin berarti garis yang selamat tidak bisa dibeli.
     Garis acuan = garis tangga Under terendah dengan P normal >=
     target Asuransi (engine/equilibrium.cari_garis_acuan) — pada
     tangga monoton naik, ini sekaligus garis termurah.
-(c) ot_tinggi — potensi OT tinggi: ot_probability sim >=
-    ot_seleksi.skip_ot_prob (INITIAL 0,028). KEPUTUSAN: SKIP (bukan
-    bantalan lebih besar) — OT menambah loncatan diskret ~20+ poin
-    yang SUDAH dimodelkan sim dalam distribusi total; risiko sisa
-    adalah model MEREMEHKAN OT (nilai sim 1,7–2,9% vs laju OT
-    historis NBA ~5–6%), yang tidak bisa diperbaiki oleh bantalan
-    yang dihitung dari model yang sama. Ambang 0,028 ≈ plafon
-    teoretis peluang seri laga imbang di bawah sigma_margin hasil
-    fit (1/(14,4307·√(2π)) ≈ 0,0277) — hanya laga yang praktis
-    imbang yang kena skip. KEJUJURAN: DEN@CHI (yang benar-benar OT)
-    punya ot_prob sim hanya 2,36%/2,13% — TIDAK kena aturan ini;
-    Denver ditangkap pola_denver, bukan aturan OT.
+(c) ot_tinggi — potensi OT tinggi: probabilitas OT EMPIRIS
+    (engine/ot_empiris.py: laju dasar liga x penyesuaian spread)
+    >= ot_seleksi.hard_skip_ot_prob (INITIAL 0,085, v18).
+    Pemicu keras v17 (ot_probability sim >= 0,028) DIHAPUS:
+    ot_prob sim tidak pernah mencapai 2,74% (kap teoretis,
+    0/2.701 laga kalibrasi melewati 2,74%) — ambang 2,8% di atas
+    kap, jadi tidak pernah memicu kecuali artefak cacat. OT sim
+    tetap dicatat sebagai info di hasil["ot"]["ot_probability"].
+    KEPUTUSAN: SKIP (bukan bantalan lebih besar) — OT menambah
+    loncatan diskret ~20+ poin yang SUDAH dimodelkan sim dalam
+    distribusi total; risiko sisa adalah model MEREMEHKAN OT
+    (nilai sim 1,7–2,9% vs laju OT historis NBA ~5–6%), yang
+    tidak bisa diperbaiki oleh bantalan yang dihitung dari model
+    yang sama. KEJUJURAN: DEN@CHI (yang benar-benar OT) punya
+    ot_prob sim hanya 2,36%/2,13% — TIDAK kena aturan v17;
+    Denver ditangkap pola_denver, bukan aturan OT. CATATAN
+    KEJUJURAN v18: di bawah rumus empiris, hard-skip 0,085
+    TIDAK TERCAPAI (p_ot maks pada spread 0 = laju dasar 0,0575
+    < 0,085) — gerbang ini dormant sampai kalibrasi ledger
+    memberi laju OT per kelompok spread atau ambang diturunkan
+    atas persetujuan user. Lihat engine/ot_empiris.py.
 
 TANPA DATA -> "tidak dievaluasi", BUKAN skip: skip adalah klaim
 positif soal laga, bukan default saat data hilang. Bila CDF/tangga/
@@ -59,6 +81,7 @@ import math
 
 import config as config_mod
 from engine import equilibrium as equilibrium_mod
+from engine import ot_empiris as ot_empiris_mod
 
 # Nama pemicu (token stabil untuk laporan + JSON ukur).
 PEMICU_TIDAK_ADA_EQUILIBRIUM = "tidak_ada_equilibrium"
@@ -107,23 +130,21 @@ def baca_ot_probability(analysis: dict) -> float | None:
 def potensi_ot_tinggi(
     analysis: dict, cfg: dict | None = None
 ) -> tuple[bool | None, float | None, float]:
-    """Apakah potensi OT laga ini tinggi? -> (tinggi, ot_prob, ambang).
+    """Apakah potensi OT laga ini tinggi? -> (tinggi, p_ot, ambang).
 
-    ``tinggi`` None bila ot_probability tidak ada di artefak (tidak
-    bisa dinilai — bukan bukti aman). Ambang dari
-    ot_seleksi.skip_ot_prob (ConfigError bila kunci hilang).
+    v18: ``p_ot`` adalah probabilitas OT EMPIRIS
+    (engine/ot_empiris.py, dari spread |median margin|), BUKAN
+    ot_probability sim. ``tinggi`` None bila spread tidak ada di
+    artefak (tidak bisa dinilai — bukan bukti aman). Ambang dari
+    ot_seleksi.hard_skip_ot_prob (ConfigError bila kunci hilang
+    atau mode bukan "empiris").
     """
     cfg = _muat_cfg(cfg)
-    ambang = config_mod.get_value(cfg, "ot_seleksi", "skip_ot_prob")
-    ambang_f = _angka(ambang)
-    if ambang_f is None or not 0.0 <= ambang_f <= 1.0:
-        raise config_mod.ConfigError(
-            f"playstyle.yaml ot_seleksi.skip_ot_prob tidak valid: {ambang!r}"
-        )
-    ot = baca_ot_probability(analysis)
-    if ot is None:
-        return None, None, ambang_f
-    return ot >= ambang_f, ot, ambang_f
+    hasil = ot_empiris_mod.evaluasi_ot(analysis, cfg)
+    ambang = ot_empiris_mod.baca_ambang_hard_skip(cfg)
+    if not hasil["dievaluasi"]:
+        return None, None, ambang
+    return hasil["hard_skip"], hasil["p_ot_empiris"], ambang
 
 
 def _evaluasi_pola_denver(analysis: dict, cfg: dict, ktx: dict | None = None) -> dict:
@@ -232,6 +253,8 @@ def evaluasi_skip_awal(
         "alasan": None,
         "ot": {
             "ot_probability": None,
+            "p_ot_empiris": None,
+            "spread_points": None,
             "ambang": None,
             "tinggi": None,
         },
@@ -253,9 +276,14 @@ def evaluasi_skip_awal(
         )
         return hasil
     # (c) OT — dinilai dulu (tidak butuh CDF/tangga).
+    # v18: ot_prob di sini adalah p OT EMPIRIS (dari spread);
+    # ot_probability sim dicatat sebagai info di hasil["ot"].
     ot_tinggi, ot_prob, ambang_ot = potensi_ot_tinggi(analysis, cfg)
+    _evaluasi_ot = ot_empiris_mod.evaluasi_ot(analysis, cfg)
     hasil["ot"] = {
-        "ot_probability": ot_prob,
+        "ot_probability": baca_ot_probability(analysis),
+        "p_ot_empiris": ot_prob,
+        "spread_points": _evaluasi_ot.get("spread_points"),
         "ambang": ambang_ot,
         "tinggi": ot_tinggi,
     }
@@ -288,8 +316,8 @@ def evaluasi_skip_awal(
     pola = _evaluasi_pola_denver(analysis, cfg, ktx=ktx)
     hasil["pola_denver"] = pola
     # "Dievaluasi" = minimal satu dari (a)/(b)/(c) bisa dinilai.
-    # OT selalu bisa dinilai bila ot_prob ada; equilibrium/pola butuh
-    # CDF + tangga + jangkar.
+    # OT selalu bisa dinilai bila spread (|median margin|) ada;
+    # equilibrium/pola butuh CDF + tangga + jangkar.
     eq_dinilai = bool(eq_ins.get("dihitung")) and bool(eq_main.get("dihitung"))
     bisa_dinilai = ot_tinggi is not None or eq_dinilai or bool(pola.get("dievaluasi"))
     if not bisa_dinilai:
@@ -319,10 +347,12 @@ def evaluasi_skip_awal(
     if ot_tinggi is True:
         pemicu.append(PEMICU_OT_TINGGI)
         alasan_bagian.append(
-            f"potensi overtime tinggi (peluang OT sim "
+            f"potensi overtime tinggi (peluang OT empiris "
             f"{ot_prob * 100:.2f}% >= ambang "
-            f"{ambang_ot * 100:.1f}%) — laga praktis imbang, babak "
-            "tambahan menambah ~20 poin dan membunuh kaki Under"
+            f"{ambang_ot * 100:.1f}%, spread "
+            f"{_evaluasi_ot.get('spread_points')} poin) — laga "
+            "praktis imbang, babak tambahan menambah ~20 poin dan "
+            "membunuh kaki Under"
         )
     hasil["pemicu"] = pemicu
     hasil["skip"] = bool(pemicu)

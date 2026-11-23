@@ -259,6 +259,144 @@ def _teks_alasan_cedera(entri: dict) -> str:
     return f"{golongan} ({teks})" if teks else golongan
 
 
+# --- Vonis 3 lapis (v18) -------------------------------------------------
+# Awalan kalimat alasan vonis -> lapis. Klasifikasi memakai BENTUK
+# KALIMAT engine/vonis.py v18 (rapuh banjir, total tinggi, dst.) +
+# bentuk v17 (edge kecil, volume) supaya laporan tetap benar untuk
+# artefak/vonis lama. Kalimat yang tidak dikenali masuk Lapisan 2
+# (catatan kualitas — terlihat, tapi tidak diklaim sebagai pemblokir
+# keras). Volume SELALU Lapisan 3: di v18 volume bukan lagi demerit
+# vonis (gate eksekusi yang menegakkannya), jadi kalimat volume v17
+# yang dulu demerit kini ditampilkan sebagai info.
+_AWALAN_LAPIS_1 = (
+    "VETO rim protector:",
+    "VETO ",
+    "potensi overtime ekstrem:",
+    "data_tidak_cukup:",
+    "TUNGGU_LINEUP:",
+)
+_AWALAN_LAPIS_3 = (
+    "tidak dinilai (data sekunder hilang):",
+    "gap besar ada penjelasan:",
+)
+
+
+def _klasifikasi_alasan_vonis(
+    hasil_vonis: dict,
+) -> tuple[list[str], list[str], list[str]]:
+    """Bagi alasan vonis ke 3 lapis: (lapis_1, lapis_2, lapis_3).
+
+    Lapisan 1 = pemblokir keras (veto / data tidak cukup / OT
+    ekstrem / TUNGGU_LINEUP) — yang MENENTUKAN warna vonis.
+    Lapisan 2 = demerit kualitas (rapuh banjir, total tinggi,
+    gap besar, ekor gemuk, foul tinggi, spread tipis, edge kecil
+    v17, rem alami, "semua indikator sehat"). Lapisan 3 = info
+    (volume, investigasi, indikator yang tidak dinilai) — TIDAK
+    mengubah warna. Kalimat OT masuk Lapisan 1 hanya bila peluang
+    OT empiris/sim >= 0,085 (ambang hard skip v18); bila tidak,
+    Lapisan 2. Alasan veto TIDAK diduplikasi di sini — pemanggil
+    menampilkan header VETO menonjol di atas Lapisan 1.
+    """
+    lapis_1: list[str] = []
+    lapis_2: list[str] = []
+    lapis_3: list[str] = []
+    ind = hasil_vonis.get("indikator") or {}
+    p_ot = _angka(ind.get("p_ot_empiris"))
+    if p_ot is None:
+        p_ot = _angka(ind.get("ot_probability"))
+    ot_ekstrem = p_ot is not None and p_ot >= 0.085
+    for alasan in hasil_vonis.get("alasan") or []:
+        teks = str(alasan)
+        if teks.startswith(_AWALAN_LAPIS_1):
+            lapis_1.append(teks)
+            continue
+        if teks.startswith(_AWALAN_LAPIS_3):
+            lapis_3.append(teks)
+            continue
+        rendah = teks.lower()
+        if "volume" in rendah or "pasar tipis" in rendah:
+            lapis_3.append(teks)
+            continue
+        if "overtime" in rendah:
+            (lapis_1 if ot_ekstrem else lapis_2).append(teks)
+            continue
+        lapis_2.append(teks)
+    return lapis_1, lapis_2, lapis_3
+
+
+def _kalimat_skenario_mati(analysis: dict, hasil_vonis: dict) -> str | None:
+    """Satu kalimat "Skenario Mati" kaki HIJAU (v18), atau None.
+
+    Menghitung ambang akurasi 3P gabungan yang akan membunuh kaki
+    Asuransi: ambang = (garis − poin_non_3P_normal) /
+    (3 × percobaan_3P_diharapkan), dengan poin_non_3P_normal =
+    median_total − poin_3p_normal_gabungan (blok setan_pemain
+    artefak, status "ok"). Garis = garis Asuransi vonis
+    (indikator.garis_asuransi.line), cadangan kaki Asuransi
+    artefak. Kalimat tampil hanya bila 0 < ambang <= 1 (di luar
+    itu angkanya tidak bermakna — kaki praktis tidak bisa mati
+    lewat 3P saja / sudah mati di angka normal). Bila blok
+    setan_pemain tidak ada / gagal, kalimat FALLBACK dari P banjir
+    + P setan vonis; bila itu pun tidak ada, None (kalimat tidak
+    ditampilkan, bukan dikarang).
+    """
+    ind = hasil_vonis.get("indikator") or {}
+    garis_info = ind.get("garis_asuransi") or {}
+    garis = _angka(garis_info.get("line"))
+    if garis is None:
+        for leg in analysis.get("legs") or []:
+            if isinstance(leg, dict) and leg.get("ticket") == "insurance":
+                garis = _angka(leg.get("line"))
+                if garis is not None:
+                    break
+    if garis is None:
+        return None
+    setan = analysis.get("setan_pemain")
+    if isinstance(setan, dict) and setan.get("status") == "ok":
+        median = _angka(setan.get("median_total"))
+        poin_3p_normal = _angka(setan.get("poin_3p_normal_gabungan"))
+        percobaan = _angka(setan.get("percobaan_3p_diharapkan_gabungan"))
+        if (
+            median is not None
+            and poin_3p_normal is not None
+            and percobaan is not None
+            and percobaan > 0
+        ):
+            poin_non_3p = median - poin_3p_normal
+            ambang = (garis - poin_non_3p) / (3.0 * percobaan)
+            if 0.0 < ambang <= 1.0:
+                normal = poin_3p_normal / (3.0 * percobaan)
+                ambang_teks = _fmt_persen(ambang)
+                normal_teks = _fmt_persen(normal)
+                garis_teks = _fmt_poin(garis)
+                return (
+                    "Skenario mati kaki ini: kedua tim menembak 3 angka "
+                    f"dengan akurasi gabungan {ambang_teks} (normalnya "
+                    f"{normal_teks}) pada sekitar {percobaan:.0f} "
+                    f"percobaan — di atas itu, total melewati garis "
+                    f"Under {garis_teks}."
+                )
+    # Fallback: P banjir + P setan dari vonis (tanpa blok setan).
+    p_banjir = _fmt_persen(ind.get("p_banjir_terburuk"))
+    if p_banjir is None:
+        p_3p = _angka(ind.get("p_banjir_3p"))
+        p_ft = _angka(ind.get("p_banjir_ft"))
+        if p_3p is not None and p_ft is not None:
+            p_banjir = _fmt_persen(min(p_3p, p_ft))
+    p_setan = _fmt_persen(ind.get("p_setan"))
+    if p_banjir is None and p_setan is None:
+        return None
+    garis_teks = _fmt_poin(garis)
+    bagian = []
+    if p_banjir is not None:
+        bagian.append(
+            f"kalau laga banjir poin, peluang kaki ini lolos turun ke {p_banjir}"
+        )
+    if p_setan is not None:
+        bagian.append(f"kalau deviasi maksimal datang, turun ke {p_setan}")
+    return f"Skenario mati kaki Under {garis_teks}: " + "; ".join(bagian) + "."
+
+
 class _Laporan:
     """Perakit laporan satu laga dari artefak analisis (+ recheck)."""
 
@@ -895,22 +1033,32 @@ class _Laporan:
     def _bagian_vonis(self) -> None:
         """Vonis laga: HIJAU / MENENGAH HIJAU / KUNING dari data.
 
-        Vonis dihitung mesin dari 8 indikator pelajaran Denver
-        (edge kaki terbaik, peluang Under kalau panas, peluang di
-        deviasi maksimal, volume per garis, gap model-vs-pasar,
-        sinyal ekor gemuk, risiko overtime, level total — lihat
+        Vonis dihitung mesin dari indikator pelajaran Denver
+        (kerapuhan banjir, total tinggi, gap model-vs-pasar, ekor
+        gemuk, foul tinggi, spread tipis, rem alami — lihat
         engine/vonis.py): HIJAU berarti laga sehat (kandidat
         Asuransi), MENENGAH HIJAU berarti cukup sehat untuk Utama
         tapi belum cukup aman untuk Asuransi, KUNING berarti lempar
-        koin (tidak masuk tiket mana pun). Bila data tidak cukup,
-        vonisnya KUNING dengan alasannya (mesin tidak berani menilai
-        tanpa data). VETO RIM PROTECTOR (pelindung ring utama OUT
-        terkonfirmasi + garis/pace tinggi) ditampilkan MENONJOL di
-        baris pertama setelah vonis — laga yang kena veto diblokir
-        dari tiket, tidak bisa dikalahkan skor EV simulasi. Laporan
-        tidak pernah crash karena vonis gagal dihitung (pola yang
-        sama dengan skenario panas). Laga bola tidak punya bagian
-        ini (vonis hanya untuk total Under NBA).
+        koin (tidak masuk tiket mana pun), TUNGGU LINEUP berarti
+        bintang masih Questionable (mesin menunggu kabar lineup
+        final). Bila data tidak cukup, vonisnya KUNING dengan
+        alasannya (mesin tidak berani menilai tanpa data).
+
+        Bagian ini ditampilkan dalam 3 LAPIS (v18):
+        Lapisan 1 "Yang menentukan vonis" = pemblokir keras (veto
+        AND / data tidak lengkap / MAHAL / OT ekstrem) — yang
+        MENENTUKAN warna; Lapisan 2 "Catatan kualitas" = demerit
+        ringan; Lapisan 3 "Info tambahan" = catatan yang TIDAK
+        mengubah warna (volume tipis, skor setan per pemain,
+        selisih vs pasar). VETO RIM PROTECTOR ditampilkan MENONJOL
+        di baris pertama Lapisan 1 — laga yang kena veto diblokir
+        dari tiket, tidak bisa dikalahkan skor EV simulasi. Kaki
+        HIJAU mendapat 1 kalimat "Skenario Mati" (ambang akurasi
+        3P gabungan yang membunuh kaki — lihat
+        ``_kalimat_skenario_mati``). Laporan tidak pernah crash
+        karena vonis gagal dihitung (pola yang sama dengan skenario
+        panas). Laga bola tidak punya bagian ini (vonis hanya untuk
+        total Under NBA).
         """
         if self.a.get("format") == "soccer_analysis":
             return
@@ -932,6 +1080,12 @@ class _Laporan:
                 "Vonis: MENENGAH HIJAU — laga ini cukup sehat untuk "
                 "Utama, tapi belum cukup aman untuk Asuransi."
             )
+        elif vonis == "tunggu_lineup":
+            baris.append(
+                "Vonis: TUNGGU LINEUP — bintang masih Questionable, "
+                "mesin menunggu kabar lineup final sebelum menilai "
+                "laga ini (tidak masuk tiket dulu)."
+            )
         elif not dievaluasi:
             baris.append(
                 "Vonis: KUNING — data tidak cukup untuk menilai laga "
@@ -945,24 +1099,51 @@ class _Laporan:
             baris.append(
                 "Vonis: KUNING — laga ini lempar koin, tidak masuk " "tiket mana pun."
             )
-        # Veto menonjol di depan (bukan terkubur di bullet): laga kena
-        # veto diblokir dari tiket — user harus membacanya pertama.
+        # --- 3 lapis (v18). ---
+        lapis_1, lapis_2, lapis_3 = _klasifikasi_alasan_vonis(hasil)
+        # MAHAL (Lapisan 1): kaki Asuransi yang harganya MAHAL bukan
+        # asuransi — dicek dari label harga kaki artefak di garis
+        # Asuransi (vonis tidak membawa label harga; bila kaki tidak
+        # ditemukan, tidak ada klaim MAHAL — tidak dikarang).
+        garis_info = ind.get("garis_asuransi") or {}
+        garis_asuransi = _angka(garis_info.get("line"))
+        if garis_asuransi is not None:
+            for leg in self.a.get("legs") or []:
+                if not isinstance(leg, dict):
+                    continue
+                if leg.get("ticket") != "insurance":
+                    continue
+                garis_leg = _angka(leg.get("line"))
+                if garis_leg is None or abs(garis_leg - garis_asuransi) > 1e-9:
+                    continue
+                if leg.get("price_label") == "MAHAL":
+                    lapis_1.append(
+                        "harga kaki Asuransi MAHAL — pasar menghargai "
+                        "kaki ini lebih tinggi dari hitungan model, "
+                        "bukan asuransi yang bagus"
+                    )
+                break
+        # Veto menonjol di depan Lapisan 1 (bukan terkubur di
+        # bullet): laga kena veto diblokir dari tiket — user harus
+        # membacanya pertama. Alasan veto sudah ada di Lapisan 1
+        # lewat klasifikasi (tidak diduplikasi).
         veto = ind.get("veto") if isinstance(ind.get("veto"), dict) else {}
-        if veto.get("menyala"):
-            baris.append(
-                "VETO — LAGA INI DIBLOKIR DARI TIKET (pelindung ring "
-                "utama absen di laga skor-tinggi):"
-            )
-            for alasan_veto in veto.get("alasan") or []:
-                baris.append(f"- {alasan_veto}")
-        for alasan in hasil.get("alasan") or []:
-            # Alasan veto sudah tampil menonjol di atas — jangan
-            # diduplikasi di bullet.
-            if str(alasan).startswith("VETO rim protector:"):
-                continue
-            baris.append(f"- {alasan}")
+        veto_menyala = bool(veto.get("menyala"))
+        if lapis_1 or veto_menyala:
+            baris.append("Yang menentukan vonis:")
+            if veto_menyala:
+                baris.append(
+                    "VETO — LAGA INI DIBLOKIR DARI TIKET (pelindung ring "
+                    "utama absen di laga skor-tinggi):"
+                )
+            for alasan in lapis_1:
+                baris.append(f"- {alasan}")
+        if lapis_2:
+            baris.append("Catatan kualitas:")
+            for alasan in lapis_2:
+                baris.append(f"- {alasan}")
+        # --- Lapisan 3: info (tidak mengubah warna). ---
         if dievaluasi:
-            garis_info = ind.get("garis_asuransi") or {}
             garis = _fmt_poin(garis_info.get("line"))
             harga = _fmt_sen(garis_info.get("harga_venue_cents"))
             if garis:
@@ -972,34 +1153,79 @@ class _Laporan:
                 sumber = garis_info.get("sumber")
                 if sumber:
                     teks += f" ({sumber})"
-                baris.append(teks + ".")
+                lapis_3.append(teks + ".")
             edge = _angka(ind.get("edge_terbaik"))
             if edge is not None:
                 sumber_edge = ind.get("edge_terbaik_sumber") or ""
                 teks = f"Nilai terbaik (edge): {edge * 100:+.1f}%".replace(".", ",")
                 if sumber_edge:
                     teks += f" ({sumber_edge})"
-                baris.append(teks + ".")
-            p_banjir = _fmt_persen(ind.get("p_banjir_terburuk"))
+                lapis_3.append(teks + ".")
+            p_3p = _fmt_persen(ind.get("p_banjir_3p"))
+            p_ft = _fmt_persen(ind.get("p_banjir_ft"))
             p_setan = _fmt_persen(ind.get("p_setan"))
-            if p_banjir and p_setan:
-                baris.append(
-                    "Kalau panas (banjir terburuk): peluang Under "
-                    f"{p_banjir}; kalau deviasi maksimal datang: "
-                    f"{p_setan}."
+            if p_3p and p_ft and p_setan:
+                lapis_3.append(
+                    "Kalau banjir 3P: peluang Under "
+                    f"{p_3p}; kalau banjir FT: {p_ft}; kalau deviasi "
+                    f"maksimal datang: {p_setan}."
                 )
+            else:
+                p_banjir = _fmt_persen(ind.get("p_banjir_terburuk"))
+                if p_banjir and p_setan:
+                    lapis_3.append(
+                        "Kalau panas (banjir terburuk): peluang Under "
+                        f"{p_banjir}; kalau deviasi maksimal datang: "
+                        f"{p_setan}."
+                    )
             volume = _angka(garis_info.get("volume_usd"))
             if volume is not None:
                 teks_vol = f"Volume garis yang dinilai: {_fmt_usd(volume)}"
                 if garis_info.get("thin") is True:
                     teks_vol += " — pasar tipis"
-                baris.append(teks_vol + ".")
-            ot = _angka(ind.get("ot_probability"))
-            if ot is not None:
-                baris.append(
-                    "Peluang overtime menurut sim: "
-                    f"{ot * 100:.2f}%.".replace(".", ",")
+                lapis_3.append(teks_vol + ".")
+            ot_empiris = _angka(ind.get("p_ot_empiris"))
+            if ot_empiris is not None:
+                lapis_3.append(
+                    "Peluang overtime menurut data empiris: "
+                    + f"{ot_empiris * 100:.2f}".replace(".", ",")
+                    + "%."
                 )
+            else:
+                ot = _angka(ind.get("ot_probability"))
+                if ot is not None:
+                    lapis_3.append(
+                        "Peluang overtime menurut sim: "
+                        + f"{ot * 100:.2f}".replace(".", ",")
+                        + "%."
+                    )
+            setan = self.a.get("setan_pemain")
+            if isinstance(setan, dict) and setan.get("status") == "ok":
+                total_setan = _fmt_poin(setan.get("total_setan_pemain"))
+                geser_setan = _angka(setan.get("geser_setan_pemain"))
+                median_setan = _fmt_poin(setan.get("median_total"))
+                if total_setan is not None:
+                    teks_setan = (
+                        f"Skor setan per pemain: total setan {total_setan} poin"
+                    )
+                    if median_setan is not None:
+                        teks_setan += f" (median normal {median_setan})"
+                    if geser_setan is not None:
+                        teks_setan += f", geser {geser_setan:+.1f} poin".replace(
+                            ".", ","
+                        )
+                    if setan.get("flag_3par_volume_risk") is True:
+                        teks_setan += " — risiko volume 3P tinggi"
+                    lapis_3.append(teks_setan + ".")
+        if lapis_3:
+            baris.append("Info tambahan (tidak mengubah vonis):")
+            for info in lapis_3:
+                baris.append(f"- {info}")
+        # --- Skenario Mati (kaki HIJAU saja, v18). ---
+        if vonis == "hijau":
+            kalimat_mati = _kalimat_skenario_mati(self.a, hasil)
+            if kalimat_mati is not None:
+                baris.append(kalimat_mati)
         self._tambah("Vonis laga", baris)
 
     def _bagian_market(self) -> None:
@@ -1933,18 +2159,31 @@ class _Laporan:
                     f"{eq.get('alasan_tidak_dihitung') or 'tidak bisa dihitung'}."
                 )
         ot = info.get("ot") or {}
+        ot_empiris = _angka(ot.get("p_ot_empiris"))
         ot_prob = _angka(ot.get("ot_probability"))
         ambang_ot = _angka(ot.get("ambang"))
-        if ot_prob is not None and ambang_ot is not None:
+        # v18: ambang skip OT (8,5%) berlaku untuk peluang OT EMPIRIS
+        # (spread) — BUKAN untuk ot_probability sim. Menampilkan sim
+        # 2,74% melawan ambang empiris 8,5% adalah perbandingan yang
+        # salah kategori (integrasi v18). Bila empiris tidak bisa
+        # dinilai (spread tidak ada), sim ditampilkan TANPA ambang.
+        if ot_empiris is not None and ambang_ot is not None:
             teks_ot = (
-                f"Peluang overtime menurut sim: "
-                f"{ot_prob * 100:.2f}% (ambang skip "
+                "Peluang overtime menurut data empiris: "
+                f"{ot_empiris * 100:.2f}% (ambang skip "
                 f"{ambang_ot * 100:.1f}%)".replace(".", ",")
             )
             if ot.get("tinggi"):
                 teks_ot += " — TINGGI, laga di-skip."
             else:
                 teks_ot += " — di bawah ambang."
+            baris.append(f"- {teks_ot}")
+        elif ot_prob is not None:
+            teks_ot = (
+                "Peluang overtime menurut sim: "
+                f"{ot_prob * 100:.2f}% (ambang empiris tidak bisa "
+                "dinilai — spread tidak ada di artefak)".replace(".", ",")
+            )
             baris.append(f"- {teks_ot}")
         else:
             baris.append("- Peluang overtime: tidak tercatat di artefak.")

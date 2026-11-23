@@ -1,21 +1,35 @@
-"""Tes sistem vonis per laga (engine/vonis.py) + wiring komposer/laporan.
+"""Tes sistem vonis v18 per laga (engine/vonis.py) + wiring komposer/laporan.
 
-Vonis: HIJAU (kandidat Asuransi) / MENENGAH_HIJAU (kandidat Utama)
-/ KUNING (skip kedua tiket) — sistem demerit + pemicu keras, aturan
-persis di docstring engine/vonis.py + LAPORAN-VONIS.md.
+Vonis v18: HIJAU (kandidat Asuransi — 0 veto + <=1 demerit + >=1
+rem alami) / MENENGAH_HIJAU (<=3 demerit) / KUNING (>=4 demerit
+atau pemicu keras: veto / OT empiris) / TUNGGU_LINEUP (bintang
+masih Questionable). Demerit v18 (6): tail_fragility (gabungan),
+total_tinggi, gap_besar, ekor_gemuk (diperketat), foul_tinggi,
+spread_tipis. DIHAPUS dari v17: demerit edge_kecil, banjir_lemah,
+setan_lemah, volume_tipis, gap_kecil + pemicu keras
+edge_tidak_positif + pemicu OT sim 2,8% — tes yang mengunci
+perilaku v17 itu diperbarui/dihapus dengan alasan di bawah + di
+LAPORAN-VONIS-V18.md.
 
-CATATAN HIJAU: setelah veto rim protector, TIDAK ADA laga slate uji
-22 Nov 2026 yang HIJAU — satu-satunya kandidat (OKC@MIA verif,
-0 demerit) kena veto karena Chet Holmgren (3,0 blok/laga) OUT +
-MIA pace 102,19. Tes HIJAU memakai fixture sintetis sehat
-(_analisis_sehat, median 220 sigma 5 — dibekukan setelah diukur:
-edge +8,2%, P banjir 94,5%, P setan 68,4%, gap +7,0, volume $500,
-OT 1,9%, veto tidak menyala).
+Distribusi slate uji 22 Nov v18 (diukur): HIJAU 5 / MENENGAH_HIJAU
+0 / KUNING 1 (DEN verif, veto) / TUNGGU_LINEUP 4 (OKC live, DEN
+live, IND, OKC verif). v17: HIJAU 0 / MENENGAH 2 / KUNING 8.
+
+CATATAN HIJAU: fixture sehat sintetis (_analisis_sehat, median 220
+sigma 5 — nilai diukur, dibekukan) HIJAU dengan 1 demerit gap_besar
+(gap model-vs-pasar +13,9% di garis Asuransi U238,5 — CDF sempit
+sigma 5 vs harga tangga; P banjir 3P 97,7% / FT 88,4%, P setan
+53,3%, edge terbaik +8,2%, OT empiris 3,35% pada spread 15,0,
+veto tidak dievaluasi — IND + NYK tidak terpetakan di pemetaan
+rim protector v18).
 
 Tes artefak nyata memakai out/analysis_live_2026-11-22.json +
 out/analysis_verif_tahap4_2026-11-22.json (file runtime, gitignored)
 dan di-skip bila file tidak ada — pola yang sama seperti
-tests/test_equilibrium.py.
+tests/test_equilibrium.py. Tes nilai_vonis pada artefak nyata
+memakai fetch USG live (cache satu-proses) HANYA bila ada pemain
+Questionable/OUT yang butuh USG; tes sintetis yang butuh USG
+memakai mock (deterministik).
 """
 
 from __future__ import annotations
@@ -25,11 +39,14 @@ import json
 import math
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import config as config_mod
 from engine import stress as stress_mod
 from engine import ticket_composer as ticket_composer_mod
 from engine import vonis as vonis_mod
+from ingest import pemain_usg as pemain_usg_mod
+from ingest.common import FetchResult
 from report import nba_report as nba_report_mod
 
 CFG = config_mod.load_playstyle()
@@ -55,6 +72,9 @@ def _tangga(baris):
     """Tangga totals dari daftar (garis, harga, volume, thin).
 
     Harga jup.ag = harga Polymarket + 0,5¢ (markup tipikal).
+    Kuotasi default hidup (bid harga-1 / ask harga+0,5) +
+    likuiditas $30.000 — garis fixture lolos gate eksekusi v18
+    kecuali tes mengubahnya eksplisit (revisi koordinator).
     """
     return [
         {
@@ -64,6 +84,9 @@ def _tangga(baris):
             "jup_estimated_cents": harga + 0.5,
             "volume_usd": volume,
             "thin": thin,
+            "bid_cents": harga - 1.0,
+            "ask_cents": harga + 0.5,
+            "liquidity": 30000.0,
         }
         for garis, harga, volume, thin in baris
     ]
@@ -110,11 +133,38 @@ def _analisis(
     pace_home=99.0,
     pace_away=99.0,
     injuries=None,
+    margin=15.0,
+    def_rtg_home=None,
+    def_rtg_away=None,
+    ftr_home=None,
+    ftr_away=None,
+    players_home=None,
+    players_away=None,
 ):
-    """Artefak nba_analysis minimal dengan CDF normal penuh + tangga."""
+    """Artefak nba_analysis minimal dengan CDF normal penuh + tangga.
+
+    v18: ``margin`` (median margin sim) WAJIB ada — spread adalah
+    data wajib vonis (None = spread tidak bisa dibaca -> KUNING
+    data_tidak_cukup). ``def_rtg_*``/``ftr_*`` mengisi stats_season
+    (None = field tidak ada -> indikator terkait tidak_dievaluasi).
+    ``players_*`` mengisi inputs pemain (bpm/mp_per_game untuk
+    timing gate + rem pencetak utama + aturan gap).
+    """
     distribusi = {"total": {"median": median}}
     if ot is not None:
         distribusi["ot_probability"] = ot
+    if margin is not None:
+        distribusi["margin"] = {"median": margin}
+    stats_home = {"pace": pace_home}
+    stats_away = {"pace": pace_away}
+    if def_rtg_home is not None:
+        stats_home["def_rtg"] = def_rtg_home
+    if def_rtg_away is not None:
+        stats_away["def_rtg"] = def_rtg_away
+    if ftr_home is not None:
+        stats_home["ftr"] = ftr_home
+    if ftr_away is not None:
+        stats_away["ftr"] = ftr_away
     return {
         "format": "nba_analysis",
         "format_version": 1,
@@ -132,20 +182,28 @@ def _analisis(
             "totals": tangga,
         },
         "inputs": {
-            "home": {"stats_season": {"pace": pace_home}},
-            "away": {"stats_season": {"pace": pace_away}},
+            "home": {
+                "stats_season": stats_home,
+                "players": players_home or [],
+            },
+            "away": {
+                "stats_season": stats_away,
+                "players": players_away or [],
+            },
         },
         "injuries": {"entries": injuries if injuries is not None else []},
     }
 
 
 def _analisis_sehat(match_id="IND@NYK_2026-11-22"):
-    """Fixture laga sehat (HIJAU, 0 demerit — nilai diukur, dibekukan).
+    """Fixture laga sehat (HIJAU, 1 demerit gap_besar — nilai diukur).
 
-    Median 220 sigma 5, garis bandar 221,5, pace kedua tim di bawah
-    ambang veto, tidak ada cedera (veto dievaluasi, tidak menyala).
-    Garis Asuransi = equilibrium Asuransi U240,5 @90,5¢ (garis di
-    atasnya gagal gate edge Asuransi karena harganya 94–97¢).
+    Median 220 sigma 5, garis bandar 221,5, spread 15,0, pace
+    kandang 94,54 (rem pace_lambat) + selaras pasar (gap 1,5 poin,
+    total 221,5 <= 228). Garis Asuransi = equilibrium Asuransi
+    U238,5 @88,5¢. Veto tidak dievaluasi (IND + NYK tidak
+    terpetakan di pemetaan v18); FTr/DRtg tidak ada (indikator
+    terkait tidak_dievaluasi).
     """
     tangga = _tangga(
         [
@@ -176,12 +234,13 @@ def _analisis_sehat(match_id="IND@NYK_2026-11-22"):
 
 
 def _analisis_ekor_gemuk(match_id="DEN@CHI_2026-11-22"):
-    """Fixture ekor gemuk: garis Asuransi jauh + murah (mirip DEN nyata).
+    """Fixture ekor lebar (median 233 sigma 19,2, mirip DEN nyata).
 
-    Median 233 sigma 19,2, garis bandar 234,5. Semua garis tahan
-    banjir dibuat tipis (equilibrium + garis tahan tidak-tipis tidak
-    ada) sehingga garis Asuransi jatuh ke kaki artefak Asuransi
-    U252,5 @82¢: jarak 18 poin, harga 82¢ -> sinyal ekor gemuk.
+    v18: dengan tangga normal, garis Asuransi = equilibrium
+    Asuransi U256,5 @82,5¢ (jarak 22,0 tapi harga > 80¢) -> ekor
+    gemuk TIDAK memicu. Untuk memicu ekor gemuk, tes memakai
+    varian semua-garis-thin: equilibrium tidak ada, garis Asuransi
+    jatuh ke kaki artefak U252,5 @76,5¢ (jarak 18,0, harga <= 80¢).
     """
     baris = []
     garis = 238.5
@@ -214,7 +273,7 @@ def _muat_artefak(path):
 
 
 def _cfg_tanpa_kunci(*kunci):
-    """CFG copy dengan satu kunci vonis dihapus (tes ConfigError)."""
+    """CFG copy dengan satu kunci dihapus (tes ConfigError)."""
     cfg = copy.deepcopy(CFG)
     target = cfg
     for kunci_parsial in kunci[:-1]:
@@ -223,8 +282,21 @@ def _cfg_tanpa_kunci(*kunci):
     return cfg
 
 
+def _usg_fetch_result(pemain):
+    """FetchResult USG mock (deterministik — tanpa jaringan)."""
+    return FetchResult(
+        source="stats.nba.com",
+        tier=1,
+        fetched_at="2026-11-23T00:00:00+00:00",
+        ok=True,
+        data=pemain,
+        error=None,
+        extra={},
+    )
+
+
 class TestVonisArtefakNyata(unittest.TestCase):
-    """Vonis pada 10 baris slate uji 22 Nov 2026 (data nyata)."""
+    """Vonis pada 10 baris slate uji 22 Nov 2026 (data nyata, v18)."""
 
     @classmethod
     def setUpClass(cls):
@@ -234,23 +306,17 @@ class TestVonisArtefakNyata(unittest.TestCase):
         cls.verif = _muat_artefak(ARTEFAK_VERIF)
 
     def test_den_verif_kuning_veto_menyala(self):
-        # Kasus uji WAJIB: DEN@CHI verif -> KUNING; alasan menyebut
-        # pemicunya (veto Claxton + ketujuh demerit).
+        # Kasus uji WAJIB: DEN@CHI verif -> KUNING via veto AND
+        # (Claxton OUT + garis 236,5 + pace 103,22); 1 demerit
+        # (total_tinggi) + 1 rem (pace_lambat). REVISI KOORDINATOR:
+        # tail_fragility HILANG — garis Asuransi kini equilibrium
+        # U258,5 (banjir 81,1%/75,1% di atas ambang demerit 72%/67%),
+        # bukan garis artefak yang lebih rendah.
         hasil = vonis_mod.nilai_vonis(self.verif["DEN@CHI_2026-11-22"], None, CFG)
         self.assertEqual(hasil["vonis"], "kuning")
         self.assertEqual(hasil["indikator"]["pemicu_keras"], "veto_rim_protector")
-        self.assertEqual(
-            set(hasil["indikator"]["demerit"]),
-            {
-                "edge_kecil",
-                "banjir_lemah",
-                "setan_lemah",
-                "volume_tipis",
-                "gap_kecil",
-                "ekor_gemuk",
-                "total_tinggi",
-            },
-        )
+        self.assertEqual(hasil["indikator"]["demerit"], ["total_tinggi"])
+        self.assertEqual(hasil["indikator"]["rem_alami"]["terpenuhi"], ["pace_lambat"])
         alasan = " ".join(hasil["alasan"])
         self.assertIn("VETO rim protector", alasan)
         self.assertIn("Nic Claxton", alasan)
@@ -262,55 +328,109 @@ class TestVonisArtefakNyata(unittest.TestCase):
         self.assertTrue(veto["kondisi_garis"])
         self.assertTrue(veto["kondisi_pace"])
 
-    def test_okc_verif_kuning_hanya_karena_veto(self):
-        # OKC@MIA verif: 0 demerit (sistem demerit bilang sehat) tapi
-        # KUNING karena veto — Chet Holmgren (3,0 blok/laga) OUT +
-        # MIA pace 102,19. Inilah nilai tambah veto.
+    def test_okc_verif_tunggu_lineup_bukan_veto(self):
+        # v18: OKC@MIA verif BUKAN lagi KUNING-veto (veto AND tidak
+        # menyala: garis 231,5 < 232,0 — hanya pace yang menyala ->
+        # peringatan parsial). Vonisnya TUNGGU_LINEUP: Giannis
+        # Questionable (BPM +9,0).
         hasil = vonis_mod.nilai_vonis(self.verif["OKC@MIA_2026-11-22"], None, CFG)
-        self.assertEqual(hasil["vonis"], "kuning")
-        self.assertEqual(hasil["indikator"]["pemicu_keras"], "veto_rim_protector")
-        self.assertEqual(hasil["indikator"]["demerit"], [])
-        self.assertEqual(hasil["indikator"]["n_demerit"], 0)
+        self.assertEqual(hasil["vonis"], "tunggu_lineup")
+        self.assertIsNone(hasil["indikator"]["pemicu_keras"])
+        gate = hasil["indikator"]["timing_gate"]
+        self.assertTrue(gate["tunggu"])
+        self.assertEqual(
+            [b["player"] for b in gate["bintang"]], ["Giannis Antetokounmpo"]
+        )
         veto = hasil["indikator"]["veto"]
+        self.assertTrue(veto["dievaluasi"])
+        self.assertFalse(veto["menyala"])
+        self.assertTrue(veto["peringatan_parsial"])
+        self.assertEqual(veto["kondisi_menyala"], ["pace"])
         self.assertEqual(
             [o["player"] for o in veto["pelindung_out"]], ["Chet Holmgren"]
         )
-        self.assertFalse(veto["kondisi_garis"])  # garis 231,5 < 235
-        self.assertTrue(veto["kondisi_pace"])  # MIA 102,19 >= 102
 
-    def test_den_live_kuning_veto_tidak_menyala_snapshot_lama(self):
-        # DEN@CHI live (snapshot lebih awal): Claxton BELUM tercatat
-        # OUT — veto tidak menyala (kejujuran: veto bergantung pada
-        # ketepatan waktu kabar cedera; recheck sebelum pasang adalah
-        # mitigasinya). Laga tetap KUNING via 7 demerit.
+    def test_okc_live_tunggu_lineup_dua_bintang(self):
+        # OKC@MIA live: Giannis (BPM +9,0) + SGA (BPM +9,4)
+        # Questionable -> TUNGGU_LINEUP.
+        hasil = vonis_mod.nilai_vonis(self.live["OKC@MIA_2026-11-22"], None, CFG)
+        self.assertEqual(hasil["vonis"], "tunggu_lineup")
+        gate = hasil["indikator"]["timing_gate"]
+        self.assertEqual(
+            {b["player"] for b in gate["bintang"]},
+            {"Giannis Antetokounmpo", "Shai Gilgeous-Alexander"},
+        )
+
+    def test_den_live_tunggu_lineup_powell(self):
+        # DEN@CHI live: Norman Powell Questionable (USG 26,0%,
+        # 29,5 mnt, BPM +0,2 — lolos kualifikasi jalur USG) ->
+        # TUNGGU_LINEUP. Veto tidak menyala (Claxton belum OUT di
+        # snapshot live — kejujuran ketepatan waktu kabar cedera).
         hasil = vonis_mod.nilai_vonis(self.live["DEN@CHI_2026-11-22"], None, CFG)
-        self.assertEqual(hasil["vonis"], "kuning")
-        self.assertIsNone(hasil["indikator"]["pemicu_keras"])
-        self.assertEqual(hasil["indikator"]["n_demerit"], 7)
+        self.assertEqual(hasil["vonis"], "tunggu_lineup")
+        gate = hasil["indikator"]["timing_gate"]
+        self.assertEqual([b["player"] for b in gate["bintang"]], ["Norman Powell"])
         veto = hasil["indikator"]["veto"]
         self.assertTrue(veto["dievaluasi"])
         self.assertFalse(veto["menyala"])
         self.assertEqual(veto["pelindung_out"], [])
 
-    def test_det_live_kuning_ot_tinggi(self):
+    def test_ind_live_tunggu_lineup_kat_siakam(self):
+        hasil = vonis_mod.nilai_vonis(self.live["IND@NYK_2026-11-22"], None, CFG)
+        self.assertEqual(hasil["vonis"], "tunggu_lineup")
+        gate = hasil["indikator"]["timing_gate"]
+        self.assertEqual(
+            {b["player"] for b in gate["bintang"]},
+            {"Karl-Anthony Towns", "Pascal Siakam"},
+        )
+
+    def test_det_live_hijau_spread_tipis(self):
+        # v18: DET@ATL BUKAN lagi KUNING-ot_tinggi (OT empiris 5,70%
+        # < 8,5%) — HIJAU dengan 1 demerit spread_tipis (spread
+        # 2,0) + 2 rem (pertahanan Top-10 + pace lambat).
         hasil = vonis_mod.nilai_vonis(self.live["DET@ATL_2026-11-22"], None, CFG)
-        self.assertEqual(hasil["vonis"], "kuning")
-        self.assertEqual(hasil["indikator"]["pemicu_keras"], "ot_tinggi")
-        self.assertGreaterEqual(hasil["indikator"]["ot_probability"], 0.028)
+        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertEqual(hasil["indikator"]["demerit"], ["spread_tipis"])
+        self.assertIsNone(hasil["indikator"]["pemicu_keras"])
+        self.assertEqual(
+            hasil["indikator"]["rem_alami"]["terpenuhi"],
+            ["pertahanan_top10", "pace_lambat"],
+        )
+        self.assertAlmostEqual(hasil["indikator"]["p_ot_empiris"], 0.05695, places=5)
+        self.assertAlmostEqual(hasil["indikator"]["ot_probability"], 0.0289, places=4)
 
-    def test_orl_live_kuning_edge_tidak_positif(self):
+    def test_orl_live_hijau_nol_demerit(self):
+        # v18: ORL@WAS BUKAN lagi KUNING-edge (pemicu keras edge
+        # DIHAPUS) — HIJAU dengan 0 demerit + 2 rem. REVISI
+        # KOORDINATOR: tail_fragility HILANG — garis Asuransi kini
+        # equilibrium U241,5 (banjir 74,5%/67,4% di atas ambang
+        # demerit 72%/67%).
         hasil = vonis_mod.nilai_vonis(self.live["ORL@WAS_2026-11-22"], None, CFG)
-        self.assertEqual(hasil["vonis"], "kuning")
-        self.assertEqual(hasil["indikator"]["pemicu_keras"], "edge_tidak_positif")
-        self.assertLessEqual(hasil["indikator"]["edge_terbaik"], 0.0)
+        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertEqual(hasil["indikator"]["demerit"], [])
+        self.assertEqual(
+            hasil["indikator"]["rem_alami"]["terpenuhi"],
+            ["pace_lambat", "selaras_pasar"],
+        )
 
-    def test_dal_live_menengah_hijau_veto_tidak_menyala(self):
+    def test_dal_live_hijau_veto_tidak_menyala(self):
         # DAL@UTA: Jaren Jackson Jr. (UTA, 1,3 blok/laga) OUT tapi
         # garis 225,5 + pace 99,89 rendah -> veto TIDAK menyala
-        # (kondisi lingkungan gagal). 4 demerit -> MENENGAH_HIJAU.
+        # (kedua kondisi lingkungan gagal). 0 demerit + 1 rem
+        # (pertahanan Top-10) -> HIJAU. REVISI KOORDINATOR:
+        # tail_fragility HILANG — garis Asuransi kini equilibrium
+        # U246,5 (banjir 86,4%/81,6% di atas ambang demerit); gap
+        # model-vs-pasar kini 6,47% (< 8%) sehingga tidak ada
+        # investigasi Lauri Markkanen lagi (dulu gap +12,3% di
+        # garis acuan lama -> investigasi).
         hasil = vonis_mod.nilai_vonis(self.live["DAL@UTA_2026-11-22"], None, CFG)
-        self.assertEqual(hasil["vonis"], "menengah_hijau")
-        self.assertEqual(hasil["indikator"]["n_demerit"], 4)
+        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertEqual(hasil["indikator"]["demerit"], [])
+        self.assertEqual(
+            hasil["indikator"]["rem_alami"]["terpenuhi"], ["pertahanan_top10"]
+        )
+        self.assertAlmostEqual(hasil["indikator"]["gap_model_pasar"], 0.0647, places=4)
+        self.assertEqual(hasil["indikator"]["investigasi"], [])
         veto = hasil["indikator"]["veto"]
         self.assertTrue(veto["dievaluasi"])
         self.assertFalse(veto["menyala"])
@@ -321,84 +441,237 @@ class TestVonisArtefakNyata(unittest.TestCase):
         self.assertFalse(veto["kondisi_garis"])
         self.assertFalse(veto["kondisi_pace"])
 
-    def test_bos_live_menengah_hijau(self):
+    def test_bos_live_hijau_nol_demerit(self):
         hasil = vonis_mod.nilai_vonis(self.live["BOS@GSW_2026-11-22"], None, CFG)
-        self.assertEqual(hasil["vonis"], "menengah_hijau")
-        self.assertEqual(hasil["indikator"]["n_demerit"], 4)
+        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertEqual(hasil["indikator"]["demerit"], [])
+        self.assertEqual(
+            hasil["indikator"]["rem_alami"]["terpenuhi"],
+            ["pertahanan_top10", "pace_lambat"],
+        )
 
-    def test_distribusi_slate_nol_dua_delapan(self):
-        hitung = {"hijau": 0, "menengah_hijau": 0, "kuning": 0}
+    def test_bos_verif_hijau_empat_rem(self):
+        # BOS@GSW verif: 0 demerit + 4 rem — termasuk
+        # pencetak_utama_out (Paul George + Stephen Curry OUT) dan
+        # paint_utuh_blowout_atau_ftr_rendah. Brandon Williams
+        # (USG 25,9%) DITOLAK dari rem-3 karena BPM negatif.
+        hasil = vonis_mod.nilai_vonis(self.verif["BOS@GSW_2026-11-22"], None, CFG)
+        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertEqual(hasil["indikator"]["demerit"], [])
+        self.assertEqual(
+            hasil["indikator"]["rem_alami"]["terpenuhi"],
+            [
+                "pertahanan_top10",
+                "pace_lambat",
+                "pencetak_utama_out",
+                "paint_utuh_blowout_atau_ftr_rendah",
+            ],
+        )
+        rem3 = hasil["indikator"]["rem_alami"]["rincian"]["pencetak_utama_out"]
+        self.assertEqual(
+            rem3["pencetak_out_per_tim"],
+            {"away": ["Paul George"], "home": ["Stephen Curry"]},
+        )
+        self.assertEqual(rem3["usg_ditolak"], {"Brandon Williams": "bpm_negatif"})
+
+    def test_distribusi_slate_lima_nol_satu_empat(self):
+        hitung = {"hijau": 0, "menengah_hijau": 0, "kuning": 0, "tunggu_lineup": 0}
         for kumpulan in (self.live, self.verif):
             for analisis in kumpulan.values():
                 hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
                 hitung[hasil["vonis"]] += 1
-        self.assertEqual(hitung, {"hijau": 0, "menengah_hijau": 2, "kuning": 8})
+        self.assertEqual(
+            hitung,
+            {"hijau": 5, "menengah_hijau": 0, "kuning": 1, "tunggu_lineup": 4},
+        )
 
 
 class TestVonisSintetis(unittest.TestCase):
     """Vonis pada fixture sintetis (perilaku per indikator)."""
 
-    def test_laga_sehat_hijau(self):
-        # Kasus uji WAJIB (sintetis — tidak ada laga slate yang HIJAU
-        # setelah veto; lihat docstring modul tes).
+    def test_laga_sehat_hijau_satu_demerit_gap(self):
+        # Fixture sehat v18: HIJAU dengan 1 demerit gap_besar
+        # (gap +13,9% > 8% — CDF sempit vs harga tangga) + 2 rem.
+        # HIJAU v18 mengizinkan <=1 demerit (v17: 0 demerit).
         hasil = vonis_mod.nilai_vonis(_analisis_sehat(), None, CFG)
         self.assertEqual(hasil["vonis"], "hijau")
         ind = hasil["indikator"]
-        self.assertEqual(ind["demerit"], [])
+        self.assertEqual(ind["demerit"], ["gap_besar"])
+        self.assertEqual(ind["n_demerit"], 1)
         self.assertIsNone(ind["pemicu_keras"])
-        self.assertGreaterEqual(ind["edge_terbaik"], 0.025)
-        self.assertGreaterEqual(ind["p_banjir_terburuk"], 0.74)
-        self.assertGreaterEqual(ind["p_setan"], 0.65)
-        self.assertGreaterEqual(ind["gap_model_pasar"], 0.04)
-        self.assertLessEqual(ind["gap_model_pasar"], 0.08)
-        self.assertIs(ind["ekor_gemuk"], False)
-        self.assertTrue(ind["veto"]["dievaluasi"])
-        self.assertFalse(ind["veto"]["menyala"])
+        self.assertEqual(
+            ind["rem_alami"]["terpenuhi"], ["pace_lambat", "selaras_pasar"]
+        )
+        self.assertGreaterEqual(ind["p_banjir_3p"], 0.72)
+        self.assertGreaterEqual(ind["p_banjir_ft"], 0.67)
+        self.assertAlmostEqual(ind["p_banjir_3p"], 0.97725, places=5)
+        self.assertAlmostEqual(ind["p_banjir_ft"], 0.883962, places=5)
+        self.assertAlmostEqual(ind["gap_model_pasar"], 0.139353, places=5)
+        self.assertGreaterEqual(ind["edge_terbaik"], 0.08)  # info saja
+        self.assertEqual(ind["garis_asuransi"]["line"], 238.5)
+        self.assertEqual(ind["garis_asuransi"]["sumber"], "equilibrium Asuransi")
         self.assertIn("semua indikator sehat", hasil["alasan"][0])
+        self.assertIn("foul_tinggi", ind["tidak_dinilai"])  # FTr tidak ada
 
-    def test_ekor_gemuk(self):
-        hasil = vonis_mod.nilai_vonis(_analisis_ekor_gemuk(), None, CFG)
+    def test_ekor_gemuk_varian_thin(self):
+        # Varian semua-garis-thin: equilibrium tidak ada (semua
+        # garis gagal gate eksekusi — likuiditas $5), garis
+        # Asuransi jatuh ke kaki artefak U252,5 @76,5¢ (jarak 18,0
+        # >= 16, harga <= 80¢) -> ekor_gemuk + tail_fragility.
+        # REVISI KOORDINATOR: yang mematikan equilibrium kini
+        # likuiditas $5 (volume $5 saja tidak lagi mematikan).
+        analisis = _analisis_ekor_gemuk()
+        for entri in analisis["market"]["totals"]:
+            entri["thin"] = True
+            entri["volume_usd"] = 5.0
+            entri["liquidity"] = 5.0
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
         ind = hasil["indikator"]
         self.assertIs(ind["ekor_gemuk"], True)
         self.assertIn("ekor_gemuk", ind["demerit"])
-        self.assertGreaterEqual(ind["jarak_garis_market_points"], 10.0)
-        self.assertLessEqual(ind["garis_asuransi"]["harga_venue_cents"], 85)
+        self.assertGreaterEqual(ind["jarak_garis_market_points"], 16.0)
+        self.assertLessEqual(ind["garis_asuransi"]["harga_venue_cents"], 80)
+        self.assertEqual(ind["garis_asuransi"]["sumber"], "kaki Asuransi artefak")
         self.assertIn("ekor gemuk", " ".join(hasil["alasan"]))
 
-    def test_volume_tipis_demerit(self):
-        # Semua garis tangga tipis -> garis Asuransi (kaki artefak)
-        # tipis -> satu-satunya demerit volume_tipis.
+    def test_ekor_gemuk_tidak_memicu_harga_mahal(self):
+        # Tangga normal: garis Asuransi U256,5 @82,5¢ (jarak 22,0
+        # tapi harga > 80¢) -> ekor gemuk TIDAK memicu (ambang
+        # diperketat v18: 16 poin DAN <= 80¢).
+        hasil = vonis_mod.nilai_vonis(_analisis_ekor_gemuk(), None, CFG)
+        ind = hasil["indikator"]
+        self.assertIs(ind["ekor_gemuk"], False)
+        self.assertNotIn("ekor_gemuk", ind["demerit"])
+        self.assertGreaterEqual(ind["jarak_garis_market_points"], 16.0)
+
+    def test_volume_bukan_demerit_v18(self):
+        # DIHAPUS v17 -> v18: volume tipis BUKAN demerit lagi
+        # (volume hanya info + gate komposer, bukan vonis). Semua
+        # garis thin -> tetap HIJAU, tanpa demerit volume_tipis.
         analisis = _analisis_sehat()
         for entri in analisis["market"]["totals"]:
             entri["thin"] = True
             entri["volume_usd"] = 5.0
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
-        self.assertEqual(hasil["vonis"], "menengah_hijau")
-        self.assertEqual(hasil["indikator"]["demerit"], ["volume_tipis"])
+        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertNotIn("volume_tipis", hasil["indikator"]["demerit"])
+        self.assertTrue(hasil["indikator"]["garis_asuransi"]["thin"])
 
-    def test_gap_kecil_demerit(self):
-        # Jangkar pasar hampir sama dengan model -> gap kecil.
+    def test_gap_besar_demerit(self):
+        # Fixture sehat: gap +13,9% > 8% tanpa cedera berdampak ->
+        # demerit gap_besar (satu-satunya demerit).
+        hasil = vonis_mod.nilai_vonis(_analisis_sehat(), None, CFG)
+        self.assertIn("gap_besar", hasil["indikator"]["demerit"])
+        self.assertGreater(hasil["indikator"]["gap_model_pasar"], 0.08)
+        self.assertEqual(hasil["indikator"]["investigasi"], [])
+
+    def test_gap_besar_dengan_cedera_jadi_investigasi(self):
+        # Gap besar + pemain berdampak OUT terkonfirmasi (BPM +3,0)
+        # -> investigasi, BUKAN demerit.
         analisis = _analisis_sehat()
-        for kaki in analisis["legs"]:
-            kaki["p_market"] = 0.99
-            kaki["p_final"] = round(0.3 * kaki["p_model"] + 0.7 * 0.99, 3)
+        analisis["injuries"]["entries"] = [
+            {
+                "player": "Bintang Out",
+                "status": "OUT",
+                "team_tricode": "IND",
+                "availability_n_sources": 2,
+                "sources": ["Official NBA Injury Report", "ESPN"],
+            }
+        ]
+        analisis["inputs"]["away"]["players"] = [
+            {
+                "player": "Bintang Out",
+                "bpm": 3.0,
+                "team_tricode": "IND",
+                "mp_per_game": 30.0,
+            }
+        ]
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
-        self.assertIn("gap_kecil", hasil["indikator"]["demerit"])
-        self.assertLess(hasil["indikator"]["gap_model_pasar"], 0.04)
+        self.assertNotIn("gap_besar", hasil["indikator"]["demerit"])
+        self.assertEqual(hasil["indikator"]["demerit"], [])
+        self.assertEqual(len(hasil["indikator"]["investigasi"]), 1)
+        self.assertIn("Bintang Out", hasil["indikator"]["investigasi"][0])
 
-    def test_total_tinggi_demerit(self):
+    def test_total_tinggi_demerit_tetap_hijau(self):
+        # Garis bandar 236,5 >= 235 -> demerit total_tinggi; total 2
+        # demerit (gap_besar + total_tinggi) -> MENENGAH_HIJAU.
+        # (v17: 1 demerit -> menengah_hijau karena HIJAU butuh 0.)
         analisis = _analisis_sehat()
         analisis["market"]["main_total_line"] = 236.5
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
-        self.assertEqual(hasil["indikator"]["demerit"], ["total_tinggi"])
+        self.assertIn("total_tinggi", hasil["indikator"]["demerit"])
         self.assertEqual(hasil["vonis"], "menengah_hijau")
 
+    def test_foul_tinggi_demerit(self):
+        # FTr kedua tim 0,32 -> gabungan 0,32 >= p80 0,308111.
+        analisis = _analisis_sehat()
+        analisis["inputs"]["home"]["stats_season"]["ftr"] = 0.32
+        analisis["inputs"]["away"]["stats_season"]["ftr"] = 0.32
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        self.assertIn("foul_tinggi", hasil["indikator"]["demerit"])
+        self.assertAlmostEqual(hasil["indikator"]["ftr_gabungan"], 0.32, places=6)
+        self.assertEqual(
+            hasil["indikator"]["ftr_per_tim"], {"away": 0.32, "home": 0.32}
+        )
+
+    def test_foul_rata_rata_bukan_maks(self):
+        # "Gabungan" = RATA-RATA kedua tim: 0,40 + 0,20 -> 0,30 <
+        # p80 -> TIDAK demerit (bila memakai maks, 0,40 akan kena).
+        analisis = _analisis_sehat()
+        analisis["inputs"]["home"]["stats_season"]["ftr"] = 0.40
+        analisis["inputs"]["away"]["stats_season"]["ftr"] = 0.20
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        self.assertNotIn("foul_tinggi", hasil["indikator"]["demerit"])
+        self.assertAlmostEqual(hasil["indikator"]["ftr_gabungan"], 0.30, places=6)
+
+    def test_spread_tipis_demerit(self):
+        # Spread 2,0 <= 3,0 -> demerit spread_tipis.
+        analisis = _analisis_sehat()
+        analisis["simulation"]["score_distribution"]["margin"] = {"median": 2.0}
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        self.assertIn("spread_tipis", hasil["indikator"]["demerit"])
+        self.assertEqual(hasil["indikator"]["spread_points"], 2.0)
+        self.assertAlmostEqual(hasil["indikator"]["p_ot_empiris"], 0.05695, places=5)
+
+    def test_lima_demerit_kuning_tanpa_pemicu_keras(self):
+        # 5 demerit (tail, total, ekor, foul, spread) -> KUNING
+        # lewat jumlah demerit (>= 4), BUKAN pemicu keras.
+        # Equilibrium dimatikan via likuiditas $5 (REVISI
+        # KOORDINATOR — volume $5 saja tidak lagi mematikan)
+        # supaya garis Asuransi jatuh ke kaki artefak U252,5.
+        analisis = _analisis_ekor_gemuk()
+        for entri in analisis["market"]["totals"]:
+            entri["thin"] = True
+            entri["volume_usd"] = 5.0
+            entri["liquidity"] = 5.0
+        analisis["simulation"]["score_distribution"]["margin"] = {"median": 2.0}
+        analisis["market"]["main_total_line"] = 236.5
+        analisis["inputs"]["home"]["stats_season"]["ftr"] = 0.32
+        analisis["inputs"]["away"]["stats_season"]["ftr"] = 0.32
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        self.assertEqual(hasil["vonis"], "kuning")
+        self.assertIsNone(hasil["indikator"]["pemicu_keras"])
+        self.assertEqual(
+            hasil["indikator"]["demerit"],
+            [
+                "tail_fragility",
+                "total_tinggi",
+                "ekor_gemuk",
+                "foul_tinggi",
+                "spread_tipis",
+            ],
+        )
+
     def test_hasil_stress_konsisten(self):
+        # P banjir + P setan sama dengan/tanpa hasil_stress (fallback
+        # CDF menghitung hal yang sama). hasil_stress_dipakai False
+        # di sini: skenario_panas menghitung kaki artefak (240,5 /
+        # 236,5), bukan garis equilibrium 238,5 — vonis memakai CDF.
         analisis = _analisis_sehat()
         hasil_stress = stress_mod.skenario_panas(analisis, cfg=CFG)
         tanpa = vonis_mod.nilai_vonis(analisis, None, CFG)
         dengan = vonis_mod.nilai_vonis(analisis, hasil_stress, CFG)
-        self.assertTrue(dengan["indikator"]["hasil_stress_dipakai"])
+        self.assertFalse(dengan["indikator"]["hasil_stress_dipakai"])
         self.assertAlmostEqual(
             dengan["indikator"]["p_banjir_terburuk"],
             tanpa["indikator"]["p_banjir_terburuk"],
@@ -410,6 +683,31 @@ class TestVonisSintetis(unittest.TestCase):
             places=6,
         )
         self.assertEqual(dengan["vonis"], tanpa["vonis"])
+
+    def test_hasil_stress_dipakai_bila_garis_cocok(self):
+        # Hasil stress yang memuat garis Asuransi (238,5) DIPAKAI:
+        # P banjir suntik 0,50/0,60 (< ambang) -> demerit
+        # tail_fragility muncul.
+        analisis = _analisis_sehat()
+        hasil_stress = {
+            "banjir_terburuk": "banjir_3p",
+            "kaki": [
+                {
+                    "line": 238.5,
+                    "p_under": {
+                        "banjir_3p": 0.50,
+                        "banjir_ft": 0.60,
+                        "setan": 0.40,
+                    },
+                }
+            ],
+        }
+        hasil = vonis_mod.nilai_vonis(analisis, hasil_stress, CFG)
+        self.assertTrue(hasil["indikator"]["hasil_stress_dipakai"])
+        self.assertEqual(hasil["indikator"]["p_banjir_3p"], 0.50)
+        self.assertEqual(hasil["indikator"]["p_banjir_ft"], 0.60)
+        self.assertEqual(hasil["indikator"]["p_setan"], 0.40)
+        self.assertIn("tail_fragility", hasil["indikator"]["demerit"])
 
     def test_hasil_stress_rusak_tidak_crash(self):
         hasil = vonis_mod.nilai_vonis(
@@ -430,6 +728,216 @@ class TestVonisSintetis(unittest.TestCase):
     def test_bukan_dict_value_error(self):
         with self.assertRaises(ValueError):
             vonis_mod.nilai_vonis("bukan dict", None, CFG)
+
+
+class TestRemAlami(unittest.TestCase):
+    """Kelima rem alami v18 (satu per satu + aturan HIJAU)."""
+
+    def test_pertahanan_top10(self):
+        analisis = _analisis_sehat()
+        analisis["inputs"]["home"]["stats_season"]["def_rtg"] = 110.0
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        rem = hasil["indikator"]["rem_alami"]
+        self.assertIn("pertahanan_top10", rem["terpenuhi"])
+        self.assertEqual(rem["rincian"]["pertahanan_top10"]["tim"], ["home"])
+
+    def test_pertahanan_top10_gagal_drtg_tinggi(self):
+        analisis = _analisis_sehat()
+        analisis["inputs"]["home"]["stats_season"]["def_rtg"] = 118.0
+        analisis["inputs"]["away"]["stats_season"]["def_rtg"] = 117.0
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        rem = hasil["indikator"]["rem_alami"]
+        self.assertIn("pertahanan_top10", rem["gagal"])
+
+    def test_pace_lambat_arah_benar(self):
+        # Pace LAMBAT = angka KECIL: 94,54 <= 98,91 terpenuhi.
+        hasil = vonis_mod.nilai_vonis(_analisis_sehat(), None, CFG)
+        self.assertIn("pace_lambat", hasil["indikator"]["rem_alami"]["terpenuhi"])
+        # Pace cepat kedua tim -> gagal.
+        analisis = _analisis_sehat()
+        analisis["inputs"]["home"]["stats_season"]["pace"] = 102.0
+        analisis["inputs"]["away"]["stats_season"]["pace"] = 101.0
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        self.assertIn("pace_lambat", hasil["indikator"]["rem_alami"]["gagal"])
+
+    def test_pencetak_utama_out_mock_usg(self):
+        # Kedua tim kehilangan pencetak USG >= 25% OUT terkonfirmasi
+        # (mock USG deterministik).
+        analisis = _analisis_sehat()
+        analisis["injuries"]["entries"] = [
+            {
+                "player": "Skorer Tandang",
+                "status": "OUT",
+                "team_tricode": "IND",
+                "availability_n_sources": 2,
+                "sources": ["Official NBA Injury Report", "ESPN"],
+            },
+            {
+                "player": "Skorer Kandang",
+                "status": "OUT",
+                "team_tricode": "NYK",
+                "availability_n_sources": 2,
+                "sources": ["Official NBA Injury Report", "ESPN"],
+            },
+        ]
+        analisis["inputs"]["away"]["players"] = [
+            {
+                "player": "Skorer Tandang",
+                "bpm": 1.0,
+                "team_tricode": "IND",
+                "mp_per_game": 30.0,
+            }
+        ]
+        analisis["inputs"]["home"]["players"] = [
+            {
+                "player": "Skorer Kandang",
+                "bpm": 1.0,
+                "team_tricode": "NYK",
+                "mp_per_game": 30.0,
+            }
+        ]
+        usg = _usg_fetch_result(
+            [
+                {"player": "Skorer Tandang", "team": "IND", "usg_pct": 0.27},
+                {"player": "Skorer Kandang", "team": "NYK", "usg_pct": 0.26},
+            ]
+        )
+        with mock.patch.object(
+            pemain_usg_mod, "fetch_pemain_usg_cached", return_value=usg
+        ):
+            hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        rem = hasil["indikator"]["rem_alami"]
+        self.assertIn("pencetak_utama_out", rem["terpenuhi"])
+        self.assertEqual(
+            rem["rincian"]["pencetak_utama_out"]["pencetak_out_per_tim"],
+            {"away": ["Skorer Tandang"], "home": ["Skorer Kandang"]},
+        )
+
+    def test_pencetak_utama_out_ditolak_bpm_negatif(self):
+        # Skorer USG 27% tapi BPM -3,0 -> DITOLAK kualifikasi jalur
+        # USG -> rem gagal (satu sisi tidak punya pencetak).
+        analisis = _analisis_sehat()
+        analisis["injuries"]["entries"] = [
+            {
+                "player": "Skorer Tandang",
+                "status": "OUT",
+                "team_tricode": "IND",
+                "availability_n_sources": 2,
+                "sources": ["Official NBA Injury Report", "ESPN"],
+            },
+            {
+                "player": "Skorer Kandang",
+                "status": "OUT",
+                "team_tricode": "NYK",
+                "availability_n_sources": 2,
+                "sources": ["Official NBA Injury Report", "ESPN"],
+            },
+        ]
+        analisis["inputs"]["away"]["players"] = [
+            {
+                "player": "Skorer Tandang",
+                "bpm": -3.0,
+                "team_tricode": "IND",
+                "mp_per_game": 30.0,
+            }
+        ]
+        analisis["inputs"]["home"]["players"] = [
+            {
+                "player": "Skorer Kandang",
+                "bpm": 1.0,
+                "team_tricode": "NYK",
+                "mp_per_game": 30.0,
+            }
+        ]
+        usg = _usg_fetch_result(
+            [
+                {"player": "Skorer Tandang", "team": "IND", "usg_pct": 0.27},
+                {"player": "Skorer Kandang", "team": "NYK", "usg_pct": 0.26},
+            ]
+        )
+        with mock.patch.object(
+            pemain_usg_mod, "fetch_pemain_usg_cached", return_value=usg
+        ):
+            hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        rem = hasil["indikator"]["rem_alami"]
+        self.assertIn("pencetak_utama_out", rem["gagal"])
+        self.assertEqual(
+            rem["rincian"]["pencetak_utama_out"]["usg_ditolak"],
+            {"Skorer Tandang": "bpm_negatif"},
+        )
+
+    def test_paint_utuh_blowout(self):
+        # DEN@CHI (kedua tim terpetakan, tidak ada pelindung OUT) +
+        # spread 15,0 >= 8,5 -> cabang blowout terpenuhi.
+        analisis = _analisis_sehat(match_id="DEN@CHI_2026-11-22")
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        rem = hasil["indikator"]["rem_alami"]
+        self.assertIn("paint_utuh_blowout_atau_ftr_rendah", rem["terpenuhi"])
+        rincian = rem["rincian"]["paint_utuh_blowout_atau_ftr_rendah"]
+        self.assertIs(rincian["cabang_blowout"], True)
+
+    def test_paint_ftr_rendah(self):
+        # Kedua tim FTr 0,20 < p50 0,274398 -> cabang FTr rendah
+        # terpenuhi (walau spread 5,0 bukan blowout + veto tidak
+        # dievaluasi karena IND/NYK tak terpetakan).
+        analisis = _analisis_sehat()
+        analisis["simulation"]["score_distribution"]["margin"] = {"median": 5.0}
+        analisis["inputs"]["home"]["stats_season"]["ftr"] = 0.20
+        analisis["inputs"]["away"]["stats_season"]["ftr"] = 0.20
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        rem = hasil["indikator"]["rem_alami"]
+        self.assertIn("paint_utuh_blowout_atau_ftr_rendah", rem["terpenuhi"])
+        rincian = rem["rincian"]["paint_utuh_blowout_atau_ftr_rendah"]
+        self.assertIs(rincian["cabang_ftr_rendah"], True)
+
+    def test_selaras_pasar(self):
+        # |median 220 - pasar 221,5| = 1,5 <= 5,0 DAN pasar <= 228.
+        hasil = vonis_mod.nilai_vonis(_analisis_sehat(), None, CFG)
+        self.assertIn("selaras_pasar", hasil["indikator"]["rem_alami"]["terpenuhi"])
+        # Pasar jauh (226,0; gap 6,0) -> gagal.
+        analisis = _analisis_sehat()
+        analisis["market"]["main_total_line"] = 226.0
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        self.assertIn("selaras_pasar", hasil["indikator"]["rem_alami"]["gagal"])
+
+    def test_tanpa_rem_tidak_hijau(self):
+        # 1 demerit (gap_besar) + 0 rem -> MENENGAH_HIJAU, bukan
+        # HIJAU (HIJAU butuh >= 1 rem alami).
+        analisis = _analisis_sehat()
+        analisis["simulation"]["score_distribution"]["margin"] = {"median": 5.0}
+        analisis["inputs"]["home"]["stats_season"] = {
+            "pace": 102.0,
+            "def_rtg": 118.0,
+            "ftr": 0.29,
+        }
+        analisis["inputs"]["away"]["stats_season"] = {
+            "pace": 101.0,
+            "def_rtg": 117.0,
+            "ftr": 0.29,
+        }
+        analisis["market"]["main_total_line"] = 226.0
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        self.assertEqual(hasil["vonis"], "menengah_hijau")
+        self.assertEqual(hasil["indikator"]["rem_alami"]["terpenuhi"], [])
+        self.assertEqual(
+            hasil["indikator"]["rem_alami"]["gagal"],
+            [
+                "pertahanan_top10",
+                "pace_lambat",
+                "pencetak_utama_out",
+                "paint_utuh_blowout_atau_ftr_rendah",
+                "selaras_pasar",
+            ],
+        )
+
+    def test_rem_tidak_dievaluasi_bukan_gagal(self):
+        # Tanpa DRtg kedua tim, rem pertahanan "tidak_dievaluasi"
+        # (bukan gagal) — tercatat di tidak_dinilai sebagai
+        # rem_pertahanan_top10.
+        hasil = vonis_mod.nilai_vonis(_analisis_sehat(), None, CFG)
+        rem = hasil["indikator"]["rem_alami"]
+        self.assertIn("pertahanan_top10", rem["tidak_dievaluasi"])
+        self.assertIn("rem_pertahanan_top10", hasil["indikator"]["tidak_dinilai"])
 
 
 class TestFailClosed(unittest.TestCase):
@@ -459,13 +967,26 @@ class TestFailClosed(unittest.TestCase):
         self.assertEqual(hasil["vonis"], "kuning")
         self.assertEqual(hasil["indikator"]["pemicu_keras"], "data_tidak_cukup")
 
-    def test_tanpa_ot_kuning(self):
+    def test_tanpa_spread_kuning(self):
+        # v18: spread (|median margin|) adalah data WAJIB (menggantikan
+        # ot_probability sim v17 sebagai data wajib OT).
         analisis = _analisis_sehat()
-        del analisis["simulation"]["score_distribution"]["ot_probability"]
+        del analisis["simulation"]["score_distribution"]["margin"]
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
         self.assertEqual(hasil["vonis"], "kuning")
         self.assertEqual(hasil["indikator"]["pemicu_keras"], "data_tidak_cukup")
-        self.assertIn("ot_probability", hasil["alasan"][0])
+        self.assertIn("spread", hasil["alasan"][0])
+
+    def test_tanpa_ot_sim_tetap_hijau(self):
+        # v18: ot_probability sim BUKAN lagi data wajib (hanya info).
+        # Menghapusnya tidak mengubah vonis; p_ot_empiris tetap
+        # dihitung dari spread.
+        analisis = _analisis_sehat()
+        del analisis["simulation"]["score_distribution"]["ot_probability"]
+        hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
+        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertIsNone(hasil["indikator"]["ot_probability"])
+        self.assertAlmostEqual(hasil["indikator"]["p_ot_empiris"], 0.0335, places=4)
 
     def test_soccer_kuning_bukan_nba(self):
         analisis = _analisis_sehat()
@@ -489,18 +1010,30 @@ class TestFailClosed(unittest.TestCase):
     def test_config_rusak_config_error(self):
         with self.assertRaises(config_mod.ConfigError):
             vonis_mod.nilai_vonis(
-                _analisis_sehat(), None, _cfg_tanpa_kunci("vonis", "edge_hijau_pct")
+                _analisis_sehat(),
+                None,
+                _cfg_tanpa_kunci("vonis", "tail_fragility", "p_flood_3p_below"),
             )
         with self.assertRaises(config_mod.ConfigError):
             vonis_mod.nilai_vonis(
                 _analisis_sehat(),
                 None,
-                _cfg_tanpa_kunci("vonis", "veto_pace_tinggi"),
+                _cfg_tanpa_kunci("vonis", "veto", "total_tinggi_points"),
+            )
+        with self.assertRaises(config_mod.ConfigError):
+            vonis_mod.nilai_vonis(
+                _analisis_sehat(),
+                None,
+                _cfg_tanpa_kunci("vonis", "tunggu_lineup", "usg_bintang"),
             )
 
 
 class TestVeto(unittest.TestCase):
-    """Veto rim protector (hard trigger -> KUNING)."""
+    """Veto rim protector (hard trigger -> KUNING).
+
+    Logika AND diuji tuntas di tests/test_veto_and.py; di sini
+    hanya integrasi veto <-> nilai_vonis.
+    """
 
     @classmethod
     def setUpClass(cls):
@@ -519,7 +1052,10 @@ class TestVeto(unittest.TestCase):
 
     def test_veto_tidak_menyala_bila_pelindung_main(self):
         # Claxton dihapus dari daftar cedera (seolah main) -> veto mati.
-        # Laga tetap KUNING via 7 demerit — yang diuji di sini hanya veto.
+        # Laga jadi HIJAU (1 demerit total_tinggi + rem pace_lambat,
+        # bukan KUNING — v17: KUNING via 7 demerit; v18 hanya 1
+        # demerit karena tail_fragility hilang di garis equilibrium
+        # U258,5 — REVISI KOORDINATOR).
         analisis = copy.deepcopy(self.verif["DEN@CHI_2026-11-22"])
         analisis["injuries"]["entries"] = [
             e
@@ -531,7 +1067,8 @@ class TestVeto(unittest.TestCase):
         self.assertFalse(veto["menyala"])
         self.assertEqual(veto["pelindung_out"], [])
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
-        self.assertEqual(hasil["vonis"], "kuning")
+        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertEqual(hasil["indikator"]["demerit"], ["total_tinggi"])
         self.assertNotEqual(hasil["indikator"]["pemicu_keras"], "veto_rim_protector")
 
     def test_veto_tidak_menyala_bila_garis_pace_rendah(self):
@@ -575,7 +1112,8 @@ class TestVeto(unittest.TestCase):
     def test_veto_pemetaan_suntik_dan_nama_aksen(self):
         # Logika veto diuji terpisah dari file CHECK-IN: pemetaan
         # suntik + nama beraksen ("Jokić" di pemetaan vs "Jokic" di
-        # data cedera) harus cocok.
+        # data cedera) harus cocok. Pace kandang fixture 94,54 < 100,5
+        # tapi pace tandang 101,22 >= 100,5 -> kondisi pace menyala.
         analisis = _analisis_sehat(match_id="DEN@CHI_2026-11-22")
         analisis["market"]["main_total_line"] = 236.5
         analisis["injuries"]["entries"] = [
@@ -610,12 +1148,15 @@ class TestVeto(unittest.TestCase):
         self.assertTrue(veto["menyala"])
         self.assertEqual([o["player"] for o in veto["pelindung_out"]], ["Nikola Jokić"])
 
-    def test_mara_bukan_pemicu_okc(self):
+    def test_mara_bukan_pemicu_okc_parsial(self):
         # Regresi klaim TIDAK TERVERIFIKASI "Aday Mara OUT": Mara
-        # adalah pemimpin blok OKC yang MAIN — veto OKC menyala karena
-        # Chet Holmgren, bukan Mara.
+        # adalah pemimpin blok OKC yang MAIN. v18: veto OKC TIDAK
+        # menyala (garis 231,5 < 232,0 — hanya pace) -> peringatan
+        # parsial; Holmgren tetap OUT_terkonfirmasi.
         veto = vonis_mod.evaluasi_veto(self.verif["OKC@MIA_2026-11-22"], CFG)
-        self.assertTrue(veto["menyala"])
+        self.assertTrue(veto["dievaluasi"])
+        self.assertFalse(veto["menyala"])
+        self.assertTrue(veto["peringatan_parsial"])
         self.assertNotIn("Aday Mara", [o["player"] for o in veto["pelindung_out"]])
         diperiksa = {p["player"]: p["status"] for p in veto["pelindung_diperiksa"]}
         self.assertEqual(diperiksa["Aday Mara"], "main")
@@ -633,7 +1174,7 @@ class TestVeto(unittest.TestCase):
 
 
 class TestKomposerVonis(unittest.TestCase):
-    """Wiring komposer: KUNING dievaluasi dikeluarkan; vonis dibawa kandidat."""
+    """Wiring komposer: KUNING/TUNGGU dikeluarkan; vonis dibawa kandidat."""
 
     @classmethod
     def setUpClass(cls):
@@ -648,10 +1189,10 @@ class TestKomposerVonis(unittest.TestCase):
         analisis["status"] = "OK"
         return analisis
 
-    def test_bos_verif_kuning_dikeluarkan_kedua_tiket(self):
-        # BOS verif: KUNING 6 demerit, TIDAK kena skip_awal — vonis
-        # yang mengeluarkannya (nilai tambah vonis di komposer).
-        analisis = self._ok(self.verif["BOS@GSW_2026-11-22"])
+    def test_okc_verif_tunggu_dikeluarkan_kedua_tiket(self):
+        # OKC verif (TUNGGU_LINEUP, Giannis) dikeluarkan dari kedua
+        # tiket dengan alasan timing gate (bukan veto — v17).
+        analisis = self._ok(self.verif["OKC@MIA_2026-11-22"])
         kandidat, coret = ticket_composer_mod._kumpulkan_kandidat(
             {analisis["match_id"]: analisis}, {}, CFG
         )
@@ -659,25 +1200,18 @@ class TestKomposerVonis(unittest.TestCase):
         self.assertEqual(kandidat["main"], [])
         for tiket in ("insurance", "main"):
             self.assertTrue(
-                any("vonis KUNING" in c for c in coret[tiket]),
+                any("TUNGGU_LINEUP" in c for c in coret[tiket]),
+                coret[tiket],
+            )
+            self.assertTrue(
+                any("Giannis Antetokounmpo" in c for c in coret[tiket]),
                 coret[tiket],
             )
 
-    def test_okc_verif_dikeluarkan_karena_veto(self):
-        analisis = self._ok(self.verif["OKC@MIA_2026-11-22"])
-        kandidat, coret = ticket_composer_mod._kumpulkan_kandidat(
-            {analisis["match_id"]: analisis}, {}, CFG
-        )
-        self.assertEqual(kandidat["insurance"], [])
-        self.assertEqual(kandidat["main"], [])
-        self.assertTrue(
-            any("VETO rim protector: Chet Holmgren" in c for c in coret["main"]),
-            coret["main"],
-        )
-
     def test_den_verif_dikeluarkan_veto_bila_skip_dimatikan(self):
-        # DEN verif biasanya sudah kena skip_awal (pola Denver) sebelum
-        # vonis; dengan skip dimatikan, veto yang mengeluarkannya.
+        # DEN verif biasanya sudah kena skip_awal (pola Denver +
+        # tidak ada equilibrium) sebelum vonis; dengan skip dimatikan,
+        # veto yang mengeluarkannya.
         cfg = copy.deepcopy(CFG)
         cfg["skip_awal"]["enabled"] = False
         analisis = self._ok(self.verif["DEN@CHI_2026-11-22"])
@@ -691,22 +1225,25 @@ class TestKomposerVonis(unittest.TestCase):
             coret["main"],
         )
 
-    def test_kandidat_membawa_vonis_menengah_hijau(self):
-        analyses = {
-            "DAL@UTA_2026-11-22": self._ok(self.live["DAL@UTA_2026-11-22"]),
-            "BOS@GSW_2026-11-22": self._ok(self.live["BOS@GSW_2026-11-22"]),
-        }
-        kandidat, _coret = ticket_composer_mod._kumpulkan_kandidat(analyses, {}, CFG)
-        self.assertGreaterEqual(len(kandidat["main"]), 2)
-        for kand in kandidat["main"]:
-            self.assertEqual(kand["vonis"], "menengah_hijau")
+    def test_kandidat_membawa_vonis_hijau(self):
+        # DET live (HIJAU, lolos skip_awal) jadi kandidat kedua tiket
+        # dengan vonis hijau + alasan.
+        analisis = self._ok(self.live["DET@ATL_2026-11-22"])
+        kandidat, _coret = ticket_composer_mod._kumpulkan_kandidat(
+            {analisis["match_id"]: analisis}, {}, CFG
+        )
+        self.assertEqual(len(kandidat["insurance"]), 1)
+        self.assertEqual(len(kandidat["main"]), 1)
+        for tiket in ("insurance", "main"):
+            kand = kandidat[tiket][0]
+            self.assertEqual(kand["vonis"], "hijau")
             self.assertIsInstance(kand["vonis_alasan"], list)
             self.assertGreater(len(kand["vonis_alasan"]), 0)
 
     def test_vonis_dimatikan_tidak_ada_coret_vonis(self):
         cfg = copy.deepcopy(CFG)
         cfg["vonis"]["enabled"] = False
-        analisis = self._ok(self.verif["BOS@GSW_2026-11-22"])
+        analisis = self._ok(self.live["DET@ATL_2026-11-22"])
         kandidat, coret = ticket_composer_mod._kumpulkan_kandidat(
             {analisis["match_id"]: analisis}, {}, cfg
         )
@@ -738,72 +1275,146 @@ class TestLaporanVonis(unittest.TestCase):
         self.assertIn("VETO — LAGA INI DIBLOKIR DARI TIKET", teks)
         self.assertIn("Nic Claxton", teks)
         # Veto tampil SEBELUM bullet demerit DI DALAM bagian Vonis
-        # (menonjol, bukan terkubur) — "edge kecil" juga muncul di
-        # bagian lain laporan, jadi perbandingannya dibatasi ke
-        # bagian Vonis.
+        # (menonjol, bukan terkubur) — demerit pertama v18 adalah
+        # "total tinggi" (tail_fragility hilang di garis equilibrium
+        # U258,5 — revisi koordinator; v17: "edge kecil" — demerit
+        # itu dihapus).
         bagian_vonis = teks[teks.index("Vonis laga") :]
         self.assertLess(
             bagian_vonis.index("VETO — LAGA INI DIBLOKIR"),
-            bagian_vonis.index("edge kecil"),
+            bagian_vonis.index("total tinggi"),
         )
         # Cedera (bagian Kabar pemain) tampil sebelum Vonis.
         self.assertLess(teks.index("Kabar pemain"), teks.index("Vonis laga"))
 
-    def test_dal_live_menengah_hijau(self):
+    def test_dal_live_hijau(self):
         teks = nba_report_mod.render_nba_report(
             copy.deepcopy(self.live["DAL@UTA_2026-11-22"])
         )
-        self.assertIn("Vonis: MENENGAH HIJAU", teks)
+        self.assertIn("Vonis: HIJAU", teks)
         self.assertNotIn("VETO — LAGA INI DIBLOKIR", teks)
+
+    def test_okc_verif_tunggu_lineup(self):
+        teks = nba_report_mod.render_nba_report(
+            copy.deepcopy(self.verif["OKC@MIA_2026-11-22"])
+        )
+        self.assertIn("Vonis: TUNGGU LINEUP", teks)
+        self.assertIn("Giannis Antetokounmpo", teks)
 
 
 class TestConfigDanPemetaan(unittest.TestCase):
-    """Kunci config vonis + file pemetaan rim protector CHECK-IN."""
+    """Kunci config vonis v18 + file pemetaan rim protector CHECK-IN."""
 
     def test_kunci_vonis_hadir(self):
         vonis = CFG["vonis"]
         for kunci in (
             "enabled",
-            "edge_hijau_pct",
-            "p_setan_hijau",
-            "gap_kecil_pct",
-            "ekor_jauh_points",
-            "ekor_harga_rendah_cents",
+            "tail_fragility",
             "total_tinggi_points",
-            "max_demerit_menengah",
-            "veto_total_tinggi_points",
-            "veto_pace_tinggi",
+            "ekor_gemuk",
+            "foul",
+            "spread_tipis_max",
+            "hijau_max_demerits",
+            "menengah_max_demerits",
+            "rem_alami",
+            "veto",
+            "tiga_pa_rate_top10_cutoff",
+            "tunggu_lineup",
         ):
             self.assertIn(kunci, vonis, f"vonis.{kunci} hilang dari config")
         self.assertTrue(vonis["enabled"])
-        self.assertGreater(vonis["edge_hijau_pct"], 0)
-        self.assertGreater(vonis["p_setan_hijau"], 0)
-        self.assertLess(vonis["p_setan_hijau"], 1)
+        self.assertEqual(vonis["hijau_max_demerits"], 1)
+        self.assertEqual(vonis["menengah_max_demerits"], 3)
+        self.assertEqual(vonis["total_tinggi_points"], 235.0)
+        self.assertEqual(vonis["tail_fragility"]["p_flood_3p_below"], 0.72)
+        self.assertEqual(vonis["tail_fragility"]["p_flood_ft_below"], 0.67)
+        self.assertEqual(vonis["ekor_gemuk"]["min_offset_points"], 16.0)
+        self.assertEqual(vonis["ekor_gemuk"]["max_price_cents"], 80)
+        self.assertEqual(vonis["spread_tipis_max"], 3.0)
+        self.assertEqual(vonis["veto"]["logic"], "AND")
+        self.assertEqual(vonis["veto"]["total_tinggi_points"], 232.0)
+        self.assertEqual(vonis["veto"]["pace_tinggi"], 100.5)
         for kunci in (
             "min_games",
             "min_mp_per_game",
             "min_blk_per_game",
             "max_per_team",
+            "position_filter",
         ):
-            self.assertIn(kunci, vonis["rim_protector"])
+            self.assertIn(kunci, vonis["veto"]["rim_protector"])
+        self.assertEqual(
+            vonis["veto"]["rim_protector"]["position_filter"],
+            ["C", "PF", "F-C", "C-F"],
+        )
+        self.assertEqual(vonis["tunggu_lineup"]["usg_bintang"], 0.24)
+        self.assertEqual(vonis["tunggu_lineup"]["bpm_bintang"], 2.0)
+        self.assertEqual(vonis["tunggu_lineup"]["mp_min_rotasi"], 10.0)
+        self.assertEqual(vonis["tunggu_lineup"]["bpm_min_jalur_usg"], 0.0)
+
+    def test_kunci_v17_dihapus(self):
+        vonis = CFG["vonis"]
+        for kunci in (
+            "edge_hijau_pct",
+            "p_setan_hijau",
+            "gap_kecil_pct",
+            "ekor_jauh_points",
+            "ekor_harga_rendah_cents",
+            "max_demerit_menengah",
+            "veto_total_tinggi_points",
+            "veto_pace_tinggi",
+            "rim_protector",
+        ):
+            self.assertNotIn(kunci, vonis, f"vonis.{kunci} harus dihapus di v18")
+        self.assertNotIn("min_edge_pct", CFG["tickets"]["insurance"])
+        self.assertNotIn("skip_ot_prob", CFG["ot_seleksi"])
+
+    def test_kunci_tiket_dan_eksekusi_v18(self):
+        ins = CFG["tickets"]["insurance"]
+        self.assertEqual(ins["multiplier_min"], 2.0)
+        self.assertEqual(ins["multiplier_max"], 2.5)
+        self.assertEqual(ins["min_leg_prob"], 0.82)
+        self.assertEqual(ins["flood_3p_min"], 0.70)
+        self.assertEqual(ins["flood_ft_min"], 0.65)
+        self.assertEqual(ins["max_negative_ev_pct"], -1.0)
+        self.assertTrue(ins["must_cover_total_stake"])
+        main = CFG["tickets"]["main"]
+        self.assertEqual(main["min_leg_prob"], 0.74)
+        self.assertEqual(main["max_negative_ev_pct"], -2.0)
+        self.assertEqual(main["multiplier_min"], 3.0)
+        self.assertEqual(main["multiplier_max"], 5.0)
+        self.assertEqual(CFG["execution"]["min_liquidity_multiplier"], 2.0)
+        self.assertEqual(CFG["execution"]["liquidity_hard_min_usd"], 25.0)
+        self.assertEqual(CFG["execution"]["stake_default_usd"], 15.0)
+        self.assertEqual(CFG["ot_seleksi"]["mode"], "empiris")
+        self.assertEqual(CFG["ot_seleksi"]["base_rate_ot"], 0.0575)
+        self.assertEqual(CFG["ot_seleksi"]["hard_skip_ot_prob"], 0.085)
+        self.assertEqual(CFG["meta"]["version"], 18)
 
     def test_file_pemetaan_valid(self):
         self.assertTrue(PEMETAAN.exists(), "file pemetaan CHECK-IN hilang")
         dokumen = json.loads(PEMETAAN.read_text(encoding="utf-8"))
         self.assertEqual(dokumen["format"], "rim_protector")
         self.assertEqual(dokumen["season"], "2026-27")
-        self.assertEqual(len(dokumen["teams"]), 30)
+        self.assertEqual(dokumen["position_source"], "Basketball-Reference")
+        # v18: 21 dari 30 tim terpetakan (9 tim tanpa big yang lolos
+        # ambang BLK >= 1,0 + filter posisi — v17: 30/30).
+        self.assertEqual(len(dokumen["teams"]), 21)
         chi = {p["player"]: p for p in dokumen["teams"]["CHI"]}
         self.assertIn("Nic Claxton", chi)
         self.assertEqual(chi["Nic Claxton"]["blk_per_game"], 1.0)
+        self.assertEqual(chi["Nic Claxton"]["pos"], "C")
         okc = {p["player"]: p for p in dokumen["teams"]["OKC"]}
         self.assertEqual(okc["Chet Holmgren"]["blk_per_game"], 3.0)
         self.assertEqual(okc["Aday Mara"]["blk_per_game"], 1.7)
+        semua = [p["player"] for daftar in dokumen["teams"].values() for p in daftar]
+        for guard in ("Cade Cunningham", "Tyrese Haliburton", "Jamal Murray"):
+            self.assertNotIn(guard, semua)
         for tim, daftar in dokumen["teams"].items():
             self.assertLessEqual(len(daftar), 2, tim)
             for entri in daftar:
-                self.assertGreaterEqual(entri["blk_per_game"], 0.8)
-                self.assertGreaterEqual(entri["mp_per_game"], 15.0)
+                self.assertIn(entri["pos"], ["C", "PF", "F-C", "C-F"])
+                self.assertGreaterEqual(entri["blk_per_game"], 1.0)
+                self.assertGreaterEqual(entri["mp_per_game"], 18.0)
                 self.assertGreaterEqual(entri["games_played"], 3)
 
 

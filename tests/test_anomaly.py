@@ -372,14 +372,17 @@ class TestEvaluateLeg(unittest.TestCase):
             anomaly.evaluate_leg(0.80, 0.75, 0, "odds_api_devig", CFG)
 
 
-# cfg untuk cek garis market: CFG + ambang baru. Nilai market_line_check
-# adalah NILAI AWAL yang diusulkan (BELUM DIKALIBRASI) — playstyle.yaml
-# belum punya bagian ini (koordinator menambahkannya saat integrasi).
-# Cek bantalan TIDAK lagi membaca config (bantalan adaptif tercatat
-# diteruskan sebagai argumen — kunci D10 dihapus di playstyle v13).
+# cfg untuk cek garis market: CFG + ambang baru. Nilai
+# calibration.lean_to_market_gap adalah NILAI AWAL yang diusulkan
+# (BELUM DIKALIBRASI) — v18 dipindahkan dari
+# market_line_check.total_gap_points ke calibration (satu sumber
+# kebenaran). Cek bantalan TIDAK lagi membaca config (bantalan adaptif
+# tercatat diteruskan sebagai argumen — kunci D10 dihapus di
+# playstyle v13).
 CFG_GARIS = {
     **CFG,
-    "market_line_check": {"total_gap_points": 5.0, "min_model_under_prob": 0.70},
+    "market_line_check": {"min_model_under_prob": 0.70},
+    "calibration": {"lean_to_market_gap": 5.0},
 }
 
 

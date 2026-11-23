@@ -38,7 +38,9 @@ memenuhi target 0,74 walau nilai pastinya tidak diketahui).
 
 Volume: _parse_tangga MEMPERTAHANKAN volume_usd + thin tiap baris
 (volume None -> thin True). Sebelumnya keduanya dibuang — itu
-sebabnya garis tipis lolos diam-diam.
+sebabnya garis tipis lolos diam-diam. v18 (revisi koordinator):
+liquidity + bid_cents + ask_cents juga dipertahankan (bukti gate
+eksekusi — diteruskan ke kaki artefak).
 
 Fallback p74: bila dict persentil belum memuat p74, modul ini
 memakai interpolasi linear antara median (p50) dan p75 pada kuantil
@@ -134,16 +136,18 @@ def _baca_min_volume(cfg: dict) -> float | None:
 
 def _parse_tangga(ladder, min_volume_usd: float | None = None) -> list[dict]:
     """Normalisasi tangga jadi list {line, price_cents, jup_estimated_cents,
-    volume_usd, thin}.
+    volume_usd, thin, liquidity, bid_cents, ask_cents}.
 
     Menerima list angka (garis saja, tanpa harga/volume -> thin True)
     atau list dict bentuk baris tangga Polymarket ({"line",
-    "price_cents", "jup_estimated_cents", "volume_usd", "thin", ...}).
-    Baris malformed -> ValueError. Flag "thin" baris DIPERTAHANKAN
-    (dari ingest, yang menghitungnya dari volume + bid/ask); bila
-    baris tidak membawa flag thin, dihitung dari volume vs
-    min_volume_usd bila tersedia. Volume None -> thin True (likuiditas
-    tidak diketahui = tipis).
+    "price_cents", "jup_estimated_cents", "volume_usd", "thin",
+    "liquidity", "bid_cents", "ask_cents", ...}). Baris malformed ->
+    ValueError. Flag "thin" baris DIPERTAHANKAN (dari ingest, yang
+    menghitungnya dari volume + bid/ask); bila baris tidak membawa
+    flag thin, dihitung dari volume vs min_volume_usd bila tersedia.
+    Volume None -> thin True (likuiditas tidak diketahui = tipis).
+    liquidity/bid_cents/ask_cents DIPERTAHANKAN (v18, revisi
+    koordinator: bukti gate eksekusi — diteruskan ke kaki artefak).
     """
     if not isinstance(ladder, (list, tuple)):
         raise ValueError(f"ladder harus list, didapat {type(ladder).__name__}")
@@ -158,6 +162,9 @@ def _parse_tangga(ladder, min_volume_usd: float | None = None) -> list[dict]:
                     "jup_estimated_cents": None,
                     "volume_usd": None,
                     "thin": True,
+                    "liquidity": None,
+                    "bid_cents": None,
+                    "ask_cents": None,
                 }
             )
         elif isinstance(baris, dict):
@@ -189,6 +196,15 @@ def _parse_tangga(ladder, min_volume_usd: float | None = None) -> list[dict]:
                     ),
                     "volume_usd": volume,
                     "thin": thin,
+                    "liquidity": _angka_atau_none(
+                        baris.get("liquidity"), f"ladder[{i}].liquidity"
+                    ),
+                    "bid_cents": _angka_atau_none(
+                        baris.get("bid_cents"), f"ladder[{i}].bid_cents"
+                    ),
+                    "ask_cents": _angka_atau_none(
+                        baris.get("ask_cents"), f"ladder[{i}].ask_cents"
+                    ),
                 }
             )
         else:
@@ -365,6 +381,9 @@ def _hasil_tidak_memenuhi(alasan: str, dasar: dict) -> dict:
             "cushion_vs_median_points": None,
             "volume_usd": None,
             "thin": None,
+            "liquidity": None,
+            "bid_cents": None,
+            "ask_cents": None,
             "climb": None,
             "p_model_pada_garis": None,
             "p_model_source": None,
@@ -511,6 +530,9 @@ def insurance_line(
             ),
             "volume_usd": pilihan["volume_usd"],
             "thin": pilihan["thin"],
+            "liquidity": pilihan["liquidity"],
+            "bid_cents": pilihan["bid_cents"],
+            "ask_cents": pilihan["ask_cents"],
             "climb": _climb_dari_urut(urut, kandidat[0], pilihan, alasan_naik),
             "p_model_pada_garis": p_terpilih["p"],
             "p_model_source": p_terpilih["source"],
@@ -619,6 +641,9 @@ def utama_line(
             "cushion_vs_median_points": round(garis - median, 9),
             "volume_usd": pilihan["volume_usd"],
             "thin": pilihan["thin"],
+            "liquidity": pilihan["liquidity"],
+            "bid_cents": pilihan["bid_cents"],
+            "ask_cents": pilihan["ask_cents"],
             "climb": _climb_dari_urut(urut, garis_bantalan, pilihan, _SYARAT_HARGA),
             "p_model_pada_garis": p_info["p"],
             "p_model_source": p_info["source"],

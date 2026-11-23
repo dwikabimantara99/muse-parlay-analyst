@@ -39,17 +39,54 @@ adalah yang terbaik yang tersedia; bila titik manisnya pun ber-EV
 negatif, itu dilaporkan transparan (bukan disembunyikan) dan kelayakan
 tiket dinilai di tingkat tiket.
 
-GATE PER GARIS (ambang dari config yang SUDAH ADA — tidak diduplikasi):
-- Asuransi: p_final >= tickets.insurance.min_leg_prob (0,74);
-  P banjir terburuk >= 0,74 (gate banjir R1, skenario dari
-  tickets.insurance.stress_gate_scenario); edge (p_final - harga
-  venue) >= tickets.insurance.min_edge_pct (3,5%); tidak thin;
-  harga venue >= analis.harga_min_asuransi_cents (75¢); label
-  bukan MAHAL (aturan optimizer).
-- Utama: p_final >= tickets.main.min_leg_prob (0,65); harga venue
-  >= analis.harga_min_utama_cents (75¢). Thin BOLEH (sesuai aturan
-  komposer: thin Utama hanya flag + peringatan); banjir/edge TIDAK
-  di-gate untuk Utama (sesuai aturan yang ada).
+GATE PER GARIS v18 (keputusan user 2026-11-23 13:57 WIB, atas
+proposal audit Gemini v18 — MENGGANTIKAN gate v17: edge datar 3,5%
+DIHAPUS, banjir tunggal 74% DIGANTI dua ambang terpisah, thin $100
+DIGANTI gate eksekusi berbasis stake):
+- Asuransi: p_final >= tickets.insurance.min_leg_prob (0,82);
+  p_market >= tickets.insurance.min_p_market (0,80) — bila p_market
+  tidak ada (MODEL_ONLY, tanpa jangkar), gate ini TIDAK dievaluasi
+  (bukan fail-closed buta: garis tetap boleh lolos bila p_final +
+  banjir + EV lolos, dengan catatan "p_market tidak dievaluasi");
+  EV >= tickets.insurance.max_negative_ev_pct (-1%) — EV
+  MENGGANTIKAN edge datar (edge datar mustahil di ekor 85-94¢:
+  audit Gemini §1.2); P banjir 3P >= flood_3p_min (0,70) DAN
+  P banjir FT >= flood_ft_min (0,65) — DUA ambang terpisah dari CDF
+  yang digeser, seperti sebelumnya; harga venue >= lantai Asuransi
+  (75¢); EKSEKUSI: gate eksekusi (lihat di bawah).
+- Utama: p_final >= tickets.main.min_leg_prob (0,74); EV >=
+  tickets.main.max_negative_ev_pct (-2%, tolak bila sangat MAHAL);
+  harga venue >= lantai Utama (75¢); EKSEKUSI: gate eksekusi (sama
+  seperti Asuransi). Banjir WARNING-ONLY untuk Utama: P banjir
+  dicatat (p_banjir_3p / p_banjir_ft + flag banjir_warning), tidak
+  memblokir.
+- EKSEKUSI -> GATE LIKUIDITAS + SPREAD (v18, revisi koordinator
+  saat integrasi — MENGGANTIKAN gate volume_usd worker B):
+  garis lolos hanya bila likuiditas Gamma (`liquidity`, USD) >=
+  max(execution.min_liquidity_multiplier x
+  execution.stake_default_usd, execution.liquidity_hard_min_usd)
+  = max(2 x $15, $25) = $30 DAN spread bid/ask (ask_cents -
+  bid_cents, kuotasi CLOB Gamma) <= execution.max_spread_cents
+  (5,0¢) DAN ask nyata (< 99¢). Alasan revisi: volume_usd adalah
+  volume KUMULATIF yang sudah diperdagangkan — ukuran sejarah,
+  bukan kemampuan beli sekarang; garis dengan kuotasi hidup
+  spread 2¢ gagal gate volume karena volume kumulatifnya $5,
+  padahal order $15 di ask pasti terisi (bukti: artefak 22 Nov,
+  DET U239,5 bid 79/ask 82, likuiditas $36.580, volume $5).
+  Data hilang (likuiditas/bid/ask tidak tercatat) -> TIDAK lolos
+  (fail-closed) + dicatat. Volume kumulatif < $100 (ambang lama
+  polymarket_ladder.min_volume_usd) dicatat sebagai info
+  (info_volume_dibawah_100), BUKAN blokir. Flag "thin" TIDAK LAGI
+  menjadi gate di modul ini (thin tetap dilaporkan apa adanya).
+- BAND HARGA + PEMILIHAN (v18): Asuransi safety-first memilih
+  p_final TERTINGGI di antara garis lolos DALAM band
+  tickets.insurance.preferred_price_band (80-89¢); bila tidak ada
+  garis lolos dalam band, fallback ke p_final tertinggi di antara
+  SEMUA garis lolos (fallback_band=True dicatat). Utama max-ER
+  memilih ER tertinggi dalam band tickets.main.preferred_price_band
+  (76-84¢) dengan tie-break: bila selisih ER < tiebreak_er_tolerance
+  (0,015), pilih garis yang LEBIH AMAN (p_final lebih tinggi);
+  fallback band yang sama bila tidak ada garis lolos dalam band.
 
 P_FINAL PER GARIS (jangkar pasar): artefak hanya membawa p_market
 untuk dua kaki artefak (dari Kalshi, garis yang sama persis) — tangga
@@ -126,6 +163,28 @@ _TIKET = ("insurance", "main")
 # p_final tertinggi. Nilai lain -> ConfigError (fail-closed).
 _MODE = ("max_er", "safety_first")
 
+# Default kunci v18 (dipakai HANYA bila kunci belum ada di cfg dict
+# — mis. dict cfg di tes — mengikuti pola _angka_config_atau_default
+# di ticket_composer untuk integrasi paralel). Nilai-nilai ini BUKAN
+# tebakan: SAMA PERSIS dengan config v18 yang ditulis worker A
+# (keputusan user 2026-11-23 13:57 WIB + proposal audit Gemini v18
+# §3, DECISIONS.md "Jawaban user atas 4 keputusan v18"). Bila
+# config v18 sudah mendarat, nilai config yang dipakai (default
+# tidak pernah menimpa config).
+_DEFAULT_MIN_P_MARKET_INS = 0.80
+_DEFAULT_MAX_NEG_EV_INS_PCT = -1.0
+_DEFAULT_MAX_NEG_EV_MAIN_PCT = -2.0
+_DEFAULT_FLOOD_3P_MIN = 0.70
+_DEFAULT_FLOOD_FT_MIN = 0.65
+_DEFAULT_BAND_INS = (80.0, 89.0)
+_DEFAULT_BAND_MAIN = (76.0, 84.0)
+_DEFAULT_TIEBREAK_ER = 0.015
+_DEFAULT_LIQ_MULTIPLIER = 2.0
+_DEFAULT_LIQ_HARD_MIN_USD = 25.0
+_DEFAULT_STAKE_USD = 15.0
+_DEFAULT_MAX_SPREAD_CENTS = 5.0
+_DEFAULT_MIN_VOLUME_INFO_USD = 100.0
+
 
 def _angka(nilai) -> float | None:
     """Ubah nilai menjadi float berhingga, atau None bila tidak valid."""
@@ -147,6 +206,132 @@ def _ambang(cfg: dict, *kunci: str) -> float:
             f"playstyle.yaml kunci {'.'.join(kunci)} bukan angka: {nilai!r}"
         )
     return hasil
+
+
+def _cfg_angka_atau_default(cfg: dict, kunci: tuple[str, ...], default: float) -> float:
+    """Baca angka dari config; kunci hilang -> default (v18).
+
+    Kunci ADA tapi bukan angka -> ConfigError (config rusak, bukan
+    data hilang). Dipakai untuk kunci BARU v18 (min_p_market,
+    max_negative_ev_pct, flood_3p_min, flood_ft_min,
+    tiebreak_er_tolerance, execution.*) supaya modul tetap jalan
+    dengan dict cfg yang belum membawa kunci itu (tes / integrasi
+    paralel) — defaultnya adalah nilai v18 yang disetujui user
+    (lihat konstanta _DEFAULT_* di atas), bukan karangan.
+    """
+    try:
+        nilai = config_mod.get_value(cfg, *kunci)
+    except config_mod.ConfigError:
+        return default
+    hasil = _angka(nilai)
+    if hasil is None:
+        raise config_mod.ConfigError(
+            f"playstyle.yaml kunci {'.'.join(kunci)} bukan angka: {nilai!r}"
+        )
+    return hasil
+
+
+def _cfg_band(cfg: dict, tiket: str) -> tuple[float, float]:
+    """Band harga pilihan satu tiket (sen) dari config v18.
+
+    Kunci: tickets.<tiket>.preferred_price_band [lo, hi]. Hilang ->
+    default v18 (Asuransi 80-89, Utama 76-84). Bentuk salah / bukan
+    angka / lo > hi -> ConfigError.
+    """
+    default = _DEFAULT_BAND_INS if tiket == "insurance" else _DEFAULT_BAND_MAIN
+    try:
+        nilai = config_mod.get_value(cfg, "tickets", tiket, "preferred_price_band")
+    except config_mod.ConfigError:
+        return default
+    if not isinstance(nilai, (list, tuple)) or len(nilai) != 2:
+        raise config_mod.ConfigError(
+            "playstyle.yaml tickets."
+            f"{tiket}.preferred_price_band harus [bawah, atas], dapat: "
+            f"{nilai!r}"
+        )
+    bawah = _angka(nilai[0])
+    atas = _angka(nilai[1])
+    if bawah is None or atas is None or bawah > atas:
+        raise config_mod.ConfigError(
+            "playstyle.yaml tickets."
+            f"{tiket}.preferred_price_band tidak valid: {nilai!r}"
+        )
+    return bawah, atas
+
+
+def likuiditas_min_eksekusi(cfg: dict | None = None) -> float:
+    """Likuiditas minimum gate eksekusi v18 (USD).
+
+    max(min_liquidity_multiplier x stake_default_usd,
+    liquidity_hard_min_usd) = max(2 x $15, $25) = $30 (config v18).
+    Dipakai equilibrium + komposer (satu rumus, dua pemakai).
+    Berlaku untuk field `liquidity` Gamma (likuiditas pasar saat
+    ini), BUKAN volume_usd kumulatif (revisi koordinator v18).
+    """
+    cfg = _muat_cfg(cfg)
+    pengali = _cfg_angka_atau_default(
+        cfg, ("execution", "min_liquidity_multiplier"), _DEFAULT_LIQ_MULTIPLIER
+    )
+    modal = _cfg_angka_atau_default(
+        cfg, ("execution", "stake_default_usd"), _DEFAULT_STAKE_USD
+    )
+    batas_bawah = _cfg_angka_atau_default(
+        cfg, ("execution", "liquidity_hard_min_usd"), _DEFAULT_LIQ_HARD_MIN_USD
+    )
+    if pengali < 0 or modal < 0 or batas_bawah < 0:
+        raise config_mod.ConfigError(
+            "playstyle.yaml execution.* harus >= 0 "
+            f"(pengali {pengali}, stake {modal}, batas bawah {batas_bawah})"
+        )
+    return max(pengali * modal, batas_bawah)
+
+
+def cek_eksekusi(entri: dict, cfg: dict | None = None) -> dict:
+    """Gate eksekusi v18 untuk satu entri tangga (SATU implementasi).
+
+    Dipakai equilibrium._nilai_garis + komposer (garis tahan banjir
+    + cek kaki via tangga) — satu definisi "garis bisa dibeli".
+    Lolos bila SEMUA terpenuhi: likuiditas Gamma >=
+    likuiditas_min_eksekusi ($30) DAN bid/ask tercatat DAN ask nyata
+    (< 99¢, sentinel "tidak ada ask") DAN spread (ask - bid) <=
+    execution.max_spread_cents (5,0¢). Data hilang -> tidak lolos
+    (fail-closed). Mengembalikan dict lolos/alasan/nilai-nilai
+    (alasan None bila lolos; bila gagal salah satu dari:
+    "likuiditas_tidak_tercatat", "likuiditas_di_bawah_minimum",
+    "tanpa_kuotasi", "tanpa_ask_nyata", "spread_terlalu_lebar").
+    """
+    cfg = _muat_cfg(cfg)
+    likuiditas_min = likuiditas_min_eksekusi(cfg)
+    spread_max = _cfg_angka_atau_default(
+        cfg, ("execution", "max_spread_cents"), _DEFAULT_MAX_SPREAD_CENTS
+    )
+    likuiditas = _angka(entri.get("liquidity"))
+    bid = _angka(entri.get("bid_cents"))
+    ask = _angka(entri.get("ask_cents"))
+    spread = (ask - bid) if (bid is not None and ask is not None) else None
+    if likuiditas is None:
+        alasan = "likuiditas_tidak_tercatat"
+    elif likuiditas < likuiditas_min:
+        alasan = "likuiditas_di_bawah_minimum"
+    elif bid is None or ask is None:
+        alasan = "tanpa_kuotasi"
+    elif ask >= 99.0:
+        alasan = "tanpa_ask_nyata"
+    elif spread is not None and spread > spread_max:
+        alasan = "spread_terlalu_lebar"
+    else:
+        alasan = None
+    return {
+        "lolos": alasan is None,
+        "alasan": alasan,
+        "likuiditas_usd": likuiditas,
+        "likuiditas_min_usd": likuiditas_min,
+        "bid_cents": bid,
+        "ask_cents": ask,
+        "spread_cents": spread,
+        "spread_max_cents": spread_max,
+        "volume_usd": _angka(entri.get("volume_usd")),
+    }
 
 
 def _harga_venue(entri: dict) -> float | None:
@@ -229,10 +414,13 @@ def siapkan_konteks(analysis: dict, tiket: str, cfg: dict | None = None) -> dict
 
     Mengembalikan dict {"ok", "alasan", "cdf", "tangga", "delta",
     "anchor", "w", "geser_banjir_terburuk", "banjir_terburuk",
-    "geser_setan", "median", "garis_market"}. "ok" False (bukan raise)
-    bila data artefak tidak lengkap (tanpa CDF / tanpa tangga / tanpa
-    jangkar pasar) — itu keadaan operasional yang sah, bukan bug.
-    Config rusak -> ConfigError (fail-closed, seperti stress.py).
+    "geser_banjir_3p", "geser_banjir_ft", "geser_setan", "median",
+    "garis_market"}. "ok" False (bukan raise) bila data artefak
+    tidak lengkap (tanpa CDF / tanpa tangga / tanpa jangkar pasar)
+    — itu keadaan operasional yang sah, bukan bug. Config rusak ->
+    ConfigError (fail-closed, seperti stress.py). Geser banjir
+    3P/FT terpisah (v18: gate banjir dua ambang); geser terburuk
+    dipertahankan untuk kompatibilitas (skip_awal / vonis).
     """
     if tiket not in _TIKET:
         raise ValueError(f"tiket tidak dikenal: {tiket!r}")
@@ -256,6 +444,8 @@ def siapkan_konteks(analysis: dict, tiket: str, cfg: dict | None = None) -> dict
         "w": None,
         "geser_banjir_terburuk": geser_terburuk,
         "banjir_terburuk": banjir_terburuk,
+        "geser_banjir_3p": geser_3p,
+        "geser_banjir_ft": geser_ft,
         "geser_setan": geser_setan,
         "median": None,
         "garis_market": None,
@@ -353,17 +543,26 @@ def _label_ev(ev_pct: float, cfg: dict) -> str | None:
 def _nilai_garis(
     ktx: dict, entri: dict, tiket: str, ambang: float, cfg: dict
 ) -> dict | None:
-    """Nilai satu garis tangga: peluang + harga + hasil tiap gate.
+    """Nilai satu garis tangga: peluang + harga + hasil tiap gate (v18).
 
     None bila garis tidak punya harga venue yang valid (tidak bisa
     dibeli — tidak dinilai sama sekali). "lolos_semua" True bila
-    semua gate tiket itu lolos.
+    semua gate tiket itu lolos. Gate v18 (lihat docstring modul):
+    Asuransi = peluang + p_market + banjir_3p + banjir_ft + ev +
+    lantai_harga + eksekusi; Utama = peluang + lantai_harga + ev +
+    eksekusi (banjir warning-only, dicatat di "banjir_warning").
+    "edge" tetap dihitung (informatif — dipakai vonis + laporan),
+    tapi BUKAN gate lagi (edge datar 3,5% DIHAPUS v18, diganti EV).
+    "thin" tetap dilaporkan apa adanya, tapi BUKAN gate lagi
+    (diganti gate eksekusi likuiditas + spread — cek_eksekusi).
     """
     garis = float(entri["line"])
     harga = _harga_venue(entri)
     if harga is None or not 0.0 < harga < 100.0:
         return None
     p_model, p_market, p_final = peluang_pada_garis(ktx, garis)
+    p_banjir_3p = stress_mod.p_under_digeser(ktx["cdf"], garis, ktx["geser_banjir_3p"])
+    p_banjir_ft = stress_mod.p_under_digeser(ktx["cdf"], garis, ktx["geser_banjir_ft"])
     p_banjir = stress_mod.p_under_digeser(
         ktx["cdf"], garis, ktx["geser_banjir_terburuk"]
     )
@@ -372,51 +571,138 @@ def _nilai_garis(
     ev_pct = (p_final * (100.0 / harga) - 1.0) * 100.0
     expected_return = p_final * (100.0 / harga)
     label = _label_ev(ev_pct, cfg)
-    thin = entri.get("thin") is True
+    volume = _angka(entri.get("volume_usd"))
+    # Gate eksekusi v18 (revisi koordinator — cek_eksekusi):
+    # likuiditas Gamma >= lantai + spread <= maks + ask nyata.
+    # Volume kumulatif BUKAN lagi bagian gate (lihat docstring modul).
+    hasil_eksekusi = cek_eksekusi(entri, cfg)
+    gate_eksekusi = hasil_eksekusi["lolos"]
+    likuiditas_min = hasil_eksekusi["likuiditas_min_usd"]
+    volume_info = _cfg_angka_atau_default(
+        cfg,
+        ("polymarket_ladder", "min_volume_usd"),
+        _DEFAULT_MIN_VOLUME_INFO_USD,
+    )
+    # Info (bukan blokir): volume lolos gate eksekusi tapi di bawah
+    # ambang lama $100 — garisnya bisa dibeli, tapi pasarnya tipis.
+    info_volume_dibawah_100 = bool(
+        gate_eksekusi and volume is not None and volume < volume_info
+    )
     if tiket == "insurance":
         lantai = _ambang(cfg, "analis", "harga_min_asuransi_cents")
-        edge_min = _ambang(cfg, "tickets", "insurance", "min_edge_pct") / 100.0
+        p_market_min = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", "insurance", "min_p_market"),
+            _DEFAULT_MIN_P_MARKET_INS,
+        )
+        ev_min = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", "insurance", "max_negative_ev_pct"),
+            _DEFAULT_MAX_NEG_EV_INS_PCT,
+        )
+        banjir_3p_min = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", "insurance", "flood_3p_min"),
+            _DEFAULT_FLOOD_3P_MIN,
+        )
+        banjir_ft_min = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", "insurance", "flood_ft_min"),
+            _DEFAULT_FLOOD_FT_MIN,
+        )
+        # Gate p_market: bila p_market tidak ada (MODEL_ONLY, tanpa
+        # jangkar pasar — hanya bila butuh_anchor_pasar false),
+        # gate ini TIDAK dievaluasi (lolos dengan catatan, bukan
+        # fail-closed buta): garis tetap boleh lolos bila p_final +
+        # banjir + EV lolos. "p_market_gate_dievaluasi" mencatatnya.
+        p_market_dievaluasi = p_market is not None
         gate = {
             "peluang": p_final >= ambang,
+            "p_market": (p_market >= p_market_min if p_market_dievaluasi else True),
             "lantai_harga": harga >= lantai,
-            "banjir": p_banjir >= ambang,
-            "volume": not thin,
-            "edge": edge >= edge_min,
-            "label": label != "MAHAL",
+            "banjir_3p": p_banjir_3p >= banjir_3p_min,
+            "banjir_ft": p_banjir_ft >= banjir_ft_min,
+            "ev": ev_pct >= ev_min,
+            "eksekusi": gate_eksekusi,
         }
+        banjir_warning = False
     else:
         lantai = _ambang(cfg, "analis", "harga_min_utama_cents")
+        ev_min = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", "main", "max_negative_ev_pct"),
+            _DEFAULT_MAX_NEG_EV_MAIN_PCT,
+        )
         gate = {
             "peluang": p_final >= ambang,
             "lantai_harga": harga >= lantai,
+            "ev": ev_pct >= ev_min,
+            "eksekusi": gate_eksekusi,
         }
+        p_market_dievaluasi = p_market is not None
+        # Banjir Utama WARNING-ONLY: dicatat (tidak memblokir).
+        # Ambang peringatannya memakai ambang banjir Asuransi
+        # (0,70/0,65) — satu definisi "rapuh banjir" untuk kedua
+        # tiket; komposer memakai flag ini untuk peringatan.
+        banjir_3p_min = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", "insurance", "flood_3p_min"),
+            _DEFAULT_FLOOD_3P_MIN,
+        )
+        banjir_ft_min = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", "insurance", "flood_ft_min"),
+            _DEFAULT_FLOOD_FT_MIN,
+        )
+        banjir_warning = bool(
+            p_banjir_3p < banjir_3p_min or p_banjir_ft < banjir_ft_min
+        )
     return {
         "line": garis,
         "entri": entri,
         "harga_venue_cents": harga,
         "price_cents": _angka(entri.get("price_cents")),
         "jup_estimated_cents": _angka(entri.get("jup_estimated_cents")),
-        "volume_usd": _angka(entri.get("volume_usd")),
+        "volume_usd": volume,
         "thin": entri.get("thin"),
+        "likuiditas_usd": hasil_eksekusi["likuiditas_usd"],
+        "bid_cents": hasil_eksekusi["bid_cents"],
+        "ask_cents": hasil_eksekusi["ask_cents"],
+        "spread_cents": hasil_eksekusi["spread_cents"],
+        "eksekusi_alasan": hasil_eksekusi["alasan"],
         "p_model": p_model,
         "p_market": p_market,
         "p_final": p_final,
         "p_banjir_terburuk": p_banjir,
+        "p_banjir_3p": p_banjir_3p,
+        "p_banjir_ft": p_banjir_ft,
         "p_setan": p_setan,
         "edge": edge,
         "ev_pct": ev_pct,
         "expected_return": expected_return,
         "price_label": label,
+        "p_market_gate_dievaluasi": p_market_dievaluasi,
+        "info_volume_dibawah_100": info_volume_dibawah_100,
+        "banjir_warning": banjir_warning,
+        "likuiditas_min_eksekusi_usd": likuiditas_min,
         "gate": gate,
         "lolos_semua": all(gate.values()),
     }
 
 
-# Urutan diagnosis gate (Asuransi): gate yang pertama kali
-# menghabiskan himpunan kandidat adalah yang "mengikat" — alasan
+# Urutan diagnosis gate v18: gate yang pertama kali menghabiskan
+# himpunan kandidat adalah yang "mengikat" — alasan
 # tidak-ada-equilibrium menamai gate itu + detailnya.
-_URUTAN_GATE_INS = ("peluang", "lantai_harga", "banjir", "volume", "edge", "label")
-_URUTAN_GATE_MAIN = ("peluang", "lantai_harga")
+_URUTAN_GATE_INS = (
+    "peluang",
+    "p_market",
+    "lantai_harga",
+    "banjir_3p",
+    "banjir_ft",
+    "ev",
+    "eksekusi",
+)
+_URUTAN_GATE_MAIN = ("peluang", "lantai_harga", "ev", "eksekusi")
 
 
 def _alasan_tidak_ada(
@@ -427,12 +713,13 @@ def _alasan_tidak_ada(
     cfg: dict,
     analysis: dict,
 ) -> str:
-    """Alasan diagnostik bila tidak ada garis yang lolos semua gate.
+    """Alasan diagnostik bila tidak ada garis yang lolos semua gate (v18).
 
     Menamai gate yang mengikat (yang pertama menghabiskan kandidat
     dalam urutan diagnosis) + detail yang bisa dicek. Token alasan
-    lama dipakai ulang di mana relevan ("tidak_ada_garis_tahan_banjir",
-    "volume tipis", "edge_kecil") supaya jejak audit tetap nyambung.
+    lama dipakai ulang di mana relevan ("tidak_ada_garis_tahan_banjir")
+    supaya jejak audit tetap nyambung. Token v17 "edge_kecil" TIDAK
+    dipakai lagi (gate edge DIHAPUS v18, diganti EV).
     """
     urutan = _URUTAN_GATE_INS if tiket == "insurance" else _URUTAN_GATE_MAIN
     sisa = list(nilai)
@@ -450,67 +737,108 @@ def _alasan_tidak_ada(
     if mengikat is None:
         return pembuka + "."
     detail = ""
-    if mengikat == "banjir":
-        tertahan = max(nilai, key=lambda n: n["p_banjir_terburuk"])
+    if mengikat in ("banjir_3p", "banjir_ft"):
+        kunci_p = "p_banjir_3p" if mengikat == "banjir_3p" else "p_banjir_ft"
+        kunci_ambang = "flood_3p_min" if mengikat == "banjir_3p" else "flood_ft_min"
+        kunci_geser = (
+            "geser_banjir_3p" if mengikat == "banjir_3p" else "geser_banjir_ft"
+        )
+        nama_skenario = "banjir_3p" if mengikat == "banjir_3p" else "banjir_ft"
+        ambang_banjir = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", "insurance", kunci_ambang),
+            (
+                _DEFAULT_FLOOD_3P_MIN
+                if mengikat == "banjir_3p"
+                else _DEFAULT_FLOOD_FT_MIN
+            ),
+        )
+        tertahan = max(nilai, key=lambda n: n[kunci_p])
         detail = (
             f"tidak_ada_garis_tahan_banjir — tidak ada garis tangga yang "
-            f"P(Under) >= {ambang:.0%} di skenario "
-            f"{ktx['banjir_terburuk']} (geser "
-            f"{ktx['geser_banjir_terburuk']:.2f} poin); garis terbaik "
+            f"P(Under) >= {ambang_banjir:.0%} di skenario {nama_skenario} "
+            f"(geser {ktx[kunci_geser]:.2f} poin); garis terbaik "
             f"U{tertahan['line']:g} hanya "
-            f"{tertahan['p_banjir_terburuk'] * 100:.1f}%"
+            f"{tertahan[kunci_p] * 100:.1f}% "
+            f"(P banjir 3P {tertahan['p_banjir_3p'] * 100:.1f}%, "
+            f"P banjir FT {tertahan['p_banjir_ft'] * 100:.1f}%)"
         )
-    elif mengikat == "volume":
-        lolos_banjir = [n for n in nilai if n["gate"]["banjir"]]
-        tahan = min(lolos_banjir, key=lambda n: n["line"]) if lolos_banjir else None
-        kaki_artifak = None
-        for leg in analysis.get("legs") or []:
-            if isinstance(leg, dict) and leg.get("ticket") == tiket:
-                kaki_artifak = leg
-                break
-        teks_awal = ""
-        if kaki_artifak is not None and _angka(kaki_artifak.get("line")) is not None:
-            p_awal = stress_mod.p_under_digeser(
-                ktx["cdf"],
-                float(kaki_artifak["line"]),
-                ktx["geser_banjir_terburuk"],
-            )
-            teks_awal = (
-                f"; P(Under) di skenario {ktx['banjir_terburuk']} "
-                f"{p_awal * 100:.1f}% < {ambang:.0%} di garis awal "
-                f"U{float(kaki_artifak['line']):g}"
-            )
-        if tahan is not None:
+    elif mengikat == "eksekusi":
+        likuiditas_min = likuiditas_min_eksekusi(cfg)
+        spread_max = _cfg_angka_atau_default(
+            cfg, ("execution", "max_spread_cents"), _DEFAULT_MAX_SPREAD_CENTS
+        )
+        # Garis yang lolos semua gate LAIN tapi gagal eksekusi.
+        lolos_lain = [
+            n for n in nilai if all(n["gate"][g] for g in urutan if g != "eksekusi")
+        ]
+        if lolos_lain:
+            # Garis "terbaik" = spread tersempit yang tercatat
+            # (paling dekat lolos); tanpa spread -> garis pertama.
+            def _kunci_eksekusi(n):
+                spread = n.get("spread_cents")
+                return spread if spread is not None else 999.0
+
+            terbaik = min(lolos_lain, key=_kunci_eksekusi)
+            alasan = terbaik.get("eksekusi_alasan") or "tidak_diketahui"
+            if alasan == "likuiditas_di_bawah_minimum":
+                liq = terbaik.get("likuiditas_usd")
+                teks_alasan = (
+                    f"likuiditas ${liq:,.2f} di bawah minimum "
+                    f"${likuiditas_min:,.0f}"
+                )
+            elif alasan == "likuiditas_tidak_tercatat":
+                teks_alasan = "likuiditas tidak tercatat"
+            elif alasan == "tanpa_kuotasi":
+                teks_alasan = "bid/ask tidak tercatat"
+            elif alasan == "tanpa_ask_nyata":
+                teks_alasan = "ask 99¢ (tidak ada ask nyata)"
+            elif alasan == "spread_terlalu_lebar":
+                spread = terbaik.get("spread_cents")
+                teks_alasan = f"spread {spread:g}¢ di atas maksimum {spread_max:g}¢"
+            else:
+                teks_alasan = alasan
             detail = (
-                f"garis tahan-banjir Under {tahan['line']:g} volume tipis "
-                f"— tidak dipakai (aturan thin Asuransi); semua "
-                f"{len(lolos_banjir)} garis yang tahan banjir tipis"
-                f"{teks_awal}"
+                f"eksekusi_tidak_lolos — garis terbaik yang lolos semua gate "
+                f"lain U{terbaik['line']:g} gagal gate eksekusi "
+                f"({teks_alasan}); semua {len(lolos_lain)} "
+                f"garis yang lolos gate lain gagal gate eksekusi"
             )
         else:
-            detail = "semua garis yang tahan banjir volume tipis"
-    elif mengikat == "edge":
-        lolos_volume = [
-            n
-            for n in nilai
-            if n["gate"]["peluang"]
-            and n["gate"]["lantai_harga"]
-            and n["gate"]["banjir"]
-            and n["gate"]["volume"]
+            detail = (
+                f"eksekusi_tidak_lolos — tidak ada garis yang lolos gate "
+                f"eksekusi (likuiditas >= ${likuiditas_min:,.0f} + "
+                f"spread <= {spread_max:g}¢ + ask nyata)"
+            )
+    elif mengikat == "ev":
+        default_ev = (
+            _DEFAULT_MAX_NEG_EV_INS_PCT
+            if tiket == "insurance"
+            else _DEFAULT_MAX_NEG_EV_MAIN_PCT
+        )
+        ev_min = _cfg_angka_atau_default(
+            cfg, ("tickets", tiket, "max_negative_ev_pct"), default_ev
+        )
+        lolos_sebelum = [
+            n for n in nilai if all(n["gate"][g] for g in urutan[: urutan.index("ev")])
         ]
-        terbaik = max(lolos_volume, key=lambda n: n["edge"]) if lolos_volume else None
-        edge_min = _ambang(cfg, "tickets", "insurance", "min_edge_pct")
+        terbaik = (
+            max(lolos_sebelum, key=lambda n: n["ev_pct"]) if lolos_sebelum else None
+        )
         if terbaik is not None:
             detail = (
-                f"edge_kecil — garis terbaik yang lolos banjir + volume "
+                f"ev_di_bawah_minimum — garis terbaik yang lolos gate lain "
                 f"U{terbaik['line']:g} @{terbaik['harga_venue_cents']:g}¢ "
-                f"edge {terbaik['edge'] * 100:+.1f}% di bawah minimum "
-                f"{edge_min:.1f}% (p_final "
-                f"{terbaik['p_final'] * 100:.1f}% − harga "
-                f"{terbaik['harga_venue_cents']:g}¢)"
+                f"EV {terbaik['ev_pct']:+.1f}% di bawah minimum "
+                f"{ev_min:+.1f}% (p_final "
+                f"{terbaik['p_final'] * 100:.1f}% — harga "
+                f"{terbaik['harga_venue_cents']:g}¢ terlalu mahal untuk "
+                f"peluangnya)"
             )
         else:
-            detail = f"edge_kecil — tidak ada garis dengan edge >= {edge_min:.1f}%"
+            detail = (
+                f"ev_di_bawah_minimum — tidak ada garis dengan EV >= {ev_min:+.1f}%"
+            )
     elif mengikat == "peluang":
         terbaik = max(nilai, key=lambda n: n["p_final"])
         detail = (
@@ -518,6 +846,26 @@ def _alasan_tidak_ada(
             f"U{terbaik['line']:g}: p_final "
             f"{terbaik['p_final'] * 100:.1f}%)"
         )
+    elif mengikat == "p_market":
+        p_market_min = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", "insurance", "min_p_market"),
+            _DEFAULT_MIN_P_MARKET_INS,
+        )
+        dengan_pasar = [n for n in nilai if n["p_market"] is not None]
+        if dengan_pasar:
+            terbaik = max(dengan_pasar, key=lambda n: n["p_market"])
+            detail = (
+                f"tidak ada garis dengan p_market >= {p_market_min:.0%} "
+                f"(terbaik U{terbaik['line']:g}: p_market "
+                f"{terbaik['p_market'] * 100:.1f}% — pasar tidak cukup "
+                f"yakin di garis mana pun)"
+            )
+        else:
+            detail = (
+                "p_market tidak tersedia di garis mana pun (tanpa jangkar "
+                "pasar) — gate p_market tidak bisa dievaluasi"
+            )
     elif mengikat == "lantai_harga":
         kunci = (
             "harga_min_asuransi_cents"
@@ -527,11 +875,6 @@ def _alasan_tidak_ada(
         lantai = _ambang(cfg, "analis", kunci)
         detail = (
             f"tidak ada garis yang lolos peluang dengan harga >= lantai " f"{lantai:g}¢"
-        )
-    elif mengikat == "label":
-        detail = (
-            "semua garis yang lolos gate lain berlabel MAHAL (EV < -2%) "
-            "— MAHAL tidak boleh masuk Asuransi"
         )
     return f"{pembuka}; gate yang mengikat: {mengikat} — {detail}."
 
@@ -546,7 +889,7 @@ def nilai_semua_garis(
     None bila konteks tidak bisa disiapkan (tanpa CDF / tangga /
     jangkar pasar — sama seperti ``cari_equilibrium`` mengembalikan
     dihitung=False). Dipakai pengukuran (mis. menghitung garis yang
-    gagal HANYA karena volume) tanpa menduplikasi logika gate.
+    gagal HANYA karena eksekusi) tanpa menduplikasi logika gate.
     Config rusak -> ConfigError. Artefak bukan dict / tiket tidak
     dikenal -> ValueError.
     """
@@ -571,19 +914,29 @@ def nilai_semua_garis(
 def cari_equilibrium(
     analysis: dict, tiket: str, cfg: dict | None = None, ktx: dict | None = None
 ) -> dict:
-    """Cari titik equilibrium satu laga + satu tiket.
+    """Cari titik equilibrium satu laga + satu tiket (v18).
 
     Mengembalikan dict hasil (lihat docstring modul untuk definisi):
     {"dihitung", "ada", "mode", "garis", "harga_venue_cents",
-    "p_model", "p_market", "p_final", "p_banjir_terburuk", "p_setan",
-    "edge", "ev_pct", "expected_return", "thin", "volume_usd",
-    "geser_pasar", "anchor", "n_kandidat_lolos", "n_garis_dinilai",
-    "diagnosis_gate", "alasan_tidak_dihitung", "alasan_tidak_ada"}.
+    "p_model", "p_market", "p_final", "p_banjir_terburuk",
+    "p_banjir_3p", "p_banjir_ft", "p_setan", "edge", "ev_pct",
+    "expected_return", "thin", "volume_usd", "geser_pasar", "anchor",
+    "n_kandidat_lolos", "n_garis_dinilai", "diagnosis_gate",
+    "band_harga", "dalam_band", "fallback_band",
+    "p_market_gate_dievaluasi", "info_volume_dibawah_100",
+    "banjir_warning", "likuiditas_min_eksekusi_usd",
+    "alasan_tidak_dihitung", "alasan_tidak_ada"}.
     ``mode`` adalah mode pemilihan yang dipakai ("max_er" /
-    "safety_first" dari config). ``ktx`` opsional: konteks dari
-    ``siapkan_konteks`` (dipakai pemanggil yang sudah menghitungnya
-    — mis. skip_awal — supaya CDF + tangga tidak dihitung ulang).
-    Config rusak -> ConfigError. Artefak bukan dict -> ValueError.
+    "safety_first" dari config). Pemilihan v18: di antara garis
+    yang lolos SEMUA gate, pilih DALAM band harga tiket itu dulu
+    (Asuransi 80-89¢, Utama 76-84¢); bila tidak ada garis lolos
+    dalam band, fallback ke semua garis lolos ("fallback_band"
+    True). Max-ER memakai tie-break toleransi ER (selisih ER <
+    0,015 -> garis yang lebih aman). ``ktx`` opsional: konteks
+    dari ``siapkan_konteks`` (dipakai pemanggil yang sudah
+    menghitungnya — mis. skip_awal — supaya CDF + tangga tidak
+    dihitung ulang). Config rusak -> ConfigError. Artefak bukan
+    dict -> ValueError.
     """
     if not isinstance(analysis, dict):
         raise ValueError("analysis harus dict")
@@ -613,6 +966,8 @@ def cari_equilibrium(
         "p_final": None,
         "p_banjir_terburuk": None,
         "banjir_terburuk": None,
+        "p_banjir_3p": None,
+        "p_banjir_ft": None,
         "p_setan": None,
         "edge": None,
         "ev_pct": None,
@@ -623,6 +978,13 @@ def cari_equilibrium(
         "n_kandidat_lolos": 0,
         "n_garis_dinilai": 0,
         "diagnosis_gate": {},
+        "band_harga": None,
+        "dalam_band": None,
+        "fallback_band": False,
+        "p_market_gate_dievaluasi": None,
+        "info_volume_dibawah_100": None,
+        "banjir_warning": None,
+        "likuiditas_min_eksekusi_usd": None,
     }
     if ktx is None:
         ktx = siapkan_konteks(analysis, tiket, cfg)
@@ -641,23 +1003,49 @@ def cari_equilibrium(
     }
     lolos = [n for n in nilai if n["lolos_semua"]]
     hasil["n_kandidat_lolos"] = len(lolos)
+    band_bawah, band_atas = _cfg_band(cfg, tiket)
+    hasil["band_harga"] = [band_bawah, band_atas]
+    hasil["likuiditas_min_eksekusi_usd"] = likuiditas_min_eksekusi(cfg)
     if not lolos:
         hasil["alasan_tidak_ada"] = _alasan_tidak_ada(
             ktx, nilai, tiket, ambang, cfg, analysis
         )
         return hasil
+    # BAND HARGA (v18): pilih di antara garis lolos DALAM band dulu;
+    # bila tidak ada garis lolos dalam band, fallback ke semua garis
+    # lolos (dicatat — band adalah preferensi pemilihan, bukan gate:
+    # garis di luar band tetap boleh dipilih bila tidak ada pilihan
+    # lain, supaya satu band yang kosong tidak mematikan tiket).
+    dalam_band = [n for n in lolos if band_bawah <= n["harga_venue_cents"] <= band_atas]
+    fallback_band = not dalam_band
+    kolam = lolos if fallback_band else dalam_band
+    hasil["fallback_band"] = fallback_band
     if mode == "safety_first":
         # p_final tertinggi (paling aman); seri (< 1e-9) -> ER lebih
         # tinggi -> garis lebih kecil.
-        p_maks = max(n["p_final"] for n in lolos)
-        seri = [n for n in lolos if p_maks - n["p_final"] < _EPS_ER]
+        p_maks = max(n["p_final"] for n in kolam)
+        seri = [n for n in kolam if p_maks - n["p_final"] < _EPS_ER]
         er_maks = max(n["expected_return"] for n in seri)
         seri = [n for n in seri if er_maks - n["expected_return"] < _EPS_ER]
         pilihan = min(seri, key=lambda n: n["line"])
     else:
-        # Max-ER; seri (< 1e-9) -> p_final lebih besar -> garis lebih kecil.
-        er_maks = max(n["expected_return"] for n in lolos)
-        seri = [n for n in lolos if er_maks - n["expected_return"] < _EPS_ER]
+        # Max-ER dengan TIE-BREAK v18: bila selisih ER < toleransi
+        # config (0,015), pilih garis yang LEBIH AMAN (p_final lebih
+        # tinggi) — ER yang hampir sama tidak sebanding dengan
+        # risiko kalah yang lebih besar. Seri p_final (< 1e-9) ->
+        # garis lebih kecil.
+        toleransi = _cfg_angka_atau_default(
+            cfg,
+            ("tickets", tiket, "tiebreak_er_tolerance"),
+            _DEFAULT_TIEBREAK_ER,
+        )
+        if toleransi < 0:
+            raise config_mod.ConfigError(
+                "playstyle.yaml tickets."
+                f"{tiket}.tiebreak_er_tolerance harus >= 0: {toleransi}"
+            )
+        er_maks = max(n["expected_return"] for n in kolam)
+        seri = [n for n in kolam if er_maks - n["expected_return"] < toleransi]
         p_maks = max(n["p_final"] for n in seri)
         seri = [n for n in seri if p_maks - n["p_final"] < _EPS_ER]
         pilihan = min(seri, key=lambda n: n["line"])
@@ -678,11 +1066,17 @@ def cari_equilibrium(
             ),
             "p_final": round(pilihan["p_final"], 6),
             "p_banjir_terburuk": round(pilihan["p_banjir_terburuk"], 6),
+            "p_banjir_3p": round(pilihan["p_banjir_3p"], 6),
+            "p_banjir_ft": round(pilihan["p_banjir_ft"], 6),
             "p_setan": round(pilihan["p_setan"], 6),
             "edge": round(pilihan["edge"], 6),
             "ev_pct": round(pilihan["ev_pct"], 4),
             "expected_return": round(pilihan["expected_return"], 6),
             "price_label": pilihan["price_label"],
+            "dalam_band": bool(band_bawah <= pilihan["harga_venue_cents"] <= band_atas),
+            "p_market_gate_dievaluasi": pilihan["p_market_gate_dievaluasi"],
+            "info_volume_dibawah_100": pilihan["info_volume_dibawah_100"],
+            "banjir_warning": pilihan["banjir_warning"],
         }
     )
     return hasil

@@ -1234,20 +1234,26 @@ class TestSkenarioPanas(unittest.TestCase):
         )
         self.assertIn("TIDAK tahan banjir", teks)
         self.assertIn("1 dari 10 laga terpanas", teks)
-        # Flag setan: normal 77,2% >= 74% tapi setan 50,0% < 74%.
-        self.assertIn("FLAG SETAN", teks)
-        self.assertIn("lolos normal (77,2%)", teks)
-        self.assertIn("setan 50,0%", teks)
+        # Flag setan v18: kaki Asuransi TIDAK lagi berflag — normal
+        # 77,2% < target Asuransi v18 82,0% (di v17 targetnya 74%,
+        # jadi berflag). Flag kini di kaki Utama: normal 83,0% >=
+        # target Utama 74,0% tapi setan 50,8% < 74%. ("FLAG SETAN"
+        # muncul 2x di teks: 1 baris flag + 1 penyebutan di catatan
+        # kaki — yang dihitung di sini baris flagnya.)
+        self.assertEqual(teks.count("FLAG SETAN: kaki ini lolos normal"), 1)
+        self.assertIn("lolos normal (83,0%)", teks)
+        self.assertIn("setan 50,8%", teks)
+        self.assertNotIn("lolos normal (77,2%)", teks)
         # Tidak ada garis tahan-setan di tangga fixture (garis tertinggi
         # 241,5 -> CDF(223,43)=58,3% < 74%).
         self.assertIn("Tidak ada garis tahan setan", teks)
         self.assertIn("tidak ada garis tahan-setan", teks)
-        # Deviasi garis tahan vs garis bandar (kaki Utama punya garis
-        # tahan banjir 241,5): 241,5 - 225,5 = 16 poin.
-        self.assertIn(
-            "Garis tahan banjir itu 16 poin di atas garis bandar 225,5.",
-            teks,
-        )
+        # v18: TIDAK ADA garis tahan banjir untuk kedua kaki — target
+        # Utama naik 0,65 -> 0,74, sehingga garis tertinggi 241,5
+        # (P banjir FT 69,6% < 74%) tidak lagi tahan (di v17 garis
+        # itu tahan dengan target 65% — "16 poin di atas bandar").
+        self.assertIn("Tidak ada garis tahan banjir", teks)
+        self.assertNotIn("Garis tahan banjir itu 16 poin", teks)
 
     def test_membaca_stress_tersimpan_bila_ada(self):
         artefak = _artefak()
@@ -1369,26 +1375,31 @@ class TestEquilibriumSkip(unittest.TestCase):
 
     def test_bagian_hadir_dan_skip_pola_denver(self):
         # Fixture _artefak() (tangga terpotong di 241,5, semua garis
-        # alt thin, tanpa garis tahan banjir, edge acuan +2,3%) ->
-        # pola Denver COCOK -> laga DI-SKIP; equilibrium Utama ADA
-        # (U237,5 @76¢), Asuransi tidak ada (banjir mengikat).
+        # alt thin, tanpa garis tahan banjir, edge acuan +1,7%) ->
+        # pola Denver COCOK -> laga DI-SKIP. v18: pemicu (a) ikut
+        # menyala (tidak ada equilibrium di kedua tiket — Asuransi
+        # terikat EV, Utama terikat eksekusi), jadi "Alasan:"
+        # diawali tidak_ada_equilibrium; OT kini EMPIRIS (5,70%,
+        # ambang 8,5%). REVISI KOORDINATOR: token diagnosis
+        # eksekusi kini "eksekusi_tidak_lolos" (bukan
+        # "volume_tidak_cukup") — fixture ini gagal eksekusi karena
+        # bid/ask tidak tercatat di tangganya.
         teks = nba_report_mod.render_nba_report(_artefak())
         self.assertIn("Titik equilibrium dan skip dari awal", teks)
         self.assertIn(
             "Laga ini DI-SKIP dari kedua tiket — tidak masuk Asuransi " "maupun Utama.",
             teks,
         )
-        self.assertIn("Alasan: pola Denver:", teks)
+        self.assertIn("Alasan: tidak ada equilibrium di kedua tiket", teks)
+        self.assertIn("pola Denver:", teks)
         self.assertIn("Tidak ada titik equilibrium Asuransi:", teks)
-        self.assertIn("tidak_ada_garis_tahan_banjir", teks)
+        self.assertIn("ev_di_bawah_minimum", teks)
+        self.assertIn("Tidak ada titik equilibrium Utama:", teks)
+        self.assertIn("eksekusi_tidak_lolos", teks)
+        self.assertIn("bid/ask tidak tercatat", teks)
         self.assertIn(
-            "Titik equilibrium Utama: Under 237,5, harga 76¢, "
-            "peluang akhir 77,7%, nilai harapan 1,02 per $1.",
-            teks,
-        )
-        self.assertIn(
-            "Peluang overtime menurut sim: 2,74% (ambang skip 2,8%) "
-            "— di bawah ambang.",
+            "Peluang overtime menurut data empiris: 5,70% (ambang skip "
+            "8,5%) — di bawah ambang.",
             teks,
         )
         self.assertIn("Pola Denver: COCOK", teks)
@@ -1402,11 +1413,13 @@ class TestEquilibriumSkip(unittest.TestCase):
         self.assertIn("LAGA INI DI-SKIP dari kedua tiket:", ringkasan)
         self.assertIn("pola Denver", ringkasan)
 
-    def test_varian_tidak_di_skip(self):
+    def test_varian_pola_mati_tapi_tetap_skip_tanpa_equilibrium(self):
         # Tangga diperpanjang dengan garis tahan banjir TIDAK tipis
-        # (249,5 @92¢, 251,5 @94¢) -> syarat pola (2) mati -> laga
-        # tidak di-skip; equilibrium Asuransi tetap tidak ada, kini
-        # karena edge (bukan banjir).
+        # (249,5 @92¢, 251,5 @94¢) -> syarat pola (2) mati -> pola
+        # TIDAK cocok. v18: laga TETAP DI-SKIP via (a)
+        # tidak_ada_equilibrium (Asuransi terikat EV, Utama terikat
+        # eksekusi) — pemicu (a) independen dari pola. Di v17 laga
+        # ini tidak di-skip karena equilibrium Utama ada.
         artefak = copy.deepcopy(_artefak())
         artefak["market"]["totals"].extend(
             [
@@ -1415,10 +1428,11 @@ class TestEquilibriumSkip(unittest.TestCase):
             ]
         )
         teks = nba_report_mod.render_nba_report(artefak)
-        self.assertIn("Laga ini tidak di-skip dari awal.", teks)
-        self.assertNotIn("LAGA INI DI-SKIP", teks)
+        self.assertIn("LAGA INI DI-SKIP dari kedua tiket:", teks)
+        self.assertIn("tidak ada equilibrium di kedua tiket", teks)
         self.assertNotIn("Pola Denver: COCOK", teks)
-        self.assertIn("edge_kecil", teks)
+        self.assertIn("Pola Denver: tidak cocok", teks)
+        self.assertIn("ev_di_bawah_minimum", teks)
 
     def test_json_memuat_bagian_equilibrium_skip(self):
         data = nba_report_mod.render_nba_report_json(_artefak())

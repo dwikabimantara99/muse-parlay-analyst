@@ -1083,3 +1083,194 @@ laporan per pekerja: `LAPORAN-VONIS.md`, `LAPORAN-ASURANSI-BARU.md`,
   otomatis; "turunkan target" tidak otomatis di kode (hanya NO
   BET yang otomatis); setan pemain tidak memodelkan lonjakan
   JUMLAH percobaan (hanya akurasi).
+
+## Build v17 selesai + terverifikasi (2026-11-23 13:25 WIB)
+
+Commit c1c641e + 9c8a0c2 (push, remote HEAD cocok, tree bersih),
+config v17, 1806 tes OK + ruff/black bersih (dijalankan main agent),
+0 kredit. Verifikasi independen main agent: ER OKC Utama 1,044805
+✓ (hitung tangan); demon DEN@CHI 274,14 ✓ (+37,64 dari garis bandar
+236,5; 67,3 percobaan × 54,1% × 3 = 109,23 ✓); vonis 0/2/8 + veto
+3 baris dibaca dari out/ukur_vonis.json; EQ Asuransi 0/10 + EQ Utama
+10/10 + gate banjir 1/8 dibaca dari out/ukur_asuransi_baru.json;
+wiring Tahap 5c + skema setan_pemain diperiksa di kode.
+
+- KOREKSI MARA: Aday Mara BENAR pemain OKC (rotasi, 16 laga,
+  1,7 BPG — pelindung ring #2 OKC di map rim protector). Lean
+  "kemungkinan Gemini salah ingat" dari main agent TERLALU KUAT.
+  Klaim "Mara absen di laga OKC@MIA" tetap TIDAK TERVERIFIKASI
+  (tidak ada di laporan cedera resmi + ESPN; data mesin mencatat
+  statusnya 'main' di kedua snapshot).
+- TEMUAN UTAMA: Asuransi TETAP 0/10 setelah semua perbaikan.
+  Volume satu-satunya penghalang cuma 1/10 — melonggarkan $100
+  saja TIDAK membentuk Asuransi. Opsi tersisa (keputusan user,
+  belum diputuskan): terima / turunkan edge 3,5% / longgarkan thin
+  / banjir moderat untuk gate Asuransi.
+- Veto bergantung data cedera SEGAR: DEN live (snapshot 22 Nov sore)
+  tidak kena veto karena Claxton belum OUT saat itu; hanya snapshot
+  pagi 04:58 yang menangkapnya. Implikasi operasional: analyze besok
+  HARUS jalan di data pagi yang segar.
+- Veto memakai logika OR (garis ≥235 ATAU pace ≥102) + memblokir
+  KEDUA tiket — keduanya keputusan desain yang menunggu keberatan
+  user (laporan §9 D1, D8–D9). OKC kena veto dari pace saja padahal
+  kakinya menang (1 false positive vs 1 true positive DEN).
+
+## Audit Gemini v17 + proposal v18 (diterima 2026-11-23 13:47 WIB)
+
+File: REFERENSI-AUDIT-GEMINI-V18.md (disalin ke repo + commit e174069
+berikutnya). Main agent MEMVERIFIKASI matematika Gemini dengan hitungan
+sendiri — SEMUA klaim kunci BENAR:
+- Deadlock Asuransi: garis tahan banjir +24,86 di atas median
+  (t(0,74;35)=0,6498, klaim 0,650 ✓); P_model di sana ~90% ✓.
+  Tiga aturan (P_banjir ≥74% + edge ≥3,5% + lean-to-market >5,0)
+  bersamaan mengunci Asuransi 0/10 — konsisten dengan pengukuran.
+- Flat edge di ekor: keunggulan 3 poin bernilai +6,28% (murni) di
+  50¢, menyusut di ekor; angka Gemini (+1,3/+0,6/+0,3%) konsisten
+  dengan harga ASK (bukan mid) — mekanisme BENAR, ambang edge datar
+  +3,5% praktis tidak bisa dilewati di harga 85¢+.
+- Jendela gap terjepit 4,0–5,0 (1 poin): benar; menghukum kesepakatan
+  dengan pasar bertentangan dengan temuan Brier (model belum terbukti
+  lebih baik dari pasar di total).
+- Anomali kalibrasi OT: kap P(OT) sim di spread 0 = 2,74% PERSIS
+  (densitas t(35) di 0 = 0,3961 / 14,4307); pemicu keras 2,8% di ATAS
+  kap teoretis → hanya mendeteksi noise Monte Carlo (kasus DET@ATL
+  2,89%). OT riil NBA ~5,5–6,0% (strategi clutch Q4 tidak dimodelkan
+  sim). CACAT NYATA — pemicu OT harus dikalibrasi ulang.
+- Klasifikasi slate 23 Nov versi Gemini (tanpa hindsight): HIJAU
+  BOS/OKC/ORL, MENENGAH DAL/IND (TUNGGU_LINEUP), KUNING hanya DEN.
+  Koheren dengan hasil (3 HIJAU menang, 2 MENENGAH menang, 1 KUNING
+  kalah) — penilaian Gemini, bukan data.
+- Proposal v18 (§3): EV ≥ −1% ganti edge datar; banjir 70%/65%;
+  p_final Asuransi 0,82 + p_market 0,80; veto AND (garis ≥232,0 DAN
+  pace ≥100,5) + filter posisi C/PF; HIJAU = 0 veto + ≤1 demerit +
+  ≥1 rem alami; volume pindah ke gate eksekusi berbasis stake (≥2×);
+  demon cap min(50%, %+12pp); timing gate TUNGGU_LINEUP; OT empiris;
+  short-circuit scan jup.ag untuk laga kena veto. Acceptance test 5
+  target di slate uji (§4).
+
+KEPUTUSAN USER YANG DIBUTUHKAN (D12, belum diputuskan):
+1. Target Asuransi min 1,80x (turun dari 2,0x) — Asuransi tidak lagi
+   menutup total stake ($15 → $27 vs $30 dipertaruhkan = −$3 bila
+   Utama hangus). Terima lindung nilai parsial atau tetap 2,0x?
+2. Banjir 70%/65% (turun dari 74%) + edge diganti EV ≥ −1% —
+   pelonggaran gate banjir (dipasangkan dengan p_final 0,82 yang
+   LEBIH tinggi). Setuju?
+3. Utama min p_final 0,74 (naik dari 0,65) — mengetatkan Utama.
+4. Veto AND + ambang 232,0/100,5 — ambang dipasang dari 2 titik data
+   (DEN 236,5/103,22 vs OKC 231,5/102,19); risiko overfitting, baru
+   teruji di 10 baris. Logika AND + filter posisi berprinsip; angkanya
+   butuh validasi ledger.
+CELAH DESAIN (pembangun harus selesaikan + ukur): cara hitung
+probabilitas OT empiris; jumlah penyusutan median ke pasar
+pre-vonbis; demon cap (+12pp/50%) — apakah kaki Denver tetap rapuh?
+
+## Jawaban user atas 4 keputusan v18 (2026-11-23 13:57 WIB)
+
+1. **Target Asuransi TETAP x2** (tolak 1,80x Gemini) — x2 satu-satunya
+   jalan menyelamatkan modal; cari titik paling manis di x2; sebisa
+   mungkin cari laga yang benar-benar pasti menang. must_cover_total_stake
+   TETAP.
+2. **Banjir 70%/65% + EV ≥ −1% DISETUJUI** ("klo itu dari saran gemini
+   yang sudah berpengalam aku setuju") — ganti edge datar 3,5%.
+3. **Utama min p_final 0,74 DISETUJUI** — Utama boleh ketat, yang
+   penting minimal x3 s.d. x5. BUKAN uji ketat-ketatan, tapi mencari
+   kaki paling masuk akal di dalam tiket. Denver dari awal sudah tidak
+   masuk akal tapi tetap dimasukkan — Gemini dan Muse sudah mengakuinya.
+4. **Veto AND + ambang 232,0/100,5: user kurang paham** — main agent
+   menjelaskan dengan kata sederhana + merekomendasikan AND (memperbaiki
+   false positive OKC yang dikeluhkan user) dan melanjutkan build dengan
+   ambang INITIAL + validasi acceptance test; user bisa membatalkan
+   dengan satu kata (balik ke OR adalah perubahan satu baris config).
+   **DISETUJUI EKSPLISIT user 13:59 WIB** ("pake AND yang diusulkan
+   gemini, aku setuju") — veto AND + ambang INITIAL 232,0/100,5 resmi
+   dipakai di v18.
+   Prinsip yang ditegaskan user di #3: mesin mencari kaki yang MASUK
+   AKAL, bukan yang paling ketat — KUNING = tidak masuk akal (seperti
+   Denver), bukan "tidak sempurna".
+
+BUILD v18 DIJALANKAN 13:57 WIB (koordinator): proposal v18 Gemini §3
+penuh dengan penyesuaian keputusan di atas (target Asuransi tetap 2,0;
+flood 70/65; EV ≥ −1%; Utama 0,74; veto AND + filter posisi; demerit
+baru + rem alami; volume ke gate eksekusi berbasis stake; demon cap;
+timing gate; OT empiris; short-circuit; tampilan 3 lapis) + 5 acceptance
+test Gemini §4 di slate uji 10 baris.
+
+## Implementasi v18 — catatan koordinator (2026-11-23 sore WIB)
+
+Config v18, 2003 tes (dari 1806 di v17). Acceptance test Gemini §4
+di slate uji 10 baris (scripts/ukur_v18.py -> out/ukur_v18.json):
+**2/5 LITERAL** (T3 false positive 0/5 + T4 IND TUNGGU_LINEUP LOLOS;
+T1 + T5 lolos di bawah rumusan ulang koordinator, lihat di bawah;
+T2 GAGAL — Tiket Asuransi tidak terbentuk, pengali maks x1,36).
+Laporan lengkap: LAPORAN-V18.md. Laporan worker: LAPORAN-VONIS-V18.md
+(verdict/veto/OT/timing gate), LAPORAN-GATE-V18.md (equilibrium/
+komposer/Vegas/laporan), LAPORAN-DEMON-V18.md (demon cap/
+short-circuit/acceptance script).
+
+Keputusan koordinator selama build (menunggu keberatan user/reviewer):
+1. **Gate eksekusi = likuiditas + spread, BUKAN volume kumulatif.**
+   Volume kumulatif (volume_usd) adalah riwayat, bukan keterbelian
+   saat ini: garis DET U239,5 (bid 79/ask 82, likuiditas $36.580)
+   gagal gate volume $30 karena volume kumulatifnya $5 — padahal
+   order $15 di ask terisi melawan kuotasi market-maker. Gate baru:
+   likuiditas Gamma >= max(2x stake, $25) = $30 DAN spread bid/ask
+   <= 5,0 sen DAN ask nyata (< 99 sen); data hilang = gagal
+   (fail-closed). Volume kumulatif tetap dilaporkan (flag thin +
+   info L3), bukan gate. max_spread 5,0 sen adalah INITIAL dari
+   distribusi artefak 22 Nov (kuotasi hidup 1-3 sen, kuotasi mati
+   >= 7 sen) — rencana kalibrasi: laporan fill nyata user di jup.ag.
+   Dampak terukur: equilibrium Asuransi 3/10 -> 10/10.
+2. **T1 fungsional:** tunggu_lineup DIHITUNG sebagai "terblokir"
+   (DEN tidak masuk tiket mana pun di kedua baris: verif KUNING
+   via veto, live TUNGGU_LINEUP). Kriteria literal tetap dicatat.
+3. **T5 dirumuskan ulang:** target literal Gemini (laga kena veto
+   melompati scan jup.ag) TIDAK BERLAKU di arsitektur ini — scan
+   jup.ag slate-level (~3,5 mnt/slate), bukan per laga. Yang
+   terukur: penghematan 6,85 dtk/laga kena veto (Tahap 3+5+5b+5c).
+4. **Sisa HIJAU mengalir ke Utama:** alokasi lama membuang kandidat
+   Utama laga HIJAU sehingga Utama 0 kandidat di slate uji (MENENGAH
+   0). "DULU" dalam keputusan user 12:20 WIB dibaca sebagai
+   prioritas pilih, bukan kepemilikan eksklusif — Asuransi memilih
+   dulu di tingkat subset, laga HIJAU yang tidak terpakai mengalir
+   ke Utama; tanpa-kaki-kembar tetap ditegakkan di tingkat subset.
+   Dampak di slate uji: Utama 0 kandidat -> 3 kaki (pengali maks
+   x1,85, tetap di bawah x3 — temuan T2 tidak berubah).
+5. **Penempatan Vegas (CDF efektif kanonis):** simulation.markets +
+   score_distribution.total di artefak adalah nilai EFEKTIF
+   (disesuaikan Vegas); salinan mentah di markets_mentah +
+   total_mentah; blok root "vegas" mencatat keputusan. Vonis,
+   equilibrium, skip, komposer membaca nilai efektif tanpa
+   perubahan hilir.
+6. **Tidak ada status VETO:** laga kena veto memakai DATA_INCOMPLETE
+   + blok root veto + vonis KUNING. Tidak ada jalur kode yang memakai
+   status VETO.
+7. **D7 (worker A):** jalur USG timing gate mensyaratkan mp >= 10,0
+   + BPM >= 0,0 (menolak pemain pinggiran RayJ Dennis/Felix Okpara).
+   Tanpa kualifikasi ini 6/10 baris ditahan, dengan ini 4/10.
+8. **_sebab_cedera_baru (worker C):** OUT terkonfirmasi + BPM >= 2,0.
+   Kelemahan: pemain out sepanjang musim (Haliburton) ikut terhitung;
+   kesegaran tidak terbukti dari satu snapshot.
+9. **Peta rim protector 21/30 tim** (9 belum terpetakan: ATL, DET,
+   GSW, HOU, IND, LAC, NYK, ORL, PHX — veto tidak bisa mengevaluasi
+   tim-tim itu). stats.nba.com TIDAK punya kolom POSISI — posisi
+   dari BBRef. 3 dari 10 laga slate 24 Nov melibatkan tim belum
+   terpetakan (OKC@IND, PHX@NOP, LAC@HOU).
+10. **Hard-skip OT DORMAN:** p_ot maks 0,0575 < ambang 0,085 — gate
+    keras OT tidak pernah menyala di v18. Base rate 0,0575 adalah
+    PRIOR yang didokumentasikan, bukan fit (tidak ada flag OT di
+    2.701 laga data fit).
+
+Temuan acceptance test yang TIDAK diperbaiki dengan melonggarkan
+ambang (untuk iterasi dengan user/Gemini):
+- T2 GAGAL karena JUMLAH KAKI, bukan ambang: 5 baris HIJAU+EQ
+  (4 laga berbeda) -> ORL di-skip pola Denver -> 3 kaki Asuransi
+  @~88c = x1,36 < x2. Utama: 3 sisa HIJAU = x1,85 < x3.
+- Pola Denver men-skip 4/7 laga live (OKC, ORL, DEN, IND) — 3 di
+  antaranya (OKC, ORL, IND) MENANG di garis EQ. Syarat (2) "tidak
+  ada garis tahan-banjir non-thin" + syarat (4) "edge < 3,5%"
+  hampir selalu benar di garis mahal — pola efektif menyala pada
+  flag setan + acuan thin saja. Konversi syarat (4) ke EV adalah
+  tindak lanjut yang didokumentasikan.
+- Artefak 22 Nov mendahului Vegas/FTr — acceptance mengukur gate
+  v18 di atas artefak era v17; demerit foul belum teruji di data
+  nyata.

@@ -467,6 +467,50 @@ def parse_team_advanced(data: dict) -> list[dict]:
     return teams
 
 
+def parse_team_base(data: dict) -> list[dict]:
+    """Ubah respons JSON leaguedashteamstats (Base) jadi list tim.
+
+    Setiap tim: team (nama lengkap), tricode (dari TEAM_TRICODES),
+    fga_per_game (FGA), fta_per_game (FTA), fg3a_per_game (FG3A),
+    ftr (FTA/FGA — Free Throw Rate, pecahan), tiga_pa_rate
+    (FG3A/FGA — 3-Point Attempt Rate, pecahan). Rasio dihitung dari
+    angka per laga (sama dengan rasio total musim karena pembaginya
+    sama); FGA 0/hilang -> rasio None (bukan 0 — 0 berarti tidak ada
+    lemparan bebas sama sekali, klaim yang jauh lebih kuat).
+    MeasureType=Advanced TIDAK mengembalikan FGA/FTA/FG3A — karena
+    itu vonis v18 (FTr p80, 3PAr Top-10) butuh tarikan Base terpisah.
+    ValueError("stats_nba_format_changed") bila resultSet
+    LeagueDashTeamStats tidak ada.
+    """
+    sets = _result_sets(data)
+    if "LeagueDashTeamStats" not in sets:
+        raise ValueError("stats_nba_format_changed")
+    teams = []
+    for row in _rows(sets["LeagueDashTeamStats"]):
+        fga = _to_float(row.get("FGA"))
+        fta = _to_float(row.get("FTA"))
+        fg3a = _to_float(row.get("FG3A"))
+        ftr = None
+        tiga_pa_rate = None
+        if fga is not None and fga > 0:
+            if fta is not None:
+                ftr = fta / fga
+            if fg3a is not None:
+                tiga_pa_rate = fg3a / fga
+        teams.append(
+            {
+                "team": row.get("TEAM_NAME"),
+                "tricode": TEAM_TRICODES.get(row.get("TEAM_ID")),
+                "fga_per_game": fga,
+                "fta_per_game": fta,
+                "fg3a_per_game": fg3a,
+                "ftr": ftr,
+                "tiga_pa_rate": tiga_pa_rate,
+            }
+        )
+    return teams
+
+
 def _valid_season(season: str) -> bool:
     """Apakah musim berformat "YYYY-YY" (misal "2026-27")?"""
     return isinstance(season, str) and bool(_SEASON_RE.match(season))
@@ -589,6 +633,58 @@ def fetch_team_advanced_stats(
         "last_n_games": last_n_games,
         "n_teams": len(teams),
     }
+    unknown = [row["team"] for row in teams if row["tricode"] is None]
+    if unknown:
+        extra["teams_tanpa_tricode"] = unknown
+    return FetchResult(SOURCE, TIER, fetched_at, True, data=teams, extra=extra)
+
+
+def fetch_team_base_stats(season: str, client: HttpClient | None = None) -> FetchResult:
+    """Ambil statistik dasar tim NBA (leaguedashteamstats Base).
+
+    season: "YYYY-YY" (musim berjalan 2026-27). Seluruh musim saja
+    (LastNGames=0 — FTr/3PAr dipakai sebagai profil musim tim, bukan
+    form 10 laga). data: list statistik tim (lihat parse_team_base:
+    FGA/FTA/FG3A per laga + ftr + tiga_pa_rate). Parameter URL
+    mengikuti fetch_team_advanced_stats, hanya MeasureType=Base.
+    Fetch gagal -> ok=False dengan error (tidak melempar).
+    """
+    fetched_at = now_iso()
+    if not _valid_season(season):
+        return FetchResult(
+            SOURCE, TIER, fetched_at, False, error=f"musim_tidak_valid: {season!r}"
+        )
+    url = (
+        f"{TEAM_ADVANCED_URL}?LeagueID=00&Season={season}"
+        "&SeasonType=Regular%20Season&MeasureType=Base"
+        "&PerMode=PerGame&PlusMinus=N&PaceAdjust=N&Rank=N&Outcome="
+        "&Location=&Month=0&SeasonSegment=&DateFrom=&DateTo="
+        "&OpponentTeamID=0&VsConference=&VsDivision=&TeamID=0"
+        "&Conference=&Division=&GameSegment=&Period=0&ShotClockRange="
+        "&LastNGames=0"
+    )
+    resp = (client or _default_client()).get(url)
+    if resp.get("status") != 200:
+        return FetchResult(
+            SOURCE,
+            TIER,
+            fetched_at,
+            False,
+            error=(
+                f"http_{resp.get('status')}: "
+                f"{resp.get('error') or 'leaguedashteamstats gagal'}"
+            ),
+        )
+    data = parse_json_body(resp)
+    if not isinstance(data, dict):
+        return FetchResult(
+            SOURCE, TIER, fetched_at, False, error="stats_nba_format_changed"
+        )
+    try:
+        teams = parse_team_base(data)
+    except ValueError as exc:
+        return FetchResult(SOURCE, TIER, fetched_at, False, error=str(exc))
+    extra: dict = {"season": season, "n_teams": len(teams)}
     unknown = [row["team"] for row in teams if row["tricode"] is None]
     if unknown:
         extra["teams_tanpa_tricode"] = unknown

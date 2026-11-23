@@ -30,10 +30,15 @@ class TestPlaystyle(unittest.TestCase):
         # 2,5–3,0 (filosofi lama yang menuntut di atas x2,5).
         self.assertEqual(ins["multiplier_min"], 2.0)
         self.assertEqual(ins["multiplier_max"], 2.5)
-        self.assertEqual(ins["min_leg_prob"], 0.74)
-        # Gate edge minimum Asuransi (insiden DEN 2026-11-23):
-        # NILAI PROPOSAL (pola D12) — menunggu persetujuan user.
-        self.assertEqual(ins["min_edge_pct"], 3.5)
+        # v18 (keputusan user #2/#3, 2026-11-23 13:57 WIB): peluang
+        # naik ke 0,82; edge datar 3,5% DIHAPUS — diganti EV >= -1%
+        # + banjir 3P/FT terpisah 70%/65% + p_market >= 0,80.
+        self.assertEqual(ins["min_leg_prob"], 0.82)
+        self.assertNotIn("min_edge_pct", ins)
+        self.assertEqual(ins["max_negative_ev_pct"], -1.0)
+        self.assertEqual(ins["min_p_market"], 0.80)
+        self.assertEqual(ins["flood_3p_min"], 0.70)
+        self.assertEqual(ins["flood_ft_min"], 0.65)
         self.assertTrue(ins["must_cover_total_stake"])
 
     def test_tiket_utama(self):
@@ -47,7 +52,10 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(main["target_multiplier_max"], 3.5)
         # Kriteria "yakin" Tahap 4 (USULAN): ambang p_final per kaki.
         self.assertEqual(main["yakin_min_leg_prob"], 0.75)
-        self.assertEqual(main["min_leg_prob"], 0.65)
+        # v18 (keputusan user #3, 2026-11-23 13:57 WIB): min p_final
+        # naik dari 0,65 ke 0,74; EV >= -2% (tolak bila sangat MAHAL).
+        self.assertEqual(main["min_leg_prob"], 0.74)
+        self.assertEqual(main["max_negative_ev_pct"], -2.0)
 
     def test_mode_default_standard(self):
         self.assertEqual(self.cfg["tickets"]["mode"], "standard")
@@ -248,15 +256,15 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_17(self):
-        # Versi 17: vonis per laga + veto rim protector + tanpa kaki
-        # kembar + equilibrium Asuransi safety-first + setan per
-        # pemain + koreksi banjir ke data bersih (keputusan user
-        # 2026-11-23 12:20/12:33/12:38 WIB) — di atas versi 16
-        # (penyempurnaan mesin: equilibrium, skip dari awal, news,
-        # ekor 3P, OT di seleksi).
+    def test_meta_versi_18(self):
+        # Versi 18: gate Asuransi/Utama v18 (EV ganti edge, banjir
+        # 70/65, p_final 0,82/0,74) + vonis baru + veto AND +
+        # volume jadi gate eksekusi + setan per pemain cap +
+        # timing gate TUNGGU_LINEUP + OT empiris + Vegas sanity
+        # check + short-circuit + laporan 3 lapis (audit Gemini
+        # v17 + keputusan user 2026-11-23 13:57/13:59 WIB).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 17)
+        self.assertEqual(meta["version"], 18)
         self.assertEqual(meta["last_reviewed"], "2026-11-23")
 
     def test_analis_section(self):
@@ -308,11 +316,17 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(skip["pola_denver"]["edge_kecil_pct"], 3.5)
 
     def test_ot_seleksi_section(self):
-        # Section ot_seleksi (build penyempurnaan 2026-11-23): ambang
-        # skip OT 0,028 — INITIAL (≈ plafon teoretis peluang seri
-        # laga imbang 0,0277), rencana kalibrasi di komentar yaml.
+        # Section ot_seleksi v18 (audit Gemini §1.4): pemicu keras
+        # v17 (skip_ot_prob 0,028 atas ot_probability SIM) DIHAPUS
+        # — cacat (di atas kap teoretis sim 2,74%, hanya noise).
+        # Diganti OT empiris: laju dasar 0,0575 (PRIOR yang
+        # didokumentasikan, bukan fit) + hard-skip 0,085 (INITIAL,
+        # DORMAN — di atas p_ot maksimum rumus saat ini).
         ot = self.cfg["ot_seleksi"]
-        self.assertEqual(ot["skip_ot_prob"], 0.028)
+        self.assertNotIn("skip_ot_prob", ot)
+        self.assertEqual(ot["mode"], "empiris")
+        self.assertEqual(ot["base_rate_ot"], 0.0575)
+        self.assertEqual(ot["hard_skip_ot_prob"], 0.085)
 
     def test_soccer_section(self):
         # Wiring otak bola (Langkah 5): section soccer + jendela hasil.
@@ -363,9 +377,12 @@ class TestPlaystyle(unittest.TestCase):
 
     def test_market_line_check_nilai_awal(self):
         # NILAI AWAL, BELUM DIKALIBRASI — lihat komentar di yaml.
+        # v18: total_gap_points DIPINDAHKAN ke
+        # calibration.lean_to_market_gap (satu sumber kebenaran).
         mlc = self.cfg["market_line_check"]
-        self.assertEqual(mlc["total_gap_points"], 5.0)
+        self.assertNotIn("total_gap_points", mlc)
         self.assertEqual(mlc["min_model_under_prob"], 0.70)
+        self.assertEqual(self.cfg["calibration"]["lean_to_market_gap"], 5.0)
 
     def test_polymarket_ladder_min_volume(self):
         # HEURISTIK AWAL — lihat komentar di yaml.

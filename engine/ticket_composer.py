@@ -19,6 +19,7 @@ Masukan:
 Keluaran: ``{"insurance": tiket|None, "insurance_reason": str|None,
 "main": tiket|None, "main_reason": str|None, "warnings": [...],
 "skipped_matches": [{"match_id", "pemicu", "alasan"}],
+"menunggu_lineup": [{"match_id", "bintang", "alasan"}],
 "summary": "..."}``. Tiket valid terhadap ``schemas/ticket.schema.json``
 (divalidasi di sini; tiket yang gagal validasi menjadi None + alasan).
 ``summary`` ringkasan Bahasa Indonesia sehari-hari.
@@ -43,13 +44,18 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   (+5 poin) untuk tiket mana pun. Penegakan memakai FLAG kaki, bukan
   format artefaknya — kaki TANPA_XG tidak pernah masuk Asuransi
   sekalipun artefaknya salah memberi tiket "insurance".
-- Aturan condong-ke-market (keputusan user 20:36 WIB 2026-11-22): bila
-  |median model - garis market| > ``market_line_check.total_gap_points``
-  dan tidak ada alasan konkret ("Kenapa beda?"), probabilitas kaki
-  Asuransi memakai harga market; harga market < ambang Asuransi (0,74)
-  berarti kaki tidak lolos Asuransi. Bila ada recheck, putusan recheck
-  yang dipakai (recheck sudah menerapkan aturan ini). Bila belum ada
-  recheck, peracik menerapkannya sendiri dari artefak analisis.
+- Aturan condong-ke-market (keputusan user 20:36 WIB 2026-11-22;
+  ambang v18 dibaca dari ``calibration.lean_to_market_gap`` 5,0 —
+  kunci lama ``market_line_check.total_gap_points`` DIHAPUS di
+  config v18): bila |median model - garis market| > ambang dan
+  tidak ada alasan konkret ("Kenapa beda?"), probabilitas kaki
+  Asuransi memakai harga market; harga market < ambang Asuransi
+  berarti kaki tidak lolos Asuransi. Bila ada recheck, putusan
+  recheck yang dipakai (recheck sudah menerapkan aturan ini). Bila
+  belum ada recheck, peracik menerapkannya sendiri dari artefak
+  analisis. (Di v18, engine/vegas.py juga menyusutkan median ke
+  arah pasar SEBELUM vonis — pertahanan berlapis, bukan pengganti:
+  peracik tetap menegakkan aturan ini pada kaki fallback.)
 - Hanya kaki TETAP_OK yang masuk tiket; PERHATIAN masuk hanya bila
   alasannya tercatat, dan ditandai di kaki (flag) + ringkasan.
 - MAHAL tidak masuk Asuransi; boleh masuk Utama dengan label MAHAL.
@@ -58,34 +64,69 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   (fondasi harga & pengali, keputusan user 2026-11-23). Bila
   target tidak tercapai dengan kaki yang lolos, tiket menjadi None +
   alasan jujur — kaki yang tidak lolos TIDAK PERNAH dipaksakan masuk.
-- Gate edge minimum Asuransi (insiden DEN@CHI 2026-11-23): kaki
-  Asuransi dengan edge (p_final − harga venue/100 — definisi edge
-  yang sama dengan yang dipakai ``_rakit_tiket``) di bawah
-  ``tickets.insurance.min_edge_pct`` DITOLAK dari Asuransi (hard
-  gate, seperti thin), alasan tercatat ("edge_kecil" + nilainya).
-  Utama TIDAK kena gate ini. Nilai ambang adalah PROPOSAL (pola
-  D12) — menunggu persetujuan user; lihat komentar di config.
-- Gate skenario banjir Asuransi (insiden DEN@CHI 2026-11-23,
-  keputusan user R1 + koreksi 09:52 WIB): kaki Asuransi (NBA
-  total_under) lolos hanya bila P(Under) di skenario banjir
-  TERBURUK (worst of banjir_3p/banjir_ft p90, engine/stress.py)
-  >= ``tickets.insurance.min_leg_prob`` (0,74). Skenario dibaca
-  dari ``tickets.insurance.stress_gate_scenario``
-  ("banjir_terburuk"; "setan" didukung kode tapi BUKAN kriteria
-  produksi — setan hanya deteksi kerapuhan). Garis yang gagal
-  NAIK ke garis tahan skenario itu dari tangga (climb tercatat,
-  alasan "banjir"); bila tidak ada garis tangga yang tahan, laga
-  di-SKIP untuk Asuransi (alasan "tidak_ada_garis_tahan_banjir").
-  Garis tahan yang thin TIDAK dipakai (aturan thin Asuransi yang
-  sudah ada: thin = hard gate) -> SKIP — keputusan ini menunggu
-  keberatan user/reviewer. Skenario yang tidak bisa dihitung (CDF
-  tidak ada dsb.) -> kaki ditolak (fail-closed), bukan lolos
-  diam-diam. Utama TIDAK kena gate ini. Kaki yang naik garis
-  memakai p_final/EV garis lama (konservatif: peluang sebenarnya
-  di garis baru lebih tinggi; peracik tidak menghitung ulang
-  blend di garis baru — menunggu keputusan reviewer). Kaki bola
-  dan total_over tidak kena gate ini (tidak ada model stress
-  untuk keduanya).
+- Gate EV Asuransi + Utama (v18, MENGGANTIKAN gate edge minimum
+  Asuransi 3,5% — keputusan user 2026-11-23 13:57 WIB atas
+  proposal audit Gemini v18 §1.2: edge datar mustahil di ekor
+  85-94¢): kaki Asuransi dengan EV < tickets.insurance.
+  max_negative_ev_pct (-1%) DITOLAK dari Asuransi; kaki Utama
+  dengan EV < tickets.main.max_negative_ev_pct (-2%) DITOLAK dari
+  Utama. EV = p_final x (100/harga) - 1 (dari p_final kaki,
+  definisi yang sama dengan ``_rakit_tiket``). Kunci v17
+  tickets.insurance.min_edge_pct DIHAPUS — tidak ada lagi
+  pembacanya di repo ini.
+- Gate banjir Asuransi v18 (DUA ambang terpisah, menggantikan
+  skenario tunggal banjir_terburuk >= 0,74): kaki Asuransi (NBA
+  total_under) lolos hanya bila P(Under) di banjir 3P >=
+  tickets.insurance.flood_3p_min (0,70) DAN di banjir FT >=
+  tickets.insurance.flood_ft_min (0,65), keduanya dari CDF yang
+  digeser (engine/stress.py, seperti sebelumnya). Garis yang gagal
+  NAIK ke garis tahan terendah yang lolos KEDUA ambang + gate
+  eksekusi (climb tercatat, alasan "banjir"); bila tidak ada garis
+  tangga yang tahan, laga di-SKIP untuk Asuransi (alasan
+  "tidak_ada_garis_tahan_banjir"). Skenario yang tidak bisa
+  dihitung (CDF tidak ada dsb.) -> kaki ditolak (fail-closed),
+  bukan lolos diam-diam. Utama TIDAK kena gate banjir (warning
+  saja: P banjir kaki equilibrium dicatat + diperingatkan bila
+  rapuh). Kaki yang naik garis memakai p_final/EV garis lama
+  (konservatif: peluang sebenarnya di garis baru lebih tinggi;
+  peracik tidak menghitung ulang blend di garis baru — menunggu
+  keputusan reviewer). Kaki bola dan total_over tidak kena gate
+  ini (tidak ada model stress untuk keduanya).
+- Gate p_market Asuransi (v18): kaki Asuransi dengan p_market <
+  tickets.insurance.min_p_market (0,80) DITOLAK (tidak boleh
+  bertaruh ekstrem melawan pasar). Utama tidak kena gate ini.
+- Gate eksekusi likuiditas + spread (v18, MENGGANTIKAN thin $100
+  sebagai penghalang keras; revisi koordinator — gate volume_usd
+  worker B diganti, lihat engine/equilibrium.cek_eksekusi): kaki
+  NBA lolos hanya bila bukti eksekusinya lolos cek_eksekusi —
+  likuiditas Gamma >= max(2 x stake_default, $25) = $30 (config
+  execution; rumus engine/equilibrium.likuiditas_min_eksekusi)
+  DAN spread bid/ask <= execution.max_spread_cents (5,0¢) DAN ask
+  nyata (< 99¢). Bukti dibaca dari field kaki (liquidity_usd /
+  bid_cents / ask_cents, disalin builder dari tangga) atau — bila
+  kaki artefak lama tidak membawanya — dari entri tangga di garis
+  kaki. Data tidak tercatat -> TIDAK lolos (fail-closed) + dicatat.
+  Volume kumulatif < $100 dicatat sebagai info (bukan blokir):
+  flag VOLUME_TIPIS + peringatan dipertahankan sebagai INFO di
+  kedua tiket. Kaki BOLA tidak kena gate ini (kaki bola tidak
+  membawa data volume — fail-closed di sana akan mematikan semua
+  kaki bola; keputusan ini menunggu keberatan).
+- TUNGGU_LINEUP (v18, timing gate Gemini §2 Q8): laga berstatus
+  "tunggu_lineup" (atau bervonis "tunggu_lineup" dari
+  engine/vonis.py — bintang Questionable) DIKELUARKAN dari
+  kandidat final + dicatat terpisah di hasil["menunggu_lineup"]
+  (match_id + bintang + alasan) — bukan KUNING, bukan kandidat.
+- VETO PARSIAL +3 (v18, Gemini §2 Q3): bila evaluasi veto
+  mencatat peringatan_parsial (hanya satu kondisi veto menyala —
+  rim protector OUT + garis tinggi ATAU pace tinggi, bukan
+  keduanya), kaki laga itu wajib +3 poin tambahan bantalan:
+  garis yang dipilih (equilibrium atau kaki artefak) harus >=
+  garis_acuan_normal (garis kaki artefak sebelum equilibrium)
+  + 3,0. Bila tidak ada garis yang memenuhi, kaki dicoret dengan
+  alasan tercatat. Tambahan 3,0 dibaca dari
+  vonis.veto_parsial_bantalan_points (default 3,0 bila kunci
+  belum ada di config — kunci ini belum ditulis worker A;
+  lihat LAPORAN-GATE-V18.md).
 - Titik equilibrium per kaki (keputusan user 2026-11-23 10:31 +
   10:41 WIB; engine/equilibrium.py): garis kaki NBA total_under
   DIPILIH ULANG dari tangga + CDF sim — garis yang dipilih MODE
@@ -125,9 +166,11 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   lapis kedua. Kaki BOLA tidak kena lantai harga (harga moneyline bola
   bukan proksi bantalan; pengecualian ini menunggu keberatan
   user/reviewer).
-- Volume tipis = PENGHALANG KERAS Asuransi: kaki dengan thin=True
-  dicoret dari Asuransi. Untuk Utama, kaki tipis BOLEH masuk tapi
-  ditandai flag VOLUME_TIPIS + peringatan di warnings[] + ringkasan.
+- Volume tipis (v18): BUKAN lagi penghalang keras — gate eksekusi
+  ($30, di atas) yang menentukan bisa-tidaknya garis dibeli.
+  Kaki dengan thin=True yang lolos gate eksekusi BOLEH masuk
+  kedua tiket, ditandai flag VOLUME_TIPIS + peringatan di
+  warnings[] + ringkasan (INFO, bukan blokir).
 - Kriteria "yakin" Utama di atas target lunak (USULAN — menunggu
   keberatan user/reviewer): pengali Utama boleh melewati target lunak
   (≤ 3,5) sampai maks 5,0 HANYA bila SEMUA kaki p_final ≥ ambang yakin
@@ -220,11 +263,24 @@ _EPS = 1e-9
 _DEFAULT_HARGA_MIN_CENTS = 75.0
 _DEFAULT_YAKIN_MIN_LEG_PROB = 0.75
 
-# Default gate edge minimum Asuransi (persen) — NILAI PROPOSAL yang
-# sama dengan tickets.insurance.min_edge_pct di config (insiden DEN
-# 2026-11-23; lihat komentar config). Dipakai hanya bila kuncinya
-# belum ada di config (sumber "default" dicatat di ringkasan).
-_DEFAULT_MIN_EDGE_INS_PCT = 3.5
+# Default kunci v18 (dipakai HANYA bila kunci belum ada di cfg dict —
+# pola yang sama dengan lantai harga / ambang yakin di atas; sumber
+# "default" dicatat di ringkasan). Nilai-nilai ini BUKAN tebakan:
+# SAMA PERSIS dengan config v18 yang ditulis worker A (keputusan
+# user 2026-11-23 13:57 WIB + proposal audit Gemini v18 §3).
+_DEFAULT_MAX_NEG_EV_INS_PCT = -1.0
+_DEFAULT_MAX_NEG_EV_MAIN_PCT = -2.0
+_DEFAULT_FLOOD_3P_MIN = 0.70
+_DEFAULT_FLOOD_FT_MIN = 0.65
+_DEFAULT_MIN_P_MARKET_INS = 0.80
+_DEFAULT_LEAN_GAP_POINTS = 5.0
+_DEFAULT_TIEBREAK_ER = 0.015
+# Tambahan bantalan veto parsial (Gemini §2 Q3: hanya satu kondisi
+# veto menyala -> wajib +3 poin). Kunci config
+# vonis.veto_parsial_bantalan_points BELUM ditulis worker A saat
+# modul ini ditulis — default 3,0 dipakai sampai kuncinya ada
+# (lihat LAPORAN-GATE-V18.md).
+_DEFAULT_BANTALAN_VETO_PARSIAL = 3.0
 
 # Kunci wajib minimal tiket (dipakai bila jsonschema tidak tersedia).
 _KUNCI_WAJIB_TIKET = ("ticket_id", "type", "stake", "multiplier", "legs")
@@ -333,83 +389,95 @@ def _ambang_yakin(cfg: dict) -> tuple[float, str]:
     )
 
 
-def _ambang_edge_asuransi(cfg: dict) -> tuple[float, str]:
-    """Edge minimum kaki Asuransi (desimal) + sumbernya ("config"/"default").
+def _ambang_ev(cfg: dict, tiket: str) -> tuple[float, str]:
+    """EV minimum satu tiket (persen) + sumbernya ("config"/"default").
 
-    Dibaca dari ``tickets.insurance.min_edge_pct`` (persen; 3,5 berarti
-    edge minimum +3,5 poin). Kunci hilang -> nilai proposal default
-    (pola yang sama dengan lantai harga / ambang yakin).
+    Dibaca dari ``tickets.<tiket>.max_negative_ev_pct`` (v18,
+    MENGGANTIKAN gate edge Asuransi): Asuransi -1,0%, Utama -2,0%.
+    Kunci hilang -> default v18 (pola yang sama dengan lantai
+    harga / ambang yakin).
     """
-    nilai_pct, sumber = _angka_config_atau_default(
+    default = (
+        _DEFAULT_MAX_NEG_EV_INS_PCT
+        if tiket == "insurance"
+        else _DEFAULT_MAX_NEG_EV_MAIN_PCT
+    )
+    return _angka_config_atau_default(
         cfg,
-        ("tickets", "insurance", "min_edge_pct"),
-        _DEFAULT_MIN_EDGE_INS_PCT,
-        0.0,
+        ("tickets", tiket, "max_negative_ev_pct"),
+        default,
+        -100.0,
         100.0,
     )
-    return nilai_pct / 100.0, sumber
 
 
-def _skenario_gate_asuransi(cfg: dict) -> str:
-    """Nama skenario gate Asuransi dari config (fail-closed).
+def _ambang_banjir(cfg: dict) -> tuple[float, float]:
+    """Ambang banjir Asuransi v18: (P banjir 3P min, P banjir FT min).
 
-    Dibaca dari ``tickets.insurance.stress_gate_scenario``. Kunci
-    hilang / bukan "banjir_terburuk" atau "setan" -> ConfigError
-    (tanpa default dari kode). Nilai produksi: "banjir_terburuk"
-    (koreksi user 09:52 WIB 2026-11-23: gate keras Asuransi adalah
-    banjir p90; "setan" hanya deteksi kerapuhan, bukan kriteria
-    produksi — jangan ubah nilai ini tanpa persetujuan user).
+    Dibaca dari tickets.insurance.flood_3p_min (0,70) /
+    flood_ft_min (0,65). Kunci hilang -> default v18. Nilai di
+    luar 0-1 -> ConfigError.
     """
-    try:
-        nilai = config_mod.get_value(
-            cfg, "tickets", "insurance", "stress_gate_scenario"
-        )
-    except config_mod.ConfigError as exc:
-        raise config_mod.ConfigError(
-            "playstyle.yaml kehilangan kunci: "
-            "tickets.insurance.stress_gate_scenario (gate banjir Asuransi)"
-        ) from exc
-    if nilai not in ("banjir_terburuk", "setan"):
-        raise config_mod.ConfigError(
-            "playstyle.yaml tickets.insurance.stress_gate_scenario harus "
-            f"'banjir_terburuk' atau 'setan', dapat: {nilai!r}"
-        )
+    ambang_3p, _ = _angka_config_atau_default(
+        cfg,
+        ("tickets", "insurance", "flood_3p_min"),
+        _DEFAULT_FLOOD_3P_MIN,
+        0.0,
+        1.0,
+    )
+    ambang_ft, _ = _angka_config_atau_default(
+        cfg,
+        ("tickets", "insurance", "flood_ft_min"),
+        _DEFAULT_FLOOD_FT_MIN,
+        0.0,
+        1.0,
+    )
+    return ambang_3p, ambang_ft
+
+
+def _ambang_p_market_ins(cfg: dict) -> float:
+    """p_market minimum kaki Asuransi (v18, default 0,80)."""
+    nilai, _ = _angka_config_atau_default(
+        cfg,
+        ("tickets", "insurance", "min_p_market"),
+        _DEFAULT_MIN_P_MARKET_INS,
+        0.0,
+        1.0,
+    )
     return nilai
 
 
-def _kunci_skenario(hasil_stress: dict, skenario: str) -> tuple[str, str, str]:
-    """Kunci output stress untuk satu skenario gate.
+def _ambang_gap_market(cfg: dict) -> float:
+    """Ambang selisih median-vs-pasar aturan condong-ke-market (poin).
 
-    Mengembalikan (kunci P di p_under, kunci garis tahan, kunci
-    alasan tidak tahan): "banjir_terburuk" -> P dari
-    hasil["banjir_terburuk"] ("banjir_3p"/"banjir_ft", mana yang
-    gesernya terbesar) + "garis_tahan_banjir";
-    "setan" -> p_under["setan"] + "garis_tahan_setan".
-    Raise ValueError bila skenario tak dikenal atau hasil stress
-    tidak menyebut skenario banjir terburuknya.
+    Dibaca dari calibration.lean_to_market_gap (v18, 5,0 poin);
+    kunci lama market_line_check.total_gap_points DIHAPUS di
+    config v18. Kunci hilang -> default 5,0.
     """
-    if skenario == "banjir_terburuk":
-        terburuk = hasil_stress.get("banjir_terburuk")
-        if terburuk not in ("banjir_3p", "banjir_ft"):
-            raise ValueError(
-                f"hasil skenario panas tanpa banjir_terburuk yang dikenal: {terburuk!r}"
-            )
-        return terburuk, "garis_tahan_banjir", "alasan_tidak_tahan_banjir"
-    if skenario == "setan":
-        return "setan", "garis_tahan_setan", "alasan_tidak_tahan_setan"
-    raise ValueError(f"skenario gate tidak dikenal: {skenario!r}")
+    nilai, _ = _angka_config_atau_default(
+        cfg,
+        ("calibration", "lean_to_market_gap"),
+        _DEFAULT_LEAN_GAP_POINTS,
+        0.0,
+        100.0,
+    )
+    return nilai
 
 
-def _label_skenario(hasil_stress: dict, skenario: str) -> str:
-    """Label skenario untuk pesan coret ("banjir terburuk (banjir_ft)")."""
-    if skenario == "banjir_terburuk":
-        terburuk = hasil_stress.get("banjir_terburuk")
-        return (
-            f"banjir terburuk ({terburuk})"
-            if isinstance(terburuk, str) and terburuk
-            else "banjir terburuk"
-        )
-    return skenario
+def _bantalan_veto_parsial(cfg: dict) -> tuple[float, str]:
+    """Tambahan bantalan veto parsial (poin) + sumbernya.
+
+    Dibaca dari vonis.veto_parsial_bantalan_points (v18, +3 poin —
+    Gemini §2 Q3; kunci ditulis koordinator saat integrasi v18).
+    Kunci hilang -> default 3,0.
+    """
+    return _angka_config_atau_default(
+        cfg,
+        ("vonis", "veto_parsial_bantalan_points"),
+        _DEFAULT_BANTALAN_VETO_PARSIAL,
+        0.0,
+        20.0,
+    )
 
 
 def _flag_enabled(cfg: dict, section: str) -> bool:
@@ -430,114 +498,76 @@ def _flag_enabled(cfg: dict, section: str) -> bool:
     return nilai
 
 
-def _stress_laga(
-    analisis: dict,
-    cfg: dict,
-    cache: dict[str, tuple[dict | None, str | None]],
-    kaki_tambahan: list[dict] | None = None,
-) -> tuple[dict | None, str | None]:
-    """Hasil skenario_panas satu laga (cache per match_id).
+def _gate_banjir(
+    p_3p: float | None, p_ft: float | None, ambang_3p: float, ambang_ft: float
+) -> tuple[str, str | None]:
+    """Nilai satu kaki Asuransi di DUA skenario banjir (gate v18).
 
-    Mengembalikan (hasil, galat): hasil None + galat berisi pesan bila
-    skenario tidak bisa dihitung (CDF tidak bisa dibangun, kunci
-    config hilang, dsb.) — gate memakai ini untuk fail-closed, bukan
-    crash. Kaki yang dihitung: kaki total_under bergaris dari artefak
-    (tiket dikenali lewat ``_tiket_kaki``, termasuk turunan leg_id) —
-    kaki tanpa tiket/garis tidak ikut, supaya satu kaki aneh tidak
-    menggagalkan seluruh laga. ``kaki_tambahan``: kaki equilibrium
-    ({"line", "ticket"}) yang garisnya belum ada di artefak — supaya
-    gate banjir bisa menemukan entri stress kaki equilibrium
-    (tanpa ini kaki equilibrium selalu ditolak fail-closed).
+    Mengembalikan (putusan, alasan):
+    - ("lolos", None): P banjir 3P >= ambang_3p DAN P banjir FT >=
+      ambang_ft (DUA ambang terpisah — menggantikan skenario
+      tunggal banjir_terburuk v17).
+    - ("tolak", alasan): salah satu / kedua P di bawah ambangnya,
+      atau P tidak tersedia (None — fail-closed, bukan lolos
+      diam-diam). Pemanggil yang memutuskan naik-garis (lihat
+      ``_garis_tahan_banjir_ganda``).
     """
-    match_id = analisis.get("match_id")
-    if isinstance(match_id, str) and match_id in cache:
-        return cache[match_id]
-    kaki: list[dict] = []
-    for leg in analisis.get("legs") or []:
-        if not isinstance(leg, dict):
-            continue
-        if leg.get("market_type") != "total_under":
-            continue
-        tiket = _tiket_kaki(leg)
-        garis = _angka(leg.get("line"))
-        if tiket is None or garis is None:
-            continue
-        kaki.append({"line": garis, "ticket": tiket})
-    for tambahan in kaki_tambahan or []:
-        if not isinstance(tambahan, dict):
-            continue
-        tiket = tambahan.get("ticket")
-        garis = _angka(tambahan.get("line"))
-        if tiket not in ("insurance", "main") or garis is None:
-            continue
-        if not any(
-            k["ticket"] == tiket and abs(k["line"] - garis) < 1e-9 for k in kaki
-        ):
-            kaki.append({"line": garis, "ticket": tiket})
-    try:
-        hasil = stress_mod.skenario_panas(analisis, kaki=kaki, cfg=cfg)
-        pasangan: tuple[dict | None, str | None] = (hasil, None)
-    except (ValueError, TypeError, config_mod.ConfigError) as exc:
-        # TypeError: artefak/config bentuk tak terduga (mis. nilai
-        # config None) — tetap fail-closed per laga, bukan crash
-        # seluruh slate.
-        pasangan = (None, str(exc))
-    if isinstance(match_id, str):
-        cache[match_id] = pasangan
-    return pasangan
-
-
-def _entri_stress_kaki(hasil_stress: dict, garis: float, tiket: str) -> dict | None:
-    """Entri kaki (garis, tiket) di hasil skenario_panas, atau None."""
-    for entri in hasil_stress.get("kaki") or []:
-        if not isinstance(entri, dict):
-            continue
-        if entri.get("ticket") != tiket:
-            continue
-        garis_entri = _angka(entri.get("line"))
-        if garis_entri is not None and abs(garis_entri - garis) < 1e-9:
-            return entri
-    return None
-
-
-def _gate_skenario(
-    hasil_stress: dict, entri_kaki: dict, skenario: str, ambang: float
-) -> tuple[str, float | None, dict | None, str | None]:
-    """Nilai satu kaki Asuransi di satu skenario stress (gate banjir/setan).
-
-    Mengembalikan (putusan, p_skenario, garis_tahan, alasan):
-    - ("lolos", p, None, None): P(Under) di skenario >= ambang.
-    - ("naik", p, garis_tahan, None): P < ambang tapi ada garis tangga
-      yang tahan skenario itu (garis_tahan = ringkasan entri tangga
-      dari stress: line/price/thin/volume).
-    - ("tolak", p, None, alasan): P tidak tersedia di skenario itu
-      (p None), atau tidak ada garis tangga yang tahan.
-    ``skenario``: "banjir_terburuk" atau "setan" (lihat
-    ``_kunci_skenario``). Kunci skenario yang belum ada di output
-    stress -> "tolak" (fail-closed), bukan lolos diam-diam.
-    """
-    kunci_p, kunci_garis, kunci_alasan = _kunci_skenario(hasil_stress, skenario)
-    p_under = entri_kaki.get("p_under")
-    p = _angka(p_under.get(kunci_p)) if isinstance(p_under, dict) else None
-    if p is None:
+    if p_3p is None or p_ft is None:
+        hilang = []
+        if p_3p is None:
+            hilang.append("banjir 3P")
+        if p_ft is None:
+            hilang.append("banjir FT")
         return (
             "tolak",
-            None,
-            None,
-            f"P(Under) skenario {kunci_p} tidak tersedia di hasil skenario panas",
+            f"P(Under) skenario {', '.join(hilang)} tidak tersedia",
         )
-    if p >= ambang:
-        return "lolos", p, None, None
-    garis_tahan = entri_kaki.get(kunci_garis)
-    if not isinstance(garis_tahan, dict) or _angka(garis_tahan.get("line")) is None:
-        alasan = entri_kaki.get(kunci_alasan)
-        if not isinstance(alasan, str) or not alasan:
-            alasan = (
-                f"tidak ada garis tangga yang tahan skenario {kunci_p} "
-                f"(P(Under) < {ambang:.0%} di semua garis)"
-            )
-        return "tolak", p, None, alasan
-    return "naik", p, garis_tahan, None
+    if p_3p >= ambang_3p and p_ft >= ambang_ft:
+        return "lolos", None
+    gagal = []
+    if p_3p < ambang_3p:
+        gagal.append(f"banjir 3P {p_3p * 100:.1f}% < {ambang_3p * 100:.0f}%")
+    if p_ft < ambang_ft:
+        gagal.append(f"banjir FT {p_ft * 100:.1f}% < {ambang_ft * 100:.0f}%")
+    return "tolak", "; ".join(gagal)
+
+
+def _garis_tahan_banjir_ganda(
+    tangga: list[dict],
+    cdf: list[tuple[float, float]],
+    geser_3p: float,
+    geser_ft: float,
+    ambang_3p: float,
+    ambang_ft: float,
+    cfg: dict | None = None,
+) -> dict | None:
+    """Garis tangga Under terendah yang tahan KEDUA banjir (v18).
+
+    Garis lolos bila P(Under) di banjir 3P >= ambang_3p DAN di
+    banjir FT >= ambang_ft (CDF digeser, seperti stress.py). Bila
+    ``cfg`` diberikan, garis juga harus lolos gate eksekusi
+    (equilibrium.cek_eksekusi: likuiditas + spread + ask nyata) —
+    garis tahan yang tidak bisa dibeli bukan garis tahan.
+    Mengembalikan entri tangga itu (apa adanya), atau None bila
+    tidak ada garis yang lolos. Dipakai climb gate banjir komposer
+    (pertahanan lapis kedua di atas equilibrium).
+    """
+    for entri in tangga:
+        garis = _angka(entri.get("line"))
+        if garis is None:
+            continue
+        if cfg is not None and not equilibrium_mod.cek_eksekusi(entri, cfg)["lolos"]:
+            continue
+        p_3p = stress_mod.p_under_digeser(cdf, garis, geser_3p)
+        p_ft = stress_mod.p_under_digeser(cdf, garis, geser_ft)
+        if (
+            p_3p is not None
+            and p_ft is not None
+            and p_3p >= ambang_3p
+            and p_ft >= ambang_ft
+        ):
+            return entri
+    return None
 
 
 def _kaki_naik_garis(kaki: dict, garis_tahan: dict, tangga: list[dict]) -> dict | None:
@@ -612,6 +642,77 @@ def _kaki_naik_garis(kaki: dict, garis_tahan: dict, tangga: list[dict]) -> dict 
         }
     )
     return baru
+
+
+def _pilih_garis_veto_parsial(
+    analysis: dict, tiket: str, garis_min: float, cfg: dict, ktx: dict | None = None
+) -> dict | None:
+    """Garis lolos semua gate >= garis_min untuk veto parsial (v18).
+
+    Mengembalikan dict hasil-equilibrium sintetis (bentuk yang
+    diterima ``equilibrium.rakit_kaki_equilibrium``: ada/garis/
+    p_model/p_market/p_final/ev_pct/price_label/harga/volume/thin/
+    anchor), atau None bila tidak ada garis yang memenuhi (tidak ada
+    konteks / tidak ada garis lolos di atas garis_min). Pemilihan
+    mengikuti MODE tiket itu (safety_first -> p_final tertinggi;
+    max_er -> ER tertinggi dengan tie-break toleransi -> lebih aman)
+    tapi MENGABAIKAN band harga: keselamatan veto di atas preferensi
+    harga. Dipakai penegakan veto parsial di ``_kumpulkan_kandidat``.
+    """
+    if ktx is None:
+        ktx = equilibrium_mod.siapkan_konteks(analysis, tiket, cfg)
+    nilai = equilibrium_mod.nilai_semua_garis(analysis, tiket, cfg, ktx=ktx)
+    if not nilai:
+        return None
+    lolos = [n for n in nilai if n["lolos_semua"] and n["line"] >= garis_min - 1e-9]
+    if not lolos:
+        return None
+    try:
+        mode = config_mod.get_value(cfg, "equilibrium", f"mode_{tiket}")
+    except config_mod.ConfigError:
+        mode = "max_er" if tiket == "main" else "safety_first"
+    if mode not in ("max_er", "safety_first"):
+        raise config_mod.ConfigError(
+            f"playstyle.yaml equilibrium.mode_{tiket} harus 'max_er' atau "
+            f"'safety_first', dapat: {mode!r}"
+        )
+    if mode == "safety_first":
+        p_maks = max(n["p_final"] for n in lolos)
+        seri = [n for n in lolos if p_maks - n["p_final"] < _EPS]
+        er_maks = max(n["expected_return"] for n in seri)
+        seri = [n for n in seri if er_maks - n["expected_return"] < _EPS]
+        pilihan = min(seri, key=lambda n: n["line"])
+    else:
+        toleransi, _ = _angka_config_atau_default(
+            cfg,
+            ("tickets", tiket, "tiebreak_er_tolerance"),
+            _DEFAULT_TIEBREAK_ER,
+            0.0,
+            1.0,
+        )
+        er_maks = max(n["expected_return"] for n in lolos)
+        seri = [n for n in lolos if er_maks - n["expected_return"] < toleransi]
+        p_maks = max(n["p_final"] for n in seri)
+        seri = [n for n in seri if p_maks - n["p_final"] < _EPS]
+        pilihan = min(seri, key=lambda n: n["line"])
+    return {
+        "ada": True,
+        "ticket": tiket,
+        "garis": pilihan["line"],
+        "harga_venue_cents": pilihan["harga_venue_cents"],
+        "price_cents": pilihan["price_cents"],
+        "jup_estimated_cents": pilihan["jup_estimated_cents"],
+        "thin": pilihan["thin"],
+        "volume_usd": pilihan["volume_usd"],
+        "p_model": round(pilihan["p_model"], 6),
+        "p_market": (
+            round(pilihan["p_market"], 6) if pilihan["p_market"] is not None else None
+        ),
+        "p_final": round(pilihan["p_final"], 6),
+        "ev_pct": round(pilihan["ev_pct"], 4),
+        "price_label": pilihan["price_label"],
+        "anchor": ktx.get("anchor") or {},
+    }
 
 
 def _parse_iso(teks) -> datetime | None:
@@ -882,13 +983,157 @@ def _terbaru_per_laga(dokumen: list[dict], kunci_waktu: str) -> dict[str, dict]:
     return hasil
 
 
+def _bintang_tunggu_lineup(info_vonis: dict | None, analisis: dict) -> list[str]:
+    """Nama bintang Questionable untuk entri TUNGGU_LINEUP.
+
+    Dibaca dari indikator vonis v18 worker A
+    (``indikator["timing_gate"]["bintang"]`` — list {"player", ...})
+    atau, defensif, dari kunci lain ("bintang_questionable" /
+    "pemain_questionable" / "questionable"), atau dari artefak
+    (injuries.entries berstatus QUESTIONABLE/DOUBTFUL bila ada).
+    [] bila tidak ada nama yang bisa disebut — alasan tetap
+    tercatat, nama tidak dikarang.
+    """
+    if isinstance(info_vonis, dict):
+        ind = info_vonis.get("indikator")
+        if isinstance(ind, dict):
+            timing_gate = ind.get("timing_gate")
+            if isinstance(timing_gate, dict):
+                bintang = timing_gate.get("bintang")
+                if isinstance(bintang, list):
+                    nama = [
+                        str(v.get("player"))
+                        for v in bintang
+                        if isinstance(v, dict)
+                        and isinstance(v.get("player"), str)
+                        and v.get("player")
+                    ]
+                    if nama:
+                        return nama
+            for kunci in (
+                "bintang_questionable",
+                "pemain_questionable",
+                "questionable",
+            ):
+                nilai = ind.get(kunci)
+                if isinstance(nilai, list):
+                    nama = []
+                    for v in nilai:
+                        if isinstance(v, dict):
+                            pemain = v.get("player")
+                        elif isinstance(v, str):
+                            pemain = v
+                        else:
+                            continue
+                        if isinstance(pemain, str) and pemain:
+                            nama.append(pemain)
+                    if nama:
+                        return nama
+    cedera = analisis.get("injuries")
+    if isinstance(cedera, dict) and isinstance(cedera.get("entries"), list):
+        nama = []
+        for entri in cedera["entries"]:
+            if not isinstance(entri, dict):
+                continue
+            status = entri.get("status")
+            pemain = entri.get("player")
+            if (
+                isinstance(status, str)
+                and status.upper() in ("QUESTIONABLE", "DOUBTFUL")
+                and isinstance(pemain, str)
+                and pemain
+            ):
+                nama.append(pemain)
+        return nama
+    return []
+
+
+def _cek_eksekusi_kaki(analysis: dict, kaki: dict, cfg: dict) -> dict:
+    """Gate eksekusi satu kaki NBA (v18, revisi koordinator).
+
+    Sumber bukti, berurutan: (1) field kaki itu sendiri
+    (liquidity_usd/bid_cents/ask_cents — disalin builder dari entri
+    tangga saat kaki dirakit, seperti volume_usd/thin); (2) bila
+    kaki tidak membawa ketiganya (artefak lama pra-v18), entri
+    tangga di garis kaki (``stress.tangga_under``). Bila ada >1
+    entri di garis itu (duplikat market_id), kaki lolos bila SALAH
+    SATU entrinya lolos cek_eksekusi (user membeli di kuotasi
+    terbaik). Bila kaki membawa SEBAGIAN field (mis. likuiditas
+    ada, bid/ask tidak) -> fail-closed pada field kaki (tidak
+    mencampur sumber). Bila tidak ada bukti sama sekali -> gagal
+    ("garis_tidak_ada_di_tangga" / alasan cek_eksekusi).
+    """
+    liq_kaki = _angka(kaki.get("liquidity_usd"))
+    bid_kaki = _angka(kaki.get("bid_cents"))
+    ask_kaki = _angka(kaki.get("ask_cents"))
+    if liq_kaki is not None or bid_kaki is not None or ask_kaki is not None:
+        return equilibrium_mod.cek_eksekusi(
+            {
+                "liquidity": liq_kaki,
+                "bid_cents": bid_kaki,
+                "ask_cents": ask_kaki,
+                "volume_usd": _angka(kaki.get("volume_usd")),
+            },
+            cfg,
+        )
+    garis_kaki = _angka(kaki.get("line"))
+    if garis_kaki is None:
+        return {"lolos": False, "alasan": "garis_tidak_ada_di_tangga"}
+    tangga = stress_mod.tangga_under(analysis.get("market"))
+    entri_garis = [
+        e
+        for e in tangga
+        if _angka(e.get("line")) is not None
+        and abs(_angka(e.get("line")) - garis_kaki) < 1e-9
+    ]
+    if not entri_garis:
+        return {"lolos": False, "alasan": "garis_tidak_ada_di_tangga"}
+    hasil = [equilibrium_mod.cek_eksekusi(e, cfg) for e in entri_garis]
+    lolos = [h for h in hasil if h["lolos"]]
+    if lolos:
+        return lolos[0]
+
+    # Gagal semua: laporkan yang spread-nya tersempit (paling dekat).
+    def _kunci(h):
+        spread = h.get("spread_cents")
+        return spread if spread is not None else 999.0
+
+    return min(hasil, key=_kunci)
+
+
+def _teks_alasan_eksekusi(hasil: dict) -> str:
+    """Alasan gate eksekusi gagal dalam Bahasa Indonesia (+ angka)."""
+    alasan = hasil.get("alasan")
+    if alasan == "garis_tidak_ada_di_tangga":
+        return "garis kaki tidak ada di tangga Polymarket"
+    if alasan == "likuiditas_tidak_tercatat":
+        return "likuiditas tidak tercatat"
+    if alasan == "likuiditas_di_bawah_minimum":
+        liq = hasil.get("likuiditas_usd")
+        minimum = hasil.get("likuiditas_min_usd")
+        return (
+            f"likuiditas ${liq:,.2f} di bawah minimum ${minimum:,.2f} "
+            "(max(2 x stake, $25))"
+        )
+    if alasan == "tanpa_kuotasi":
+        return "bid/ask tidak tercatat"
+    if alasan == "tanpa_ask_nyata":
+        return "ask 99¢ (tidak ada ask nyata)"
+    if alasan == "spread_terlalu_lebar":
+        spread = hasil.get("spread_cents")
+        maksimum = hasil.get("spread_max_cents")
+        return f"spread {spread:g}¢ di atas maksimum {maksimum:g}¢"
+    return str(alasan) if alasan else "tidak diketahui"
+
+
 def _kumpulkan_kandidat(
     analisis_per_laga: dict[str, dict],
     recheck_per_laga: dict[str, dict],
     cfg: dict,
     lantai: dict[str, float] | None = None,
-    edge_min_ins: float | None = None,
+    ambang_ev: dict[str, float] | None = None,
     skipped: list | None = None,
+    menunggu_lineup: list | None = None,
 ) -> tuple[dict[str, list[dict]], dict[str, list[str]]]:
     """Saring kaki-kaki artefak menjadi kandidat per tiket.
 
@@ -901,39 +1146,47 @@ def _kumpulkan_kandidat(
       untuk transparansi di ringkasan.
 
     ``lantai``: lantai harga per tiket (None = baca dari config di
-    sini via ``_lantai_harga``). ``edge_min_ins``: edge minimum kaki
-    Asuransi dalam desimal (None = baca dari config di sini via
-    ``_ambang_edge_asuransi``). ``skipped``: bila list diberikan,
-    diisi dict laga yang di-skip dari awal ({"match_id", "pemicu",
-    "alasan"}) — dipakai ``compose_tickets`` untuk hasil
-    ["skipped_matches"]; pemanggil lama tanpa argumen ini tidak
-    terpengaruh.
+    sini via ``_lantai_harga``). ``ambang_ev``: EV minimum per tiket
+    dalam persen (None = baca dari config di sini via ``_ambang_ev``;
+    v18 MENGGANTIKAN parameter lama ``edge_min_ins`` — gate edge
+    DIHAPUS). ``skipped``: bila list diberikan, diisi dict laga yang
+    di-skip dari awal ({"match_id", "pemicu", "alasan"}) — dipakai
+    ``compose_tickets`` untuk hasil ["skipped_matches"].
+    ``menunggu_lineup``: bila list diberikan, diisi dict laga
+    TUNGGU_LINEUP ({"match_id", "bintang", "alasan"}) — dipakai
+    ``compose_tickets`` untuk hasil ["menunggu_lineup"]; pemanggil
+    lama tanpa argumen ini tidak terpengaruh.
 
     Vonis per laga (engine/vonis.py, NBA saja): laga KUNING yang
     DIEVALUASI dikeluarkan dari kedua tiket (alasan di ``coret``);
-    tiap kandidat membawa ``vonis`` ("hijau" / "menengah_hijau" /
-    None bila tidak dievaluasi / tidak dihitung) + ``vonis_alasan``
-    (daftar alasan) — dibaca ``_alokasikan_laga`` untuk aturan tanpa
-    kaki kembar. Laga KUNING-karena-data (tidak dievaluasi) TIDAK
-    dikeluarkan di sini (gate per kaki tetap fail-closed sendiri).
+    laga TUNGGU_LINEUP dikeluarkan dari kedua tiket + dicatat di
+    ``menunggu_lineup`` (bukan KUNING, bukan kandidat); tiap
+    kandidat membawa ``vonis`` ("hijau" / "menengah_hijau" / None
+    bila tidak dievaluasi / tidak dihitung) + ``vonis_alasan``
+    (daftar alasan) — dibaca ``_alokasikan_laga`` untuk aturan
+    tanpa kaki kembar. Laga KUNING-karena-data (tidak dievaluasi)
+    TIDAK dikeluarkan di sini (gate per kaki tetap fail-closed
+    sendiri). Veto parsial (peringatan_parsial di indikator veto):
+    kaki laga itu wajib +3 poin bantalan di atas garis acuan normal
+    (lihat docstring modul).
     """
-    ambang_gap = _ambang(cfg, "market_line_check", "total_gap_points")
+    ambang_gap = _ambang_gap_market(cfg)
     min_prob = {
         "insurance": _ambang(cfg, "tickets", "insurance", "min_leg_prob"),
         "main": _ambang(cfg, "tickets", "main", "min_leg_prob"),
     }
     if lantai is None:
         lantai, _sumber_lantai = _lantai_harga(cfg)
-    if edge_min_ins is None:
-        edge_min_ins, _sumber_edge = _ambang_edge_asuransi(cfg)
-    # Skenario gate Asuransi (fail-closed bila kunci hilang) + cache
-    # skenario panas per laga (dihitung sekali per match_id, bukan
-    # per kaki — lihat _stress_laga).
-    skenario_gate = _skenario_gate_asuransi(cfg)
+    if ambang_ev is None:
+        ambang_ev = {}
+        for tiket_ev in ("insurance", "main"):
+            ambang_ev[tiket_ev], _ = _ambang_ev(cfg, tiket_ev)
+    ambang_banjir_3p, ambang_banjir_ft = _ambang_banjir(cfg)
+    ambang_p_market = _ambang_p_market_ins(cfg)
+    bantalan_parsial, _sumber_parsial = _bantalan_veto_parsial(cfg)
     equilibrium_aktif = _flag_enabled(cfg, "equilibrium")
     skip_aktif = _flag_enabled(cfg, "skip_awal")
     vonis_aktif = _flag_enabled(cfg, "vonis")
-    stress_per_laga: dict[str, tuple[dict | None, str | None]] = {}
     tolak_mahal_ins = bool(
         config_mod.get_value(cfg, "optimizer", "exclude_mahal_from_insurance")
     )
@@ -942,6 +1195,31 @@ def _kumpulkan_kandidat(
 
     for match_id, analisis in sorted(analisis_per_laga.items()):
         status = analisis.get("status")
+        # --- TUNGGU_LINEUP (v18, timing gate): laga berstatus
+        # "tunggu_lineup" (atau vonis "tunggu_lineup" di artefak)
+        # DIKELUARKAN dari kandidat final + dicatat terpisah —
+        # bukan KUNING, bukan kandidat. Dicek SEBELUM status OK
+        # (status tunggu_lineup bukan OK, tapi juga bukan HOLD).
+        vonis_artifak = _vonis_dari_nilai(analisis.get("vonis"))
+        if status == "tunggu_lineup" or vonis_artifak == "tunggu_lineup":
+            bintang = _bintang_tunggu_lineup(None, analisis)
+            alasan_tunggu = (
+                "bintang masih Questionable — lineup belum final, "
+                "tunggu injury report 30 menit sebelum tip-off"
+            )
+            if bintang:
+                alasan_tunggu += f" ({', '.join(bintang)})"
+            for tiket in ("insurance", "main"):
+                coret[tiket].append(f"{match_id}: TUNGGU_LINEUP — {alasan_tunggu}")
+            if menunggu_lineup is not None:
+                menunggu_lineup.append(
+                    {
+                        "match_id": match_id,
+                        "bintang": bintang,
+                        "alasan": alasan_tunggu,
+                    }
+                )
+            continue
         if status != "OK":
             for tiket in ("insurance", "main"):
                 coret[tiket].append(
@@ -971,7 +1249,11 @@ def _kumpulkan_kandidat(
             "insurance": None,
             "main": None,
         }
-        kaki_tambahan_stress: list[dict] = []
+        ktx_ins: dict | None = None
+        ktx_main: dict | None = None
+        # Konteks fallback gate banjir (dibangun sekali per laga bila
+        # equilibrium + skip_awal nonaktif sehingga ktx di atas None).
+        ktx_banjir_jatuh: dict | None = None
         if analisis.get("format") != "soccer_analysis" and (
             equilibrium_aktif or skip_aktif
         ):
@@ -986,13 +1268,6 @@ def _kumpulkan_kandidat(
                         analisis, tiket_eq, cfg, ktx=ktx_eq
                     )
                     eq_per_tiket[tiket_eq] = hasil_eq
-                    if hasil_eq.get("ada"):
-                        kaki_tambahan_stress.append(
-                            {
-                                "line": hasil_eq["garis"],
-                                "ticket": tiket_eq,
-                            }
-                        )
             if skip_aktif:
                 # Equilibrium nonaktif -> stub "tidak dihitung" supaya
                 # pemicu (a) tidak bisa terpicu (tanpa equilibrium,
@@ -1047,9 +1322,52 @@ def _kumpulkan_kandidat(
         info_vonis: dict | None = None
         vonis_kandidat: str | None = None
         vonis_alasan: list[str] = []
+        veto_parsial = False
+        veto_parsial_alasan: list[str] = []
         if vonis_aktif and analisis.get("format") != "soccer_analysis":
             info_vonis = vonis_mod.nilai_vonis(analisis, None, cfg)
             vonis_alasan = list(info_vonis.get("alasan") or [])
+            # --- TUNGGU_LINEUP dari vonis (v18): bintang
+            # Questionable -> laga ditahan dari kedua tiket +
+            # dicatat terpisah (bukan KUNING, bukan kandidat).
+            vonis_mentah = _normalisasi_vonis(info_vonis.get("vonis"))
+            if vonis_mentah == "tunggu_lineup":
+                bintang = _bintang_tunggu_lineup(info_vonis, analisis)
+                alasan_tunggu = "; ".join(vonis_alasan) or (
+                    "bintang masih Questionable — lineup belum final"
+                )
+                # Alasan vonis v18 sudah diawali "TUNGGU_LINEUP:" —
+                # jangan duplikasi prefix di pesan coret.
+                teks_coret = (
+                    alasan_tunggu
+                    if alasan_tunggu.startswith("TUNGGU_LINEUP:")
+                    else f"TUNGGU_LINEUP — {alasan_tunggu}"
+                )
+                for tiket_vonis in ("insurance", "main"):
+                    coret[tiket_vonis].append(f"{match_id}: {teks_coret}")
+                if menunggu_lineup is not None:
+                    menunggu_lineup.append(
+                        {
+                            "match_id": match_id,
+                            "bintang": bintang,
+                            "alasan": alasan_tunggu,
+                        }
+                    )
+                continue
+            # --- VETO PARSIAL (v18): hanya satu kondisi veto menyala
+            # (rim protector OUT + garis tinggi ATAU pace tinggi) ->
+            # kaki laga ini wajib +3 poin bantalan (ditegakkan per
+            # kaki di bawah). Dibaca defensif: vonis v17 tidak punya
+            # kunci ini (False = tidak ada peringatan parsial).
+            indikator_vonis = info_vonis.get("indikator")
+            veto_info = (
+                indikator_vonis.get("veto")
+                if isinstance(indikator_vonis, dict)
+                else None
+            )
+            if isinstance(veto_info, dict) and veto_info.get("peringatan_parsial"):
+                veto_parsial = True
+                veto_parsial_alasan = list(veto_info.get("alasan") or [])
             if (info_vonis.get("indikator") or {}).get("dievaluasi"):
                 vonis_kandidat = info_vonis.get("vonis")
                 if vonis_kandidat == "kuning":
@@ -1067,8 +1385,15 @@ def _kumpulkan_kandidat(
                 continue
             leg_id = kaki.get("leg_id") or "?"
             garis = _angka(kaki.get("line"))
+            # Garis acuan normal = garis kaki artefak SEBELUM
+            # equilibrium (dipakai veto parsial +3 di bawah).
+            garis_acuan_normal = garis
+            kaki_awal = kaki
             label_kaki = _seleksi_kaki(kaki, analisis)
             market_type = kaki.get("market_type")
+            # P banjir kaki equilibrium (bila ada) — dipakai
+            # peringatan banjir Utama (warning-only, v18).
+            p_banjir_eq: dict | None = None
             # --- Titik equilibrium (MENGGANTIKAN seleksi garis lama).
             # Berjalan SEBELUM cek meets: equilibrium memilih ulang
             # dari tangga + CDF, jadi kaki meets=false karena seleksi
@@ -1078,7 +1403,9 @@ def _kumpulkan_kandidat(
             # (dihitung, tidak ada garis lolos) -> kaki ditolak dengan
             # alasan diagnostiknya. Bila TIDAK DIHITUNG (tanpa CDF /
             # tangga / jangkar) -> kaki artefak dipakai apa adanya
-            # (fallback, lanjut ke logika lama di bawah).
+            # (fallback, lanjut ke logika lama di bawah). Gate v18
+            # TETAP diterapkan ulang pada kaki artefak fallback di
+            # bawah (bukan dipakai mentah-mentah).
             if (
                 equilibrium_aktif
                 and analisis.get("format") != "soccer_analysis"
@@ -1093,11 +1420,61 @@ def _kumpulkan_kandidat(
                             f"{hasil_eq.get('alasan_tidak_ada') or 'tidak ada equilibrium'}"
                         )
                         continue
+                    p_banjir_eq = {
+                        "p_banjir_3p": hasil_eq.get("p_banjir_3p"),
+                        "p_banjir_ft": hasil_eq.get("p_banjir_ft"),
+                        "banjir_warning": hasil_eq.get("banjir_warning"),
+                    }
                     kaki_baru = equilibrium_mod.rakit_kaki_equilibrium(
                         kaki, hasil_eq, analisis, cfg
                     )
                     if kaki_baru is not None:
                         kaki = kaki_baru
+                        garis = _angka(kaki.get("line"))
+                        label_kaki = _seleksi_kaki(kaki, analisis)
+            # --- VETO PARSIAL +3 (v18): garis yang dipilih harus >=
+            # garis acuan normal + 3,0. Bila garis equilibrium /
+            # artefak kurang, cari garis lolos semua gate di atas
+            # batas itu (band harga diabaikan — keselamatan veto di
+            # atas preferensi harga); bila tidak ada, kaki dicoret.
+            # Hanya kaki NBA total_under (veto adalah konsep NBA).
+            if (
+                veto_parsial
+                and analisis.get("format") != "soccer_analysis"
+                and market_type == "total_under"
+                and garis_acuan_normal is not None
+            ):
+                garis_min_veto = garis_acuan_normal + bantalan_parsial
+                if garis is None or garis < garis_min_veto - 1e-9:
+                    ktx_veto = ktx_ins if tiket == "insurance" else ktx_main
+                    hasil_veto = _pilih_garis_veto_parsial(
+                        analisis, tiket, garis_min_veto, cfg, ktx=ktx_veto
+                    )
+                    if hasil_veto is None:
+                        alasan_parsial = (
+                            "; ".join(veto_parsial_alasan)
+                            if veto_parsial_alasan
+                            else "peringatan parsial veto rim protector"
+                        )
+                        coret[tiket].append(
+                            f"{match_id} ({label_kaki}): veto parsial — "
+                            f"garis harus >= U{garis_min_veto:g} "
+                            f"(garis acuan U{garis_acuan_normal:g} + "
+                            f"{bantalan_parsial:g} poin bantalan) tapi tidak "
+                            f"ada garis lolos semua gate di atas batas itu "
+                            f"({alasan_parsial})"
+                        )
+                        continue
+                    kaki_veto = equilibrium_mod.rakit_kaki_equilibrium(
+                        kaki_awal, hasil_veto, analisis, cfg
+                    )
+                    if kaki_veto is not None:
+                        climb_veto = kaki_veto.get("climb")
+                        if isinstance(climb_veto, dict) and isinstance(
+                            climb_veto.get("reason"), str
+                        ):
+                            climb_veto["reason"] += "+veto_parsial"
+                        kaki = kaki_veto
                         garis = _angka(kaki.get("line"))
                         label_kaki = _seleksi_kaki(kaki, analisis)
             if not kaki.get("meets"):
@@ -1109,118 +1486,113 @@ def _kumpulkan_kandidat(
                 # BTTS memang tidak punya garis (line null itu sah).
                 coret[tiket].append(f"{match_id} ({label_kaki}): garis total tidak ada")
                 continue
-            # --- Gate skenario banjir Asuransi (R1, insiden DEN
-            # 2026-11-23). Hanya kaki NBA total_under Asuransi: bola
-            # tidak punya model stress, total_over bukan Under.
+            # --- Gate banjir Asuransi v18 (DUA ambang terpisah:
+            # P banjir 3P >= 0,70 DAN P banjir FT >= 0,65 — keputusan
+            # user 2026-11-23 13:57 WIB, menggantikan skenario
+            # tunggal banjir_terburuk >= 74% v17). Hanya kaki NBA
+            # total_under Asuransi: bola tidak punya model stress,
+            # total_over bukan Under. P banjir dihitung LANGSUNG
+            # dari CDF (CDF yang sama dengan equilibrium), bukan
+            # dari entri skenario_panas — supaya gate menilai garis
+            # APAPUN yang dipilih (equilibrium / veto parsial /
+            # naik-garis), bukan hanya garis kaki artefak.
             # Berjalan SEBELUM gate lain yang memakai garis/harga,
             # supaya kaki yang naik garis dinilai di garis barunya
-            # (lantai harga, thin, edge). Pada kaki equilibrium, gate
-            # ini lolos by construction (equilibrium sudah memakai
-            # gate banjir yang sama) — ia tetap berjalan sebagai
-            # pertahanan lapis kedua + untuk kaki fallback (tanpa
-            # equilibrium). p_final/EV kaki yang naik garis di sini
-            # tetap garis lama (konservatif — lihat
-            # _kaki_naik_garis); kaki equilibrium TIDAK kena
-            # konservatisme itu karena p_finalnya sudah dihitung
-            # ulang di garis baru oleh engine/equilibrium.py.
+            # (lantai harga, volume eksekusi, EV). Pada kaki
+            # equilibrium, gate ini lolos by construction
+            # (equilibrium sudah memakai gate banjir yang sama) —
+            # ia tetap berjalan sebagai pertahanan lapis kedua +
+            # untuk kaki fallback (tanpa equilibrium). p_final/EV
+            # kaki yang naik garis di sini tetap garis lama
+            # (konservatif — lihat _kaki_naik_garis); kaki
+            # equilibrium TIDAK kena konservatisme itu karena
+            # p_finalnya sudah dihitung ulang di garis baru oleh
+            # engine/equilibrium.py.
             if (
                 tiket == "insurance"
                 and analisis.get("format") != "soccer_analysis"
                 and market_type == "total_under"
             ):
-                hasil_stress, galat_stress = _stress_laga(
-                    analisis,
-                    cfg,
-                    stress_per_laga,
-                    kaki_tambahan=kaki_tambahan_stress,
-                )
-                if hasil_stress is None:
-                    nama_skenario = "setan" if skenario_gate == "setan" else "banjir"
+                ktx_banjir = ktx_ins or ktx_main
+                if ktx_banjir is None:
+                    if ktx_banjir_jatuh is None:
+                        ktx_banjir_jatuh = equilibrium_mod.siapkan_konteks(
+                            analisis, tiket, cfg
+                        )
+                    ktx_banjir = ktx_banjir_jatuh
+                cdf_banjir = ktx_banjir.get("cdf")
+                geser_3p = _angka(ktx_banjir.get("geser_banjir_3p"))
+                geser_ft = _angka(ktx_banjir.get("geser_banjir_ft"))
+                if cdf_banjir is None:
+                    # Konteks equilibrium tanpa CDF (artefak tanpa
+                    # tangga / tanpa jangkar): bangun CDF langsung
+                    # dari markets simulasi — P banjir hanya butuh
+                    # CDF, bukan tangga (perilaku yang sama dengan
+                    # gate stress v17; tanpa ini kaki artefak tanpa
+                    # tangga selalu ditolak fail-closed).
+                    sim = analisis.get("simulation")
+                    markets = sim.get("markets") if isinstance(sim, dict) else None
+                    try:
+                        cdf_banjir = stress_mod.cdf_total_dari_markets(markets)
+                    except (ValueError, TypeError):
+                        cdf_banjir = None
+                if cdf_banjir is None or geser_3p is None or geser_ft is None:
                     coret[tiket].append(
-                        f"{match_id} ({label_kaki}): skenario {nama_skenario} "
-                        f"tidak bisa dihitung ({galat_stress}) — kaki "
-                        "Asuransi ditolak (fail-closed)"
+                        f"{match_id} ({label_kaki}): CDF total tidak "
+                        "bisa dibangun — skenario banjir tidak bisa "
+                        "dihitung, kaki Asuransi ditolak (fail-closed)"
                     )
                     continue
-                entri_stress = _entri_stress_kaki(hasil_stress, garis, tiket)
-                if entri_stress is None:
-                    coret[tiket].append(
-                        f"{match_id} ({label_kaki}): kaki tidak ada di hasil "
-                        "skenario panas — kaki Asuransi ditolak (fail-closed)"
-                    )
-                    continue
-                label_skenario = _label_skenario(hasil_stress, skenario_gate)
-                putusan, p_skenario, garis_tahan, alasan_gate = _gate_skenario(
-                    hasil_stress, entri_stress, skenario_gate, min_prob["insurance"]
+                p_3p = stress_mod.p_under_digeser(cdf_banjir, garis, geser_3p)
+                p_ft = stress_mod.p_under_digeser(cdf_banjir, garis, geser_ft)
+                putusan_banjir, alasan_banjir = _gate_banjir(
+                    p_3p, p_ft, ambang_banjir_3p, ambang_banjir_ft
                 )
-                if putusan == "tolak":
-                    if p_skenario is None:
-                        coret[tiket].append(
-                            f"{match_id} ({label_kaki}): {alasan_gate} — kaki "
-                            "Asuransi ditolak (fail-closed)"
-                        )
-                    else:
-                        token_tidak_tahan = (
-                            "tidak_ada_garis_tahan_banjir"
-                            if skenario_gate == "banjir_terburuk"
-                            else "tidak_ada_garis_tahan_setan"
-                        )
-                        coret[tiket].append(
-                            f"{match_id} ({label_kaki}): {token_tidak_tahan} — "
-                            f"P(Under) di skenario {label_skenario} "
-                            f"{p_skenario * 100:.1f}% < "
-                            f"{min_prob['insurance'] * 100:.0f}% dan {alasan_gate}"
-                        )
-                    continue
-                if putusan == "naik":
-                    garis_tahan_line = (
-                        _angka(garis_tahan.get("line"))
-                        if isinstance(garis_tahan, dict)
-                        else None
+                if putusan_banjir == "tolak":
+                    # Coba naik ke garis tangga terendah yang tahan
+                    # KEDUA banjir + lolos gate eksekusi (garis
+                    # tahan yang tidak bisa dibeli bukan garis tahan).
+                    tangga_banjir = stress_mod.tangga_under(analisis.get("market"))
+                    entri_tahan = _garis_tahan_banjir_ganda(
+                        tangga_banjir,
+                        cdf_banjir,
+                        geser_3p,
+                        geser_ft,
+                        ambang_banjir_3p,
+                        ambang_banjir_ft,
+                        cfg=cfg,
                     )
-                    if garis_tahan_line is None:
+                    if entri_tahan is None:
                         coret[tiket].append(
-                            f"{match_id} ({label_kaki}): garis tahan "
-                            f"{label_skenario} tidak valid — kaki Asuransi ditolak"
+                            f"{match_id} ({label_kaki}): "
+                            "tidak_ada_garis_tahan_banjir — "
+                            f"{alasan_banjir} dan tidak ada garis "
+                            "tangga yang tahan kedua banjir + lolos "
+                            "gate eksekusi"
                         )
                         continue
-                    if (
-                        isinstance(garis_tahan, dict)
-                        and garis_tahan.get("thin") is True
-                    ):
-                        # Garis tahan yang thin TIDAK dipakai (aturan
-                        # thin Asuransi yang sudah ada: thin = hard
-                        # gate) -> SKIP. Keputusan ini menunggu
-                        # keberatan user/reviewer.
-                        nama_garis_tahan = (
-                            "garis tahan-setan"
-                            if skenario_gate == "setan"
-                            else "garis tahan-banjir"
-                        )
-                        coret[tiket].append(
-                            f"{match_id} ({label_kaki}): {nama_garis_tahan} "
-                            f"Under {garis_tahan_line:g} volume tipis — "
-                            "tidak dipakai (aturan thin Asuransi); P(Under) "
-                            f"di skenario {label_skenario} "
-                            f"{p_skenario * 100:.1f}% < "
-                            f"{min_prob['insurance'] * 100:.0f}% di garis awal"
-                        )
-                        continue
-                    kaki_baru = _kaki_naik_garis(
-                        kaki,
-                        garis_tahan,
-                        stress_mod.tangga_under(analisis.get("market")),
-                    )
+                    kaki_baru = _kaki_naik_garis(kaki, entri_tahan, tangga_banjir)
                     if kaki_baru is None:
                         coret[tiket].append(
                             f"{match_id} ({label_kaki}): garis tahan "
-                            f"{label_skenario} tidak lebih tinggi dari garis "
+                            "banjir tidak lebih tinggi dari garis "
                             "kaki — kaki Asuransi ditolak"
                         )
                         continue
                     kaki = kaki_baru
                     garis = _angka(kaki.get("line"))
                     label_kaki = _seleksi_kaki(kaki, analisis)
+                # Catat P banjir di garis FINAL (setelah naik-garis
+                # bila naik) untuk kandidat + peringatan.
+                p_banjir_eq = {
+                    "p_banjir_3p": stress_mod.p_under_digeser(
+                        cdf_banjir, garis, geser_3p
+                    ),
+                    "p_banjir_ft": stress_mod.p_under_digeser(
+                        cdf_banjir, garis, geser_ft
+                    ),
+                    "banjir_warning": False,
+                }
             p_final = _angka(kaki.get("p_final"))
             p_model = _angka(kaki.get("p_model"))
             p_market = _angka(kaki.get("p_market"))
@@ -1256,13 +1628,29 @@ def _kumpulkan_kandidat(
                     f"{'Asuransi' if tiket == 'insurance' else 'Utama'}"
                 )
                 continue
-            # --- Volume tipis = PENGHALANG KERAS Asuransi. ---
-            if tiket == "insurance" and kaki.get("thin") is True:
-                coret[tiket].append(
-                    f"{match_id} ({label_kaki}): volume tipis — garis "
-                    "yang tidak bisa dibeli bukan asuransi"
-                )
-                continue
+            # --- Gate eksekusi v18 (MENGGANTIKAN thin sebagai
+            # penghalang keras Asuransi; revisi koordinator —
+            # likuiditas + spread, bukan volume kumulatif):
+            # bukti eksekusi kaki (field kaki, fallback tangga di
+            # garis kaki) harus lolos equilibrium.cek_eksekusi.
+            # Hanya kaki NBA total_under (kaki bola dan moneyline
+            # tidak membawa data tangga di artefak; fail-closed di
+            # sana akan membunuh semua kaki itu — keputusan ini
+            # menunggu keberatan). thin=True yang lolos gate
+            # eksekusi BOLEH masuk kedua tiket (flag VOLUME_TIPIS +
+            # peringatan di compose).
+            if (
+                analisis.get("format") != "soccer_analysis"
+                and market_type == "total_under"
+            ):
+                hasil_eksekusi = _cek_eksekusi_kaki(analisis, kaki, cfg)
+                if not hasil_eksekusi["lolos"]:
+                    coret[tiket].append(
+                        f"{match_id} ({label_kaki}): gate eksekusi "
+                        f"tidak lolos "
+                        f"({_teks_alasan_eksekusi(hasil_eksekusi)})"
+                    )
+                    continue
             label = kaki.get("price_label")
             if label == "MAHAL" and tiket == "insurance" and tolak_mahal_ins:
                 coret[tiket].append(
@@ -1380,22 +1768,34 @@ def _kumpulkan_kandidat(
                     )
                 coret[tiket].append(pesan)
                 continue
-            # --- Gate edge minimum Asuransi (insiden DEN 2026-11-23).
-            # Hard gate, hanya Asuransi — Utama tidak kena. Edge memakai
-            # definisi yang sama dengan _rakit_tiket: p_final dikurangi
-            # harga venue (jup.ag), BUKAN probabilitas keputusan
-            # (condong-ke-market tidak mengubah edge).
-            if tiket == "insurance":
-                edge = p_final - harga_venue / 100.0
-                if edge < edge_min_ins:
-                    coret[tiket].append(
-                        f"{match_id} ({label_kaki}): edge_kecil — edge "
-                        f"{edge * 100:+.1f}% di bawah minimum "
-                        f"{edge_min_ins * 100:.1f}% untuk Asuransi "
-                        f"(p_final {p_final * 100:.1f}% − harga "
-                        f"{harga_venue:g}¢)"
-                    )
-                    continue
+            # --- Gate p_market Asuransi v18 (hanya Asuransi): harga
+            # pasar (p_market) harus >= 0,80 — kaki yang pasarnya
+            # sendiri ragu bukan asuransi. MODEL_ONLY sudah dicoret
+            # di atas (p_market None), jadi di sini p_market selalu
+            # angka. (Di equilibrium, MODEL_ONLY lolos gate ini
+            # dengan catatan — komposer lebih ketat karena skema
+            # tiket mewajibkan p_market.)
+            if tiket == "insurance" and p_market < ambang_p_market:
+                coret[tiket].append(
+                    f"{match_id} ({label_kaki}): p_market "
+                    f"{p_market * 100:.1f}% di bawah minimum "
+                    f"{ambang_p_market * 100:.0f}% untuk Asuransi"
+                )
+                continue
+            # --- Gate EV v18 (MENGGANTIKAN gate edge datar 3,5%
+            # Asuransi — keputusan user 2026-11-23 13:57 WIB):
+            # Asuransi EV >= -1%, Utama EV >= -2%. EV memakai
+            # ev_pct kaki (p_final x 100/harga - 1), BUKAN
+            # probabilitas keputusan (condong-ke-market tidak
+            # mengubah EV).
+            if ev_pct < ambang_ev[tiket]:
+                coret[tiket].append(
+                    f"{match_id} ({label_kaki}): ev_di_bawah_minimum "
+                    f"— EV {ev_pct:+.1f}% di bawah minimum "
+                    f"{ambang_ev[tiket]:+.1f}% untuk "
+                    f"{'Asuransi' if tiket == 'insurance' else 'Utama'}"
+                )
+                continue
             kandidat[tiket].append(
                 {
                     "leg": kaki,
@@ -1428,6 +1828,22 @@ def _kumpulkan_kandidat(
                     "sim_markets": pasar_sim,
                     "vonis": vonis_kandidat,
                     "vonis_alasan": list(vonis_alasan),
+                    # P banjir v18 (None bila tidak dihitung —
+                    # kaki bola / tanpa equilibrium / tanpa CDF):
+                    # Utama warning-only, Asuransi sudah lolos gate.
+                    "p_banjir_3p": (
+                        p_banjir_eq.get("p_banjir_3p")
+                        if p_banjir_eq is not None
+                        else None
+                    ),
+                    "p_banjir_ft": (
+                        p_banjir_eq.get("p_banjir_ft")
+                        if p_banjir_eq is not None
+                        else None
+                    ),
+                    "banjir_warning": bool(
+                        p_banjir_eq is not None and p_banjir_eq.get("banjir_warning")
+                    ),
                 }
             )
     # Satu laga menyumbang paling banyak satu kaki per tiket (bila artefak
@@ -1836,10 +2252,11 @@ def _normalisasi_vonis(nilai) -> str | None:
     """Normalisasi vonis per laga ke token kanonik.
 
     Menerima ejaan apa pun yang masuk akal ("HIJAU",
-    "menengah_hijau", "menengah-cukup-hijau", "KUNING", spasi /
-    kapital apa pun) -> "hijau" / "menengah_hijau" / "kuning".
-    Nilai tidak dikenal / bukan string -> None (tanpa preferensi
-    alokasi — lihat ``_alokasikan_laga``).
+    "menengah_hijau", "menengah-cukup-hijau", "KUNING",
+    "TUNGGU_LINEUP", spasi / kapital apa pun) -> "hijau" /
+    "menengah_hijau" / "kuning" / "tunggu_lineup". Nilai tidak
+    dikenal / bukan string -> None (tanpa preferensi alokasi —
+    lihat ``_alokasikan_laga``).
     """
     if not isinstance(nilai, str):
         return None
@@ -1850,6 +2267,8 @@ def _normalisasi_vonis(nilai) -> str | None:
         return "menengah_hijau"
     if token == "kuning":
         return "kuning"
+    if token == "tunggu_lineup":
+        return "tunggu_lineup"
     return None
 
 
@@ -1908,8 +2327,18 @@ def _alokasikan_laga(
 
     ATURAN ALOKASI (keputusan user 2026-11-23 12:20 + 12:33 WIB;
     vonis dari angka, bukan perasaan):
-    - Laga HIJAU (sehat) -> ASURANSI dulu: kandidat Utamanya dibuang,
-      kandidat Asuransinya dipertahankan.
+    - Laga HIJAU (sehat) -> ASURANSI DULU: kandidat Asuransinya
+      dipertahankan dan kandidat Utamanya JUGA dipertahankan sebagai
+      SISA (leftover) — Asuransi memilih dulu di tingkat subset dan
+      Utama hanya memakai laga HIJAU yang TIDAK masuk Asuransi
+      (filter tanpa-kaki-kembar di ``compose_tickets``). REVISI
+      KOORDINATOR v18: sebelumnya kandidat Utama laga HIJAU dibuang
+      di sini — pada slate uji v18 (HIJAU 3, MENENGAH 0) aturan itu
+      membuat Utama 0 kandidat dan kedua tiket gagal terbentuk
+      padahal kaki HIJAU yang tidak terpakai Asuransi terbuang
+      percuma. "DULU" dalam keputusan user dibaca sebagai prioritas
+      pilih (bukan kepemilikan eksklusif); bila user keberatan,
+      yang berubah hanya cabang ini.
     - Laga MENENGAH-HIJAU (cukup hijau) -> UTAMA: kandidat
       Asuransinya dibuang, kandidat Utamanya dipertahankan.
     - Laga KUNING (lempar koin) -> SKIP dari kedua tiket: kedua
@@ -1920,6 +2349,10 @@ def _alokasikan_laga(
       dievaluasi lebih awal di ``_kumpulkan_kandidat`` (wiring
       worker sistem vonis) — cabang ini adalah pertahanan kedua
       bila kandidat KUNING mencapai alokasi lewat jalur lain.
+    - Laga TUNGGU_LINEUP (v18, bintang Questionable) -> SKIP dari
+      kedua tiket, sama seperti KUNING (pertahanan kedua — cabang
+      utama ada di ``_kumpulkan_kandidat``; laga yang sampai sini
+      tidak masuk daftar "menunggu_lineup" hasil compose).
     - Laga TANPA VONIS (artefak lama / sistem vonis belum jalan) ->
       TIDAK ADA preferensi alokasi: kedua kandidat dipertahankan,
       dan disjoint ditegakkan di tingkat subset (Asuransi dipilih
@@ -1972,13 +2405,13 @@ def _alokasikan_laga(
         for kand in kandidat[tiket]:
             match_id = kand["match_id"]
             vonis = vonis_per_laga.get(match_id)
-            if vonis == "hijau" and tiket == "main":
-                coret["main"].append(
-                    f"{match_id}: dialokasikan ke Asuransi (vonis "
-                    "HIJAU) — tidak masuk Utama (aturan tanpa kaki "
-                    "kembar)"
-                )
-                continue
+            # REVISI KOORDINATOR v18: laga HIJAU TIDAK lagi membuang
+            # kandidat Utamanya di sini — kandidat itu dipertahankan
+            # sebagai sisa; Asuransi memilih dulu di tingkat subset
+            # dan filter tanpa-kaki-kembar di compose_tickets yang
+            # membuang laga yang sudah masuk Asuransi. (Sebelumnya
+            # cabang ini membuang kandidat Utama HIJAU sehingga
+            # Utama 0 kandidat pada slate uji v18.)
             if vonis == "menengah_hijau" and tiket == "insurance":
                 coret["insurance"].append(
                     f"{match_id}: dialokasikan ke Utama (vonis "
@@ -1990,6 +2423,12 @@ def _alokasikan_laga(
                 coret[tiket].append(
                     f"{match_id}: vonis KUNING (lempar koin) — di-skip "
                     "dari kedua tiket"
+                )
+                continue
+            if vonis == "tunggu_lineup":
+                coret[tiket].append(
+                    f"{match_id}: TUNGGU_LINEUP — bintang masih "
+                    "Questionable, di-skip dari kedua tiket"
                 )
                 continue
             baru[tiket].append(kand)
@@ -2019,10 +2458,12 @@ def compose_tickets(
     None = jam UTC saat ini). Parameter ini ada untuk tes.
 
     Mengembalikan ``{"insurance", "insurance_reason", "main",
-    "main_reason", "warnings", "skipped_matches", "summary"}`` — lihat
-    docstring modul. ``skipped_matches``: daftar laga yang di-skip
-    dari awal ({"match_id", "pemicu", "alasan"}); kosong bila tidak
-    ada laga yang di-skip.
+    "main_reason", "warnings", "skipped_matches", "menunggu_lineup",
+    "summary"}`` — lihat docstring modul. ``skipped_matches``: daftar
+    laga yang di-skip dari awal ({"match_id", "pemicu", "alasan"});
+    kosong bila tidak ada laga yang di-skip. ``menunggu_lineup``:
+    daftar laga TUNGGU_LINEUP ({"match_id", "bintang", "alasan"});
+    kosong bila tidak ada laga yang menunggu lineup.
     """
     if stake_total is None:
         raise ValueError(
@@ -2108,6 +2549,7 @@ def compose_tickets(
             "main_reason": alasan,
             "warnings": [],
             "skipped_matches": [],
+            "menunggu_lineup": [],
             "summary": (
                 "RACIKAN TIKET\nTidak ada analisis untuk diracik — "
                 "jalankan analyze dulu untuk slate malam ini."
@@ -2118,15 +2560,20 @@ def compose_tickets(
     recheck_per_laga = _terbaru_per_laga(rechecks or [], "recheck_at")
     lantai, sumber_lantai = _lantai_harga(cfg)
     ambang_yakin, sumber_yakin = _ambang_yakin(cfg)
-    ambang_edge, sumber_edge = _ambang_edge_asuransi(cfg)
+    ambang_ev: dict[str, float] = {}
+    sumber_ev: dict[str, str] = {}
+    for tiket_ev in ("insurance", "main"):
+        ambang_ev[tiket_ev], sumber_ev[tiket_ev] = _ambang_ev(cfg, tiket_ev)
     skipped_matches: list[dict] = []
+    menunggu_lineup: list[dict] = []
     kandidat, coret = _kumpulkan_kandidat(
         analisis_per_laga,
         recheck_per_laga,
         cfg,
         lantai=lantai,
-        edge_min_ins=ambang_edge,
+        ambang_ev=ambang_ev,
         skipped=skipped_matches,
+        menunggu_lineup=menunggu_lineup,
     )
     # Alokasi laga ke tiket berdasarkan vonis (aturan tanpa kaki
     # kembar — lihat _alokasikan_laga). Berjalan SETELAH kandidat
@@ -2206,6 +2653,16 @@ def compose_tickets(
             subset_terpilih["insurance"] = subset_ins
             info_tiket["insurance"] = (p_ins, ev_ins)
             belum_dicek["insurance"] = belum_ins
+            # v18: kaki thin BOLEH masuk Asuransi bila lolos gate
+            # eksekusi ($30) — tapi tetap diperingatkan (INFO).
+            for kand in subset_ins:
+                if kand.get("thin"):
+                    seleksi = kand.get("selection") or "kaki"
+                    warnings.append(
+                        f"Kaki Asuransi {kand['match_id']} ({seleksi}) "
+                        "bervolume tipis — harganya bisa bergerak saat "
+                        "pasang, sebaiknya cek lagi sebelum submit."
+                    )
             if ev_ins < 0:
                 warnings.append(
                     f"EV tiket Asuransi negatif ({ev_ins:+.0f}%) — secara "
@@ -2323,6 +2780,25 @@ def compose_tickets(
                         "bervolume tipis — harganya bisa bergerak saat "
                         "pasang, sebaiknya cek lagi sebelum submit."
                     )
+            # v18: banjir Utama warning-only (tidak memblokir) —
+            # kaki yang rapuh banjir tetap diperingatkan.
+            for kand in subset_main:
+                if kand.get("banjir_warning"):
+                    seleksi = kand.get("selection") or "kaki"
+                    p_3p_w = kand.get("p_banjir_3p")
+                    p_ft_w = kand.get("p_banjir_ft")
+                    detail = ""
+                    if p_3p_w is not None and p_ft_w is not None:
+                        detail = (
+                            f" (peluang lolos banjir 3P "
+                            f"{p_3p_w * 100:.0f}%, banjir FT "
+                            f"{p_ft_w * 100:.0f}%)"
+                        )
+                    warnings.append(
+                        f"Kaki Utama {kand['match_id']} ({seleksi}) "
+                        "rapuh bila laga banjir poin" + detail + " — "
+                        "kaki ini tidak lolos standar banjir Asuransi."
+                    )
             if ev_main < 0:
                 warnings.append(
                     f"EV tiket Utama negatif ({ev_main:+.0f}%) — secara "
@@ -2421,6 +2897,19 @@ def compose_tickets(
                 + (f" [{pemicu}]" if pemicu else "")
                 + f": {item.get('alasan') or 'tanpa alasan'}"
             )
+    if menunggu_lineup:
+        baris += [
+            "",
+            "LAGA YANG MENUNGGU LINEUP (tidak masuk tiket — cek lagi "
+            "setelah injury report final):",
+        ]
+        for item in menunggu_lineup:
+            bintang = item.get("bintang") or []
+            baris.append(
+                f"  • {item.get('match_id')}"
+                + (f" ({', '.join(bintang)})" if bintang else "")
+                + f": {item.get('alasan') or 'tanpa alasan'}"
+            )
     catatan_ringkas = list(catatan_kembar)
     if sumber_lantai["insurance"] == "default" or sumber_lantai["main"] == "default":
         catatan_ringkas.append(
@@ -2435,11 +2924,17 @@ def compose_tickets(
             f">= {_DEFAULT_YAKIN_MIN_LEG_PROB * 100:.0f}% (nilai default "
             "— kunci tickets.main.yakin_min_leg_prob belum ada di config)."
         )
-    if sumber_edge == "default":
+    if sumber_ev.get("insurance") == "default":
         catatan_ringkas.append(
-            "Gate edge minimum Asuransi "
-            f"{_DEFAULT_MIN_EDGE_INS_PCT:g}% (nilai default — kunci "
-            "tickets.insurance.min_edge_pct belum ada di config)."
+            "Gate EV minimum Asuransi "
+            f"{_DEFAULT_MAX_NEG_EV_INS_PCT:g}% (nilai default — kunci "
+            "tickets.insurance.max_negative_ev_pct belum ada di config)."
+        )
+    if sumber_ev.get("main") == "default":
+        catatan_ringkas.append(
+            "Gate EV minimum Utama "
+            f"{_DEFAULT_MAX_NEG_EV_MAIN_PCT:g}% (nilai default — kunci "
+            "tickets.main.max_negative_ev_pct belum ada di config)."
         )
     catatan_ringkas.append(
         "Hanya kaki Alt Under (NBA) dan kaki 1X2/O-U gol/BTTS (bola) "
@@ -2463,5 +2958,6 @@ def compose_tickets(
     baris += ["", "CATATAN:"] + [f"  • {c}" for c in catatan_ringkas]
     hasil["warnings"] = warnings
     hasil["skipped_matches"] = skipped_matches
+    hasil["menunggu_lineup"] = menunggu_lineup
     hasil["summary"] = "\n".join(baris)
     return hasil

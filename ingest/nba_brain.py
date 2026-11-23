@@ -15,8 +15,9 @@ data FetchResult:
    "sources": [{data_kind, source, tier, fetched_at}...],
    "fetched_at": iso}
 Blok tim:
-  {"tricode", "team", "stats_season": {off_rtg, def_rtg, net_rtg, pace},
-   "stats_last10": {kunci sama},
+  {"tricode", "team", "stats_season": {off_rtg, def_rtg, net_rtg, pace,
+   ftr, tiga_pa_rate},
+   "stats_last10": {off_rtg, def_rtg, net_rtg, pace},
    "form5": [{"game_date", "opponent_tricode", "home", "wl", "pts",
               "opp_pts"}... urutan terbaru dulu],
    "home_record": {"w", "l", "ppg", "opp_ppg"},
@@ -157,6 +158,7 @@ from ingest.stats_nba import (
     TEAM_TRICODES,
     fetch_league_games,
     fetch_team_advanced_stats,
+    fetch_team_base_stats,
 )
 
 SOURCE = "nba_brain"
@@ -210,8 +212,21 @@ _KNOWN_TRICODES = frozenset(TEAM_TRICODES.values())
 
 
 def _empty_stats() -> dict:
-    """Blok statistik kosong (semua nilai None)."""
-    return {"off_rtg": None, "def_rtg": None, "net_rtg": None, "pace": None}
+    """Blok statistik kosong (semua nilai None).
+
+    Dipakai stats_season DAN stats_last10 bila fetch gagal.
+    ftr/tiga_pa_rate hanya diisi di stats_season (profil musim —
+    vonis v18); stats_last10 yang BERHASIL tidak membawa kedua kunci
+    itu (form 10 laga tidak dipakai untuk profil foul/3PAr).
+    """
+    return {
+        "off_rtg": None,
+        "def_rtg": None,
+        "net_rtg": None,
+        "pace": None,
+        "ftr": None,
+        "tiga_pa_rate": None,
+    }
 
 
 def _bbref_season(season: str) -> int:
@@ -1072,6 +1087,12 @@ def fetch_match_inputs(
         missing.append("h2h_last5")
 
     # 2. Statistik musim (tier 1) + fallback BBRef (tier 2, musim saja).
+    # FTr + 3PAr (v18, vonis + flag 3PAr worker C): dari tarikan Base
+    # stats.nba.com (ftr = FTA/FGA, tiga_pa_rate = FG3A/FGA — kolom
+    # itu TIDAK ada di measure Advanced) bila jalur tier 1 berhasil;
+    # dari kolom BBRef fta_per_fga_pct / fg3a_per_fga_pct bila
+    # fallback BBRef yang dipakai. Base gagal -> ftr/tiga_pa_rate
+    # None (vonis: rem/demerit terkait "tidak_dievaluasi").
     stats_season_map: dict[str, dict] = {}
     team_names: dict[str, str] = {}
     adv_result = _safe_fetch(fetch_team_advanced_stats, season, client=client)
@@ -1087,9 +1108,23 @@ def fetch_match_inputs(
                 "def_rtg": row.get("def_rtg"),
                 "net_rtg": row.get("net_rtg"),
                 "pace": row.get("pace"),
+                "ftr": None,
+                "tiga_pa_rate": None,
             }
             if row.get("team"):
                 team_names[tri] = row["team"]
+        base_result = _safe_fetch(fetch_team_base_stats, season, client=client)
+        if base_result.ok:
+            sources.append(_source_entry("nba_team_base_season", base_result))
+            n_ok += 1
+            for row in base_result.data or []:
+                tri = row.get("tricode")
+                if tri is None or tri not in stats_season_map:
+                    continue
+                stats_season_map[tri]["ftr"] = row.get("ftr")
+                stats_season_map[tri]["tiga_pa_rate"] = row.get("tiga_pa_rate")
+        else:
+            fetch_errors["team_base_season"] = base_result.error or "gagal"
     else:
         fetch_errors["team_advanced_season"] = adv_result.error or "gagal"
         bbref_result = _safe_fetch(
@@ -1107,6 +1142,8 @@ def fetch_match_inputs(
                     "def_rtg": _to_float(row.get("def_rtg")),
                     "net_rtg": _to_float(row.get("net_rtg")),
                     "pace": _to_float(row.get("pace")),
+                    "ftr": _to_float(row.get("fta_per_fga_pct")),
+                    "tiga_pa_rate": _to_float(row.get("fg3a_per_fga_pct")),
                 }
                 team_names[tri] = row["team"]
         else:

@@ -67,6 +67,68 @@ terpenuhi (cedera hanya 1 sumber) ATAU kaki Asuransi meets=false.
 DATA_INCOMPLETE = fetch/sim gagal (input kritis hilang, tangga
 kosong/gagal, sim error).
 
+TAHAP v18 (worker C — wiring veto / timing gate / Vegas):
+  1b. TUNGGU_LINEUP (engine.vonis.cek_tunggu_lineup, worker A):
+      dievaluasi setelah Tahap 1 (data cedera ada). Bila tunggu=True,
+      analisis DILANJUTKAN sebagai draf (sim + kaki tetap dihitung)
+      tapi status akhir dipaksa HOLD + dicatat di missing, supaya
+      komposer tidak memakai laga ini sampai recheck memperbarui
+      statusnya. Pilihan draf-vs-henti: LANJUTKAN SEBAGAI DRAF —
+      recheck butuh dasar perhitungan untuk memperbarui status
+      tanpa analisis ulang penuh; keputusan ini menunggu keberatan.
+      Bila fungsinya belum ada (worker A belum mendarat), dicatat di
+      missing dan analisis jalan normal (tanpa gate).
+  2b. VETO + SHORT-CIRCUIT (engine.vonis.evaluasi_veto): dievaluasi
+      setelah Tahap 2 (garis pasar + cedera + pace sudah ada). Bila
+      veto MENYALA, Tahap 3 (simulasi), 5 (Kalshi), 5b (news), dan
+      5c (setan) DILEWATI — artefak tetap ditulis (status
+      DATA_INCOMPLETE + blok veto + alasan jelas). Vonis KUNING
+      untuk laga ini dihitung on-demand oleh engine/vonis.nilai_vonis
+      (pemicu keras veto — dicatat juga di missing sebagai penanda).
+      Hasil veto disimpan untuk SEMUA laga (menyala atau tidak).
+      JUJUR SOAL ARSITEKTUR: pemindaian jup.ag adalah SLATE-LEVEL
+      (SlateBuilder.fetch_all, sebelum analisis per laga), jadi
+      short-circuit per laga TIDAK memangkas scan jup.ag — klaim
+      penghematan Gemini §2 Q8 poin 3 ("pangkas 30-50% per slate")
+      TIDAK berlaku untuk arsitektur ini. Yang dihemat adalah waktu
+      Tahap 3+5+5b+5c per laga kena veto (diukur di
+      LAPORAN-DEMON-V18.md + out/ukur_short_circuit.json).
+      Pemangkasan scan jup.ag butuh restrukturisasi slate-level
+      (di luar lingkup v18) — rekomendasi, bukan klaim.
+  3b. VEGAS SHRINKAGE (engine.vegas.sesuaikan_median, worker B —
+      signature asli dibaca dari disk: sesuaikan_median(median_model,
+      garis_pasar, ada_sebab_cedera_baru, cfg=None) -> {"median_baru",
+      "geser", "diterapkan", "alasan"}): dipanggil setelah Tahap 3
+      (median sim + garis pasar ada). Kill-switch
+      calibration.apply_shrinkage_pre_verdict False -> dilewati.
+      "Sebab cedera baru" DIDEFINISIKAN wiring ini (B hanya menerima
+      flag-nya): ada pemain OUT terkonfirmasi (>= 2 sumber) yang
+      merupakan bintang (BPM >= vonis.tunggu_lineup.bpm_bintang —
+      ambang dipakai ulang, bukan angka baru); USG tidak dipakai
+      (butuh fetch); kesegaran "baru" tidak bisa dibuktikan dari
+      satu snapshot (lihat _sebab_cedera_baru) — menunggu keberatan.
+      Bila diterapkan, distribusi sim DIGESER KAKU sebesar geser
+      (semua kuantil dist_total + P Under tiap garis = CDF mentah
+      pada garis-geser) dan distribusi EFEKTIF itu menjadi distribusi
+      KANONIK artefak: simulation.markets +
+      simulation.score_distribution.total diganti dengan yang efektif
+      (keputusan integrasi koordinator v18 — vonis/equilibrium/skip/
+      komposer semuanya membaca CDF yang sudah disesuaikan, sesuai
+      brief item 8 "SEBELUM vonis + equilibrium"). Distribusi mentah
+      dipertahankan di simulation.markets_mentah +
+      score_distribution.total_mentah + blok root "vegas"
+      (median_mentah/median_baru/geser/alasan/sebab_cedera_baru);
+      analisis_wajar membawa cermin field-field Vegas yang sama.
+      Bila modulnya belum ada (worker B belum mendarat), median
+      mentah dipakai apa adanya + dicatat di missing.
+  PENEMPATAN SKEMA (v18, final — integrasi koordinator): blok veto /
+  tunggu_lineup / vegas ada di ROOT artefak (properti opsional
+  nba_analysis.schema.json); status "tunggu_lineup" ada di enum
+  (nilai_vonis; builder tetap memakai HOLD untuk draf
+  TUNGGU_LINEUP). TIDAK ADA status "VETO" — laga kena veto memakai
+  DATA_INCOMPLETE + blok veto + vonis KUNING (keputusan integrasi:
+  tidak ada jalur kode yang memakai status VETO).
+
 FAIL-CLOSED: kegagalan tiap tahap -> artefak DATA_INCOMPLETE (dengan
 data tahap yang berhasil tetap terlampir) + missing + error tercatat,
 TIDAK PERNAH raise — kecuali argumen input tidak valid (ValueError).
@@ -110,6 +172,8 @@ from engine import devig as devig_mod
 from engine import nba_sim as nba_sim_mod
 from engine import price_labels as price_labels_mod
 from engine import setan_pemain as setan_pemain_mod
+from engine import stress as stress_mod
+from engine import vonis as vonis_mod
 from ingest import kalshi as kalshi_mod
 from ingest import matching as matching_mod
 from ingest import nba_brain as nba_brain_mod
@@ -333,6 +397,10 @@ def _blok_setan_pemain(
     setan umum. ``setan_pemain.enabled`` false -> 'nonaktif'
     (tanpa fetch). Kunci ``total_setan_pemain`` di level atas blok
     dibaca engine/stress.skenario_panas dari analysis.
+    3PAr kedua tim dibaca dari inputs artefak (stats_season.
+    tiga_pa_rate, ditambahkan worker A v18) dan diteruskan ke
+    hitung_setan_pemain untuk flag 3P Volume Risk; artefak tanpa
+    field itu -> flag "tidak_dievaluasi" (lihat setan_pemain).
     """
     dasar: dict = {
         "status": "gagal",
@@ -374,6 +442,7 @@ def _blok_setan_pemain(
             garis_bandar=main_line,
             pemain_absen=absen,
             cfg=cfg,
+            tiga_pa_rate=_tiga_pa_rate_dari_artefak(artefak, home, away),
         )
     except Exception as exc:  # noqa: BLE001 - hitung gagal -> blok gagal
         return {
@@ -390,6 +459,458 @@ def _blok_setan_pemain(
     }
     blok.update(demon)
     return blok
+
+
+def _tiga_pa_rate_dari_artefak(artefak: dict, home: str, away: str) -> dict:
+    """3PAr kedua tim dari inputs artefak ({tricode: nilai}).
+
+    Dibaca dari inputs.home/away.stats_season.tiga_pa_rate (field
+    v18 worker A). Nilai yang hilang / bukan angka tidak dimasukkan
+    — hitung_setan_pemain lalu memberi flag "tidak_dievaluasi".
+    TIDAK PERNAH melempar (inputs berbentuk aneh -> dict kosong).
+    """
+    hasil: dict[str, float] = {}
+    try:
+        inputs = artefak.get("inputs") if isinstance(artefak, dict) else None
+        if not isinstance(inputs, dict):
+            return hasil
+        for tricode, sisi in ((home, "home"), (away, "away")):
+            blok = inputs.get(sisi)
+            musim = blok.get("stats_season") if isinstance(blok, dict) else None
+            nilai = (
+                _angka(musim.get("tiga_pa_rate")) if isinstance(musim, dict) else None
+            )
+            if nilai is not None:
+                hasil[tricode] = nilai
+    except (AttributeError, TypeError):
+        return hasil
+    return hasil
+
+
+# ---------------------------------------------------------------------------
+# Helper v18: veto (short-circuit), timing gate TUNGGU_LINEUP, Vegas.
+# ---------------------------------------------------------------------------
+
+# Kunci kuantil dist_total nba_sim yang digeser kaku oleh Vegas
+# (parameter LOKASI — mean/median/kuantil; std TIDAK digeser karena
+# parameter skala). Kunci di luar daftar ini diteruskan apa adanya.
+_KUNCI_GESER_DIST = ("mean", "median", "p5", "p25", "p74", "p75", "p95")
+
+
+def _blok_veto(artefak: dict, cfg: dict) -> tuple[dict, str | None]:
+    """Evaluasi veto rim protector (Tahap 2b) — TIDAK PERNAH melempar.
+
+    Mengembalikan (blok_veto, entri_missing_atau_None). Blok veto
+    adalah hasil engine.vonis.evaluasi_veto apa adanya (dievaluasi
+    untuk SEMUA laga, menyala atau tidak). Bila evaluasi gagal
+    (mis. config ambang veto rusak) -> blok dievaluasi=False +
+    entri missing; builder LANJUT normal (veto adalah klaim positif
+    yang butuh data — kegagalan evaluasi bukan veto).
+    """
+    try:
+        blok = vonis_mod.evaluasi_veto(artefak, cfg)
+    except Exception as exc:  # noqa: BLE001 - veto gagal != analisis gagal
+        return (
+            {
+                "dievaluasi": False,
+                "menyala": False,
+                "alasan": [],
+                "alasan_tidak_dievaluasi": (
+                    f"evaluasi_veto_gagal: {type(exc).__name__}: {exc}"
+                ),
+            },
+            f"veto_tidak_dievaluasi: {type(exc).__name__}: {exc}",
+        )
+    if not isinstance(blok, dict):
+        return (
+            {
+                "dievaluasi": False,
+                "menyala": False,
+                "alasan": [],
+                "alasan_tidak_dievaluasi": ("evaluasi_veto mengembalikan bukan-dict"),
+            },
+            "veto_tidak_dievaluasi: hasil evaluasi bukan dict",
+        )
+    return blok, None
+
+
+def _blok_tunggu_lineup(
+    artefak: dict, cfg: dict
+) -> tuple[dict | None, bool, str | None]:
+    """Evaluasi timing gate TUNGGU_LINEUP (Tahap 1b).
+
+    Mengembalikan (blok, tunggu, entri_missing_atau_None). Kontrak
+    fungsi worker A (engine.vonis.cek_tunggu_lineup — DIBACA DARI
+    DISK, bukan asumsi): cek_tunggu_lineup(analysis, cfg=None,
+    usg_pemain=None) -> {"tunggu": bool, "bintang": [{"player",
+    "team", "status", "usg", "bpm"}], "alasan": [str],
+    "dievaluasi": bool, ...}. Bintang dinormalisasi ke daftar nama
+    (detail dict dipertahankan di "bintang_detail"). Kunci "tunggu"
+    juga dibaca dari fallback "hold"/"tahan"/status "tunggu_lineup"
+    bila "tunggu" tidak ada — wiring defensif terhadap variasi.
+    CATATAN FETCH: cek_tunggu_lineup menarik USG live
+    (ingest/pemain_usg, gratis + cache satu-proses) HANYA bila ada
+    pemain Questionable yang belum lolos lewat BPM — 0 kredit Odds
+    API.
+    Bila fungsinya belum ada -> (None, False, missing "belum
+    tersedia") dan analisis jalan normal (tanpa gate).
+    Bila fungsinya melempar -> fail-CLOSED: tunggu=True (status
+    akhir HOLD) + blok dievaluasi=False + missing, supaya laga yang
+    gate-nya tidak bisa dinilai tidak lolos diam-diam ke komposer.
+    """
+    fungsi = getattr(vonis_mod, "cek_tunggu_lineup", None)
+    if not callable(fungsi):
+        return (
+            None,
+            False,
+            "tunggu_lineup_tidak_dievaluasi: cek_tunggu_lineup belum "
+            "tersedia (worker A v18)",
+        )
+    try:
+        hasil = fungsi(artefak, cfg)
+    except Exception as exc:  # noqa: BLE001 - gate gagal = tahan laga
+        return (
+            {
+                "dievaluasi": False,
+                "tunggu": True,
+                "bintang": [],
+                "alasan": [f"cek_tunggu_lineup_gagal: {type(exc).__name__}: {exc}"],
+                "sumber": "engine.vonis.cek_tunggu_lineup",
+            },
+            True,
+            f"tunggu_lineup_gagal: {type(exc).__name__}: {exc}",
+        )
+    if not isinstance(hasil, dict):
+        return (
+            {
+                "dievaluasi": False,
+                "tunggu": True,
+                "bintang": [],
+                "alasan": ["cek_tunggu_lineup mengembalikan bukan-dict"],
+                "sumber": "engine.vonis.cek_tunggu_lineup",
+            },
+            True,
+            "tunggu_lineup_gagal: hasil cek bukan dict",
+        )
+    tunggu = hasil.get("tunggu")
+    if tunggu is None:
+        tunggu = hasil.get("hold", hasil.get("tahan"))
+    if tunggu is None:
+        tunggu = str(hasil.get("status") or "") == "tunggu_lineup"
+    bintang = hasil.get("bintang", hasil.get("pemain", []))
+    if not isinstance(bintang, list):
+        bintang = [bintang] if bintang else []
+    # Bintang v18 A adalah list dict {"player", "team", "status",
+    # "usg", "bpm"} — normalisasi ke nama pemain (string); entri
+    # string diteruskan apa adanya.
+    nama_bintang: list[str] = []
+    for entri in bintang:
+        if isinstance(entri, dict):
+            nama = entri.get("player")
+            if isinstance(nama, str) and nama:
+                nama_bintang.append(nama)
+        elif isinstance(entri, str) and entri:
+            nama_bintang.append(entri)
+    alasan = hasil.get("alasan", [])
+    if isinstance(alasan, str):
+        alasan = [alasan]
+    if not isinstance(alasan, list):
+        alasan = []
+    return (
+        {
+            "dievaluasi": bool(hasil.get("dievaluasi", True)),
+            "tunggu": bool(tunggu),
+            "bintang": nama_bintang,
+            "bintang_detail": [entri for entri in bintang if isinstance(entri, dict)],
+            "alasan": [str(a) for a in alasan],
+            "sumber": "engine.vonis.cek_tunggu_lineup",
+        },
+        bool(tunggu),
+        None,
+    )
+
+
+def _muat_vegas():
+    """Muat engine.vegas (worker B); None bila modul belum tersedia.
+
+    Pola yang sama dengan _muat_analis, dengan satu perbedaan yang
+    disengaja: modul yang ADA tapi gagal diimpor JUGA mengembalikan
+    None (bukan raise) — Vegas adalah penyesuaian dengan fallback
+    yang aman (median mentah), bukan input kritis; kegagalan impor
+    dicatat di missing oleh _terapkan_vegas, bukan mematikan
+    analisis.
+    """
+    modul = sys.modules.get("engine.vegas")
+    if modul is not None:
+        return modul
+    try:
+        if importlib.util.find_spec("engine.vegas") is None:
+            return None
+    except (ImportError, ValueError):
+        return None
+    try:
+        from engine import vegas as vegas_mod
+
+        return vegas_mod
+    except ImportError:
+        return None
+
+
+def _sebab_cedera_baru(artefak: dict, cfg: dict) -> tuple[bool, list[str], bool]:
+    """Apakah ada sebab cedera baru terverifikasi (untuk Vegas)?
+
+    Definisi wiring v18 (keputusan worker C — menunggu keberatan;
+    TIDAK didefinisikan worker B, modulnya hanya menerima flag ini):
+    ada pemain berstatus OUT TERKONFIRMASI (>= 2 sumber, aturan yang
+    sama dengan veto rim protector) yang merupakan BINTANG — BPM
+    (inputs pemain, field "bpm") >= vonis.tunggu_lineup.bpm_bintang
+    (2,0 — ambang "bintang" yang sama dengan timing gate, dipakai
+    ulang, bukan angka baru). USG tidak dipakai di sini (butuh fetch
+    ingest/pemain_usg — di luar builder; BPM saja sebagai proksi).
+    Mengembalikan (ada, [nama bintang OUT], dievaluasi). "Dievaluasi"
+    False bila data pemain inputs tidak ada / ambang BPM tidak bisa
+    dibaca — pemanggil memakai ada=False (penyusutan berjalan sesuai
+    default B) + mencatatnya di missing. BATAS JUJUR: kesegaran
+    ("baru") TIDAK bisa dibuktikan dari satu snapshot — artefak
+    tidak mencatat kapan cedera dilaporkan; definisi ini memakai OUT
+    terkonfirmasi sebagai proksi. Definisi "baru" yang tepat
+    (membandingkan cedera lama vs baru) hanya ada di recheck.
+    """
+    try:
+        ambang_bpm = float(
+            config_mod.get_value(cfg, "vonis", "tunggu_lineup", "bpm_bintang")
+        )
+    except (config_mod.ConfigError, TypeError, ValueError):
+        return False, [], False
+    inputs = artefak.get("inputs") if isinstance(artefak, dict) else None
+    if not isinstance(inputs, dict):
+        return False, [], False
+    bpm_pemain: dict[str, float] = {}
+    ada_data_pemain = False
+    for sisi in ("home", "away"):
+        blok = inputs.get(sisi)
+        pemain = blok.get("players") if isinstance(blok, dict) else None
+        if not isinstance(pemain, list):
+            continue
+        ada_data_pemain = True
+        for entri in pemain:
+            if not isinstance(entri, dict):
+                continue
+            nama = entri.get("player")
+            bpm = _angka(entri.get("bpm"))
+            if isinstance(nama, str) and nama and bpm is not None:
+                bpm_pemain[nama] = bpm
+    if not ada_data_pemain:
+        return False, [], False
+    cedera = artefak.get("injuries") if isinstance(artefak, dict) else None
+    entri_cedera = (
+        cedera.get("entries")
+        if isinstance(cedera, dict) and isinstance(cedera.get("entries"), list)
+        else []
+    )
+    bintang_out: list[str] = []
+    for entri in entri_cedera:
+        if not isinstance(entri, dict):
+            continue
+        if str(entri.get("status") or "").upper() != "OUT":
+            continue
+        n_sumber = _angka(entri.get("availability_n_sources"))
+        if n_sumber is None:
+            sumber = entri.get("sources")
+            n_sumber = float(len(sumber)) if isinstance(sumber, list) else 0.0
+        if n_sumber < 2:
+            continue
+        nama = entri.get("player")
+        if (
+            isinstance(nama, str)
+            and nama in bpm_pemain
+            and bpm_pemain[nama] >= ambang_bpm
+        ):
+            bintang_out.append(nama)
+    return bool(bintang_out), sorted(bintang_out), True
+
+
+def _panggil_sesuaikan_median(
+    modul, median, garis_pasar, ada_sebab_cedera_baru, cfg, artefak
+):
+    """Panggil sesuaikan_median sesuai kontrak worker B.
+
+    Signature asli (engine/vegas.py, dibaca dari disk):
+    sesuaikan_median(median_model, garis_pasar,
+    ada_sebab_cedera_baru, cfg=None) -> {"median_baru", "geser",
+    "diterapkan", "alasan"}. Dipanggil dengan kwargs bernama persis;
+    bila TypeError (signature berubah), dicoba posisional 4-arg,
+    lalu varian 3-arg (median, garis_pasar, cfg) sebagai fallback
+    terakhir. ValueError/ConfigError dari fungsi DIBIARKAN naik ke
+    _terapkan_vegas (yang mencatatnya di missing dan memakai median
+    mentah).
+    """
+    fungsi = getattr(modul, "sesuaikan_median", None)
+    if not callable(fungsi):
+        raise AttributeError("engine.vegas tanpa fungsi sesuaikan_median")
+    try:
+        return fungsi(
+            median_model=median,
+            garis_pasar=garis_pasar,
+            ada_sebab_cedera_baru=ada_sebab_cedera_baru,
+            cfg=cfg,
+        )
+    except TypeError:
+        pass
+    try:
+        return fungsi(median, garis_pasar, ada_sebab_cedera_baru, cfg)
+    except TypeError:
+        return fungsi(median, garis_pasar, cfg)
+
+
+def _terapkan_vegas(
+    median: float, garis_pasar: float | None, cfg: dict, artefak: dict
+) -> tuple[dict | None, str | None]:
+    """Terapkan Vegas shrinkage (Tahap 3b) — TIDAK PERNAH melempar.
+
+    Mengembalikan (vegas_info, entri_missing_atau_None). vegas_info:
+    {"diterapkan": bool, "median_mentah": float, "median_baru":
+    float | None, "geser": float | None, "alasan": str | None,
+    "sebab_cedera_baru": {"ada": bool, "pemain": [...],
+    "dievaluasi": bool}, "sumber": "engine.vegas"}. None bila
+    kill-switch calibration.apply_shrinkage_pre_verdict False /
+    modul belum ada / garis pasar tidak ada / panggilan gagal —
+    pemanggil memakai median mentah + mencatat missing.
+    "Diterapkan" mengikuti flag "diterapkan" dari sesuaikan_median
+    (dan median baru yang numerik); geser 0 = tidak diterapkan.
+    """
+    if garis_pasar is None:
+        return None, "vegas_dilewati: garis_pasar_tidak_ada"
+    try:
+        terapkan = config_mod.get_value(
+            cfg, "calibration", "apply_shrinkage_pre_verdict"
+        )
+    except config_mod.ConfigError:
+        terapkan = True  # Kunci v18 belum ada -> terapkan (default B).
+    if terapkan is False:
+        return None, "vegas_dinonaktifkan: apply_shrinkage_pre_verdict false"
+    modul = _muat_vegas()
+    if modul is None:
+        return (
+            None,
+            "vegas_tidak_dievaluasi: engine.vegas belum tersedia (worker B v18)",
+        )
+    ada_sebab, pemain_sebab, sebab_dievaluasi = _sebab_cedera_baru(artefak, cfg)
+    catatan_sebab = None
+    if not sebab_dievaluasi:
+        catatan_sebab = (
+            "vegas_sebab_cedera_tidak_dievaluasi: data BPM pemain / "
+            "ambang bpm_bintang tidak ada — penyusutan berjalan "
+            "tanpa pengecualian cedera"
+        )
+    try:
+        hasil = _panggil_sesuaikan_median(
+            modul, median, garis_pasar, ada_sebab, cfg, artefak
+        )
+    except Exception as exc:  # noqa: BLE001 - Vegas gagal = median mentah
+        return None, f"vegas_gagal: {type(exc).__name__}: {exc}"
+    info: dict = {
+        "diterapkan": False,
+        "median_mentah": median,
+        "median_baru": None,
+        "geser": None,
+        "alasan": None,
+        "sebab_cedera_baru": {
+            "ada": ada_sebab,
+            "pemain": pemain_sebab,
+            "dievaluasi": sebab_dievaluasi,
+        },
+        "sumber": "engine.vegas",
+    }
+    if isinstance(hasil, (bool, int, float)):
+        median_baru = _angka(hasil)
+        if median_baru is None:
+            return None, "vegas_hasil_tidak_dikenal: median_baru bukan angka"
+        info["median_baru"] = median_baru
+        info["geser"] = median_baru - median
+        info["diterapkan"] = median_baru != median
+        return info, catatan_sebab
+    if not isinstance(hasil, dict):
+        return None, "vegas_hasil_tidak_dikenal: hasil bukan dict/angka"
+    diterapkan = hasil.get("diterapkan", hasil.get("applied"))
+    median_baru = _angka(
+        hasil.get("median_baru", hasil.get("median_disesuaikan", hasil.get("median")))
+    )
+    geser = _angka(hasil.get("geser", hasil.get("geser_vegas", hasil.get("shift"))))
+    alasan = hasil.get("alasan", hasil.get("reason"))
+    info["alasan"] = alasan if isinstance(alasan, str) else None
+    if diterapkan is False or median_baru is None:
+        # Fungsi memutuskan tidak menyesuaikan (mis. gap <= ambang)
+        # atau tidak mengembalikan median baru — bukan error.
+        info["median_baru"] = median_baru
+        info["geser"] = geser
+        return info, catatan_sebab
+    if geser is None:
+        geser = median_baru - median
+    info["median_baru"] = median_baru
+    info["geser"] = geser
+    info["diterapkan"] = bool(diterapkan) and median_baru != median
+    return info, catatan_sebab
+
+
+def _cdf_dari_markets(markets_sim: dict) -> list[tuple[float, float]]:
+    """CDF total (garis, P Under) terurut dari markets sim."""
+    hasil: list[tuple[float, float]] = []
+    if not isinstance(markets_sim, dict):
+        return hasil
+    for kunci, nilai in markets_sim.items():
+        if not isinstance(kunci, str) or not kunci.startswith("total_under_"):
+            continue
+        try:
+            garis = float(kunci[len("total_under_") :])
+        except ValueError:
+            continue
+        peluang = _peluang(nilai)
+        if peluang is not None:
+            hasil.append((garis, peluang))
+    return sorted(hasil)
+
+
+def _geser_distribusi(
+    markets_sim: dict, dist_total: dict, geser: float
+) -> tuple[dict, dict]:
+    """Geser kaku distribusi sim sebesar geser (distribusi EFEKTIF v18).
+
+    Mengembalikan (markets_efektif, dist_total_efektif) — distribusi
+    kanonik artefak bila Vegas diterapkan (vonis/equilibrium/skip/
+    komposer membacanya dari simulation.markets + total):
+    - markets: tiap P(total_under_garis) menjadi CDF mentah pada
+      (garis - geser) via engine/stress.p_under_digeser (interpolasi
+      linear, dijepit di ujung — tanpa ekstrapolasi); kunci
+      non-total_under diteruskan apa adanya.
+    - dist_total: semua parameter lokasi (mean/median/kuantil —
+      lihat _KUNCI_GESER_DIST) ditambah geser; std + kunci lain
+      diteruskan apa adanya.
+    Dict mentah TIDAK diubah (salinan baru). Asumsi wiring v18:
+    geser kaku seluruh distribusi — worker B boleh mengganti
+    dengan desain shift lain; median mentah tersimpan di blok root
+    "vegas" + simulation.markets_mentah / total_mentah sebagai bukti.
+    """
+    cdf = _cdf_dari_markets(markets_sim)
+    markets_efektif = dict(markets_sim)
+    if cdf:
+        for kunci in list(markets_sim):
+            if not isinstance(kunci, str) or not kunci.startswith("total_under_"):
+                continue
+            try:
+                garis = float(kunci[len("total_under_") :])
+            except ValueError:
+                continue
+            try:
+                markets_efektif[kunci] = stress_mod.p_under_digeser(cdf, garis, geser)
+            except ValueError:
+                continue
+    dist_efektif = dict(dist_total)
+    for kunci in _KUNCI_GESER_DIST:
+        nilai = _angka(dist_total.get(kunci))
+        if nilai is not None:
+            dist_efektif[kunci] = nilai + geser
+    return markets_efektif, dist_efektif
 
 
 def _angka(nilai) -> float | None:
@@ -813,6 +1334,9 @@ def _hasil_cushion_gagal(alasan: str) -> dict:
         "cushion_vs_median_points": None,
         "volume_usd": None,
         "thin": None,
+        "liquidity": None,
+        "bid_cents": None,
+        "ask_cents": None,
         "climb": None,
     }
 
@@ -908,7 +1432,9 @@ def _rakit_kaki(
     Tahap 4: cushion_points/cushion_reason dari hasil_bantalan
     (analis.bantalan_adaptif; None bila bantalan tidak tersedia);
     volume_usd/thin/climb dari hasil_cushion (None bila cushion
-    tidak membawanya — mis. kaki fail-closed).
+    tidak membawanya — mis. kaki fail-closed). v18 (revisi
+    koordinator): liquidity_usd/bid_cents/ask_cents juga dari
+    hasil_cushion (bukti gate eksekusi — dipakai komposer).
     """
     garis = _angka(hasil_cushion.get("line"))
     leg_id = (
@@ -993,6 +1519,9 @@ def _rakit_kaki(
         "cushion_reason": bantalan_alasan,
         "volume_usd": _angka(hasil_cushion.get("volume_usd")),
         "thin": thin_mentah if isinstance(thin_mentah, bool) else None,
+        "liquidity_usd": _angka(hasil_cushion.get("liquidity")),
+        "bid_cents": _angka(hasil_cushion.get("bid_cents")),
+        "ask_cents": _angka(hasil_cushion.get("ask_cents")),
         "climb": _sanitasi_climb(hasil_cushion.get("climb")),
         "meets": meets,
         "reason": reason if isinstance(reason, str) else None,
@@ -1269,6 +1798,29 @@ def _build_nba_analysis(
             )
     artefak["injuries"] = _blok_cedera(inputs_data)
 
+    # Tahap 1b (v18): timing gate TUNGGU_LINEUP — dievaluasi setelah
+    # data cedera ada. Bila tunggu=True, analisis DILANJUTKAN sebagai
+    # draf (sim + kaki tetap dihitung) tapi status akhir dipaksa HOLD
+    # (lihat akhir builder) supaya komposer tidak memakai laga ini
+    # sampai recheck memperbarui statusnya. Blok disimpan di root
+    # artefak["tunggu_lineup"] (properti opsional skema v18).
+    tunggu_lineup_aktif = False
+    blok_tunggu, tunggu_lineup_aktif, catatan_tunggu = _blok_tunggu_lineup(
+        artefak, cfg_efektif
+    )
+    if blok_tunggu is not None:
+        artefak["tunggu_lineup"] = blok_tunggu
+    if catatan_tunggu is not None:
+        missing.append(catatan_tunggu)
+    if tunggu_lineup_aktif:
+        bintang_tunggu = ", ".join(blok_tunggu.get("bintang") or [])
+        missing.append(
+            "tunggu_lineup: "
+            + (f"bintang Questionable ({bintang_tunggu}) — " if bintang_tunggu else "")
+            + "analisis ini draf; komposer tidak memakai laga ini "
+            "sampai status diperbarui recheck"
+        )
+
     # Tahap 2: tangga Polymarket (harga venue).
     try:
         slug = polymarket_mod.nba_slug(away, home, tanggal)
@@ -1327,6 +1879,33 @@ def _build_nba_analysis(
         }
     )
 
+    # Tahap 2b (v18): veto rim protector + SHORT-CIRCUIT. Dievaluasi
+    # setelah Tahap 2 karena butuh garis pasar (Tahap 2) + cedera +
+    # pace (Tahap 1). Hasil veto disimpan di root artefak["veto"]
+    # untuk SEMUA laga (menyala atau tidak — properti opsional skema
+    # v18). Bila veto MENYALA: lewati Tahap 3 (simulasi), 5 (Kalshi),
+    # 5b (news), 5c (setan) — artefak tetap ditulis dengan status
+    # DATA_INCOMPLETE + blok veto + alasan jelas (laga kena veto,
+    # tidak dianalisis lebih lanjut). Vonis KUNING-nya dihitung
+    # on-demand oleh nilai_vonis (pemicu keras veto); missing mencatat
+    # penandanya. Scan jup.ag TIDAK terpangkas (slate-level — lihat
+    # docstring modul).
+    blok_veto, catatan_veto = _blok_veto(artefak, cfg_efektif)
+    artefak["veto"] = blok_veto
+    if catatan_veto is not None:
+        missing.append(catatan_veto)
+    if blok_veto.get("menyala"):
+        alasan_veto = "; ".join(blok_veto.get("alasan") or []) or (
+            "veto rim protector menyala"
+        )
+        missing.append(f"veto_short_circuit: {alasan_veto}")
+        missing.append(
+            "vonis_kuning: veto_rim_protector — laga kena veto, "
+            "tidak dianalisis lebih lanjut (simulasi/Kalshi/news/"
+            "setan dilewati)"
+        )
+        return _gagal()
+
     # Tahap 3: simulasi dua pass (median dari pass 1, garis dari tangga).
     garis_under = sorted({_angka(e["line"]) for e in entri_under})
     try:
@@ -1361,6 +1940,47 @@ def _build_nba_analysis(
     markets_sim = sim2.get("markets") or {}
     dist_total = (sim2.get("score_distribution") or {}).get("total") or {}
 
+    # Tahap 3b (v18): Vegas shrinkage — sesuaikan median ke arah
+    # pasar SETELAH sim. Bila diterapkan, distribusi EFEKTIF (geser
+    # kaku: kuantil + P Under digeser sebesar geser) menjadi distribusi
+    # KANONIK artefak: simulation.markets +
+    # simulation.score_distribution.total DIGANTI dengan yang efektif,
+    # sehingga vonis/equilibrium/skip/komposer (yang membaca artefak)
+    # semuanya melihat CDF yang sudah disesuaikan — sesuai brief v18
+    # item 8 ("SEBELUM vonis + equilibrium"). Distribusi mentah TIDAK
+    # hilang: tersimpan di simulation.markets_mentah +
+    # score_distribution.total_mentah (bukti/audit) + blok root
+    # "vegas" (median_mentah/median_baru/geser/alasan). Bila tidak
+    # diterapkan / modul belum ada, efektif == mentah (tidak ada
+    # kunci _mentah; blok vegas tetap ditulis bila infonya ada).
+    vegas_info, catatan_vegas = _terapkan_vegas(median, main_line, cfg_efektif, artefak)
+    if catatan_vegas is not None:
+        missing.append(catatan_vegas)
+    if vegas_info is not None:
+        artefak["vegas"] = vegas_info
+    median_efektif = median
+    markets_efektif = markets_sim
+    dist_total_efektif = dist_total
+    if (
+        vegas_info is not None
+        and vegas_info.get("diterapkan")
+        and vegas_info.get("median_baru") is not None
+        and vegas_info.get("geser") is not None
+    ):
+        median_efektif = float(vegas_info["median_baru"])
+        markets_efektif, dist_total_efektif = _geser_distribusi(
+            markets_sim, dist_total, float(vegas_info["geser"])
+        )
+        # Tukarkan distribusi kanonik artefak ke yang efektif;
+        # mentah dipertahankan sebagai bukti (salinan _geser_distribusi
+        # tidak mengubah dict mentah — markets_sim/dist_total masih asli).
+        sim2["markets_mentah"] = markets_sim
+        sim2["markets"] = markets_efektif
+        dist_sim = sim2.get("score_distribution")
+        if isinstance(dist_sim, dict):
+            dist_sim["total_mentah"] = dist_total
+            dist_sim["total"] = dist_total_efektif
+
     # Tahap 4: bantalan adaptif DULU, lalu Utama, lalu
     # Asuransi di atas Utama. Bila bantalan adaptif None (data tidak
     # lengkap / modul analis belum tersedia) -> kedua kaki fail-closed
@@ -1374,7 +1994,7 @@ def _build_nba_analysis(
     else:
         try:
             hasil_bantalan = analis_mod.bantalan_adaptif(
-                stats_laga, dist_total, cfg_efektif
+                stats_laga, dist_total_efektif, cfg_efektif
             )
         except Exception as exc:  # noqa: BLE001 - analis gagal = kaki gagal
             alasan_bantalan = f"bantalan_adaptif_gagal: {type(exc).__name__}"
@@ -1402,10 +2022,12 @@ def _build_nba_analysis(
             )
             # Utama DULU (signature baru, tanpa spread), lalu Asuransi
             # di atas garis Utama. peluang_under dikonversi dari
-            # markets sim ke {garis: P(Under)} (kontrak cushion).
-            peluang_under = peluang_under_dari_markets(markets_sim)
+            # markets EFEKTIF (pasca-Vegas, Tahap 3b) ke
+            # {garis: P(Under)} (kontrak cushion); dist_total yang
+            # dipakai juga EFEKTIF.
+            peluang_under = peluang_under_dari_markets(markets_efektif)
             hasil_utama = cushion_mod.utama_line(
-                dist_total,
+                dist_total_efektif,
                 main_line,
                 entri_under,
                 cfg=cfg_efektif,
@@ -1415,7 +2037,7 @@ def _build_nba_analysis(
             )
             garis_utama = _angka(hasil_utama.get("line"))
             hasil_asuransi = cushion_mod.insurance_line(
-                dist_total,
+                dist_total_efektif,
                 main_line,
                 entri_under,
                 cfg=cfg_efektif,
@@ -1488,8 +2110,16 @@ def _build_nba_analysis(
     # Tahap 5c: setan per pemain (KONTEKS stress — gagal -> blok
     # setan_pemain status "gagal" + missing, artefak tetap jalan;
     # skenario_panas fallback ke setan umum bila blok tidak ada/ok).
+    # Median yang dipakai adalah EFEKTIF (pasca-Vegas, Tahap 3b).
     artefak["setan_pemain"] = _blok_setan_pemain(
-        home, away, median, main_line, artefak, cfg_efektif, generated_at, tanggal
+        home,
+        away,
+        median_efektif,
+        main_line,
+        artefak,
+        cfg_efektif,
+        generated_at,
+        tanggal,
     )
     if artefak["setan_pemain"]["status"] == "gagal":
         missing.append(f"setan_pemain_gagal: {artefak['setan_pemain']['error']}")
@@ -1511,7 +2141,7 @@ def _build_nba_analysis(
         _rakit_kaki(
             "insurance",
             hasil_asuransi,
-            markets_sim,
+            markets_efektif,
             kalshi_markets,
             home,
             away,
@@ -1524,7 +2154,7 @@ def _build_nba_analysis(
         _rakit_kaki(
             "main",
             hasil_utama,
-            markets_sim,
+            markets_efektif,
             kalshi_markets,
             home,
             away,
@@ -1547,10 +2177,11 @@ def _build_nba_analysis(
                 "at": generated_at,
             }
 
-    # Penilaian wajar (Tahap 4): acuan = median sim, garis + harga jup
-    # kaki Utama, bantalan yang dibutuhkan = bantalan adaptif. Bila
-    # analis belum tersedia / nilai_wajar gagal / hasilnya tidak sah
-    # -> "tidak_terverifikasi" dengan angka yang ada tetap dicatat.
+    # Penilaian wajar (Tahap 4): acuan = median EFEKTIF (pasca-Vegas),
+    # garis + harga jup kaki Utama, bantalan yang dibutuhkan =
+    # bantalan adaptif. Bila analis belum tersedia / nilai_wajar
+    # gagal / hasilnya tidak sah -> "tidak_terverifikasi" dengan
+    # angka yang ada tetap dicatat.
     kaki_utama = legs[1]
     harga_utama = _angka(kaki_utama.get("jup_estimated_cents"))
     if harga_utama is None:
@@ -1564,7 +2195,7 @@ def _build_nba_analysis(
     if analis_mod is not None:
         try:
             analisis_wajar = analis_mod.nilai_wajar(
-                acuan_sim=median,
+                acuan_sim=median_efektif,
                 garis_market=main_line,
                 garis_harga=_angka(kaki_utama.get("line")),
                 harga_cents=harga_utama,
@@ -1589,21 +2220,37 @@ def _build_nba_analysis(
                 "belum bisa dinilai."
             )
         analisis_wajar = _analisis_wajar_tidak_terverifikasi(
-            median,
+            median_efektif,
             main_line,
             kaki_utama.get("line"),
             harga_utama,
             bantalan_dibutuhkan,
             penjelasan,
         )
+    # Vegas (Tahap 3b): median yang disesuaikan + geser + alasan
+    # disimpan di analisis_wajar (kunci opsional — cermin dari blok
+    # root "vegas" untuk bagian penilaian wajar; median mentah ada di
+    # blok root "vegas" + simulation.markets_mentah /
+    # score_distribution.total_mentah sebagai bukti).
+    if vegas_info is not None:
+        analisis_wajar["median_disesuaikan"] = vegas_info.get("median_baru")
+        analisis_wajar["median_mentah"] = vegas_info.get("median_mentah")
+        analisis_wajar["geser_vegas"] = vegas_info.get("geser")
+        analisis_wajar["vegas_diterapkan"] = bool(vegas_info.get("diterapkan"))
+        analisis_wajar["vegas_alasan"] = vegas_info.get("alasan")
+        analisis_wajar["vegas_sebab_cedera_baru"] = vegas_info.get("sebab_cedera_baru")
     artefak["analisis_wajar"] = analisis_wajar
 
-    # Tahap 6: anomali.
-    anomalies, gagal_anomali = _kumpulkan_anomali(legs, median, main_line, cfg_efektif)
+    # Tahap 6: anomali (median EFEKTIF pasca-Vegas).
+    anomalies, gagal_anomali = _kumpulkan_anomali(
+        legs, median_efektif, main_line, cfg_efektif
+    )
     artefak["anomalies"] = anomalies
     missing.extend(gagal_anomali)
 
-    # Status akhir.
+    # Status akhir. TUNGGU_LINEUP (Tahap 1b) memaksa HOLD: draf
+    # tetap dihitung, tapi komposer tidak memakai laga ini sampai
+    # recheck memperbarui statusnya.
     asuransi = legs[0]
     b2_gagal = artefak["injuries"]["n_sources"] < 2
     if b2_gagal:
@@ -1611,7 +2258,9 @@ def _build_nba_analysis(
     if not asuransi["meets"]:
         alasan = asuransi.get("reason") or "tidak_memenuhi"
         missing.append(f"asuransi_tidak_memenuhi: {alasan}")
-    artefak["status"] = "HOLD" if (b2_gagal or not asuransi["meets"]) else "OK"
+    artefak["status"] = (
+        "HOLD" if (b2_gagal or not asuransi["meets"] or tunggu_lineup_aktif) else "OK"
+    )
     return _finalisasi(artefak)
 
 

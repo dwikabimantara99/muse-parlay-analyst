@@ -12,8 +12,8 @@ proses, cache) + menghitung demon per laga + melampirkannya ke artefak.
 Semua fixture dibangun di dalam file ini, jadi tes lulus di checkout
 bersih. Angka ekspektasi dihitung tangan dari definisi di docstring
 engine/setan_pemain.py (total setan = median - poin 3P normal +
-poin 3P setan; poin setan = percobaan yang diharapkan x % terbaik
-liga x 3).
+poin 3P setan; poin setan per pemain = percobaan x
+min(cap 50%, % musim + 12pp) x 3 — rumus cap v18).
 """
 
 import sys
@@ -42,6 +42,11 @@ CFG = {
         "enabled": True,
         "pct_terbaik_min_total_3pa": 50,
         "ambang_menit_rotasi": 10.0,
+        "boost_pp": 12.0,
+        "cap_pct": 0.50,
+    },
+    "vonis": {
+        "tiga_pa_rate_top10_cutoff": 0.45,
     },
 }
 
@@ -80,11 +85,15 @@ def _pemain(nama, tim, gp, menit, fg3a, pct):
     }
 
 
-# Fixture pemain AAA vs BBB (+ C1 di tim lain, penentu % terbaik liga).
-# % terbaik liga = 0.50 (C1, fg3a_total 80 >= 50).
-# Semua main: percobaan 6+4+5+2 = 17; poin normal
-# (6x0.40 + 4x0.30 + 5x0.45 + 2x0.35) x 3 = 19.65; poin setan
-# 17 x 0.50 x 3 = 25.50. Median 220.5 -> total setan 226.35.
+# Fixture pemain AAA vs BBB (+ C1 di tim lain, penentu % terbaik liga
+# sebagai INFO v18: 0.50, fg3a_total 80 >= 50).
+# Rumus cap v18 (boost 12pp, cap 50%):
+# A1 6,0 @40% -> 50%: normal 7,20 setan 9,00;
+# A2 4,0 @30% -> 42%: normal 3,60 setan 5,04;
+# B1 5,0 @45% -> 50%: normal 6,75 setan 7,50;
+# B2 2,0 @35% -> 47%: normal 2,10 setan 2,82.
+# Semua main: percobaan 6+4+5+2 = 17; poin normal 19,65; poin setan
+# 24,36. Median 220,5 -> total setan 225,21.
 PEMAIN_FIXTURE = [
     _pemain("A1", "AAA", 10, 30.0, 6.0, 0.40),
     _pemain("A2", "AAA", 10, 25.0, 4.0, 0.30),
@@ -176,8 +185,14 @@ class TestSkenarioPanasMembacaBlokArtefak(unittest.TestCase):
 
 
 class TestBlokSetanPemain(unittest.TestCase):
-    def _artefak(self, entries=None):
-        return {"injuries": {"entries": list(entries or [])}}
+    def _artefak(self, entries=None, tiga_pa_rate=None):
+        artefak = {"injuries": {"entries": list(entries or [])}}
+        if tiga_pa_rate is not None:
+            artefak["inputs"] = {
+                "home": {"stats_season": {"tiga_pa_rate": tiga_pa_rate.get("AAA")}},
+                "away": {"stats_season": {"tiga_pa_rate": tiga_pa_rate.get("BBB")}},
+            }
+        return artefak
 
     def test_ok_total_dihitung_tangan(self):
         with mock.patch.object(
@@ -195,18 +210,39 @@ class TestBlokSetanPemain(unittest.TestCase):
             )
         self.assertEqual(blok["status"], "ok")
         self.assertIsNone(blok["error"])
-        # 220.5 - 19.65 + 25.50 = 226.35 (lihat catatan fixture).
-        self.assertAlmostEqual(blok["total_setan_pemain"], 226.35, places=2)
-        self.assertAlmostEqual(blok["geser_setan_pemain"], 5.85, places=2)
-        # Deviasi vs garis bandar: 226.35 - 224.5 = 1.85.
+        # 220.5 - 19.65 + 24.36 = 225.21 (lihat catatan fixture).
+        self.assertAlmostEqual(blok["total_setan_pemain"], 225.21, places=2)
+        self.assertAlmostEqual(blok["geser_setan_pemain"], 4.71, places=2)
+        # Deviasi vs garis bandar: 225.21 - 224.5 = 0.71.
         self.assertAlmostEqual(
-            blok["deviasi_setan_pemain_dari_garis_bandar"], 1.85, places=2
+            blok["deviasi_setan_pemain_dari_garis_bandar"], 0.71, places=2
         )
         self.assertEqual(blok["sources"], ["stats.nba.com"])
+        # Tanpa tiga_pa_rate di artefak -> flag tidak dievaluasi.
+        self.assertEqual(blok["flag_3par_volume_risk"], "tidak_dievaluasi")
+
+    def test_flag_3par_dari_stats_season_artefak(self):
+        # Kedua tim 3PAr >= cutoff 0,45 -> flag True + nilai tercatat.
+        with mock.patch.object(
+            p3p, "fetch_pemain_3p_cached", return_value=_hasil_fetch_ok()
+        ):
+            blok = na._blok_setan_pemain(
+                "AAA",
+                "BBB",
+                220.5,
+                224.5,
+                self._artefak(tiga_pa_rate={"AAA": 0.46, "BBB": 0.47}),
+                CFG,
+                "2026-11-23T05:00:00+00:00",
+                "2026-11-23",
+            )
+        self.assertEqual(blok["status"], "ok")
+        self.assertIs(blok["flag_3par_volume_risk"], True)
+        self.assertEqual(blok["tiga_pa_rate"], {"kandang": 0.46, "tandang": 0.47})
 
     def test_pemain_out_dikeluarkan_dari_percobaan(self):
         # B1 OUT: percobaan 17 -> 12; poin normal 19.65 -> 12.90;
-        # poin setan 25.50 -> 18.00; total 220.5 - 12.90 + 18.00 = 225.60.
+        # poin setan 24.36 -> 16.86; total 220.5 - 12.90 + 16.86 = 224.46.
         with mock.patch.object(
             p3p, "fetch_pemain_3p_cached", return_value=_hasil_fetch_ok()
         ):
@@ -223,7 +259,7 @@ class TestBlokSetanPemain(unittest.TestCase):
                 "2026-11-23",
             )
         self.assertEqual(blok["status"], "ok")
-        self.assertAlmostEqual(blok["total_setan_pemain"], 225.60, places=2)
+        self.assertAlmostEqual(blok["total_setan_pemain"], 224.46, places=2)
 
     def test_fetch_gagal_jadi_blok_gagal_bukan_lempar(self):
         with mock.patch.object(
@@ -330,9 +366,11 @@ class TestSkemaMenerimaBlokSetanPemain(unittest.TestCase):
         )
         artefak["setan_pemain"] = {
             "status": "ok",
-            "total_setan_pemain": 226.35,
-            "geser_setan_pemain": 5.85,
-            "deviasi_setan_pemain_dari_garis_bandar": 1.85,
+            "total_setan_pemain": 225.21,
+            "geser_setan_pemain": 4.71,
+            "deviasi_setan_pemain_dari_garis_bandar": 0.71,
+            "flag_3par_volume_risk": True,
+            "tiga_pa_rate": {"kandang": 0.46, "tandang": 0.47},
             "sources": ["stats.nba.com"],
             "tier": 2,
             "fetched_at": "2026-11-23T05:00:00+00:00",

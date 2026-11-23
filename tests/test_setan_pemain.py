@@ -24,6 +24,11 @@ CFG_SETAN = {
         "enabled": True,
         "pct_terbaik_min_total_3pa": 50,
         "ambang_menit_rotasi": 10.0,
+        "boost_pp": 12.0,
+        "cap_pct": 0.50,
+    },
+    "vonis": {
+        "tiga_pa_rate_top10_cutoff": 0.45,
     },
 }
 
@@ -98,8 +103,7 @@ def _analysis(median=220.5, garis_market=224.5, legs=None):
 # 2026 — 10 pemain rotasi DEN + 12 rotasi CHI yang main, pemain OUT,
 # pemain di luar rotasi, dan % terbaik liga (Cam Spencer, MEM, 54,1%).
 # Ekspektasi dihitung tangan di TestDenChiEndToEnd (lihat komentar di
-# sana); angka-angka ini JUGA dipakai verifikasi live di
-# scripts/verifikasi_setan_pemain.py (total 274,14).
+# sana); total setan v18 (rumus cap) adalah 253,71 (v17: 274,14).
 DEN_CHI_PEMAIN = [
     # DEN rotasi yang main (10).
     _pemain("Nikola Jokić", "DEN", 15, 37.1, 4.2, 0.302),
@@ -350,15 +354,52 @@ class TestPemainAbsen(unittest.TestCase):
         self.assertEqual(sp.pemain_absen_dari_artefak({"injuries": None}), set())
 
 
+class TestRumusCap(unittest.TestCase):
+    """Rumus cap v18: pct_setan = min(cap, pct musim + boost)."""
+
+    def test_pemain_36_2_persen_tambah_12pp_tanpa_cap(self):
+        # Kasus wajib tugas: 36,2% + 12pp = 48,2% < 50% cap.
+        self.assertAlmostEqual(sp.pct_setan_pemain(0.362, 12.0, 0.50), 0.482)
+
+    def test_pemain_45_persen_kena_cap_50_persen(self):
+        # Kasus wajib tugas: 45% + 12pp = 57% -> cap 50%.
+        self.assertAlmostEqual(sp.pct_setan_pemain(0.45, 12.0, 0.50), 0.50)
+
+    def test_pemain_30_persen_tambah_12pp(self):
+        self.assertAlmostEqual(sp.pct_setan_pemain(0.30, 12.0, 0.50), 0.42)
+
+    def test_pemain_50_persen_tetap_cap(self):
+        # Penembak 50% tidak naik lagi: min(0,50, 0,62) = 0,50.
+        self.assertAlmostEqual(sp.pct_setan_pemain(0.50, 12.0, 0.50), 0.50)
+
+
+class TestFlag3Par(unittest.TestCase):
+    """Flag 3P Volume Risk: kedua tim Top-10 3PAr."""
+
+    def test_kedua_tim_di_atas_cutoff_true(self):
+        self.assertIs(sp.evaluasi_flag_3par(0.46, 0.47, 0.45), True)
+
+    def test_satu_tim_di_bawah_cutoff_false(self):
+        self.assertIs(sp.evaluasi_flag_3par(0.46, 0.40, 0.45), False)
+
+    def test_nilai_3par_hilang_tidak_dievaluasi(self):
+        self.assertEqual(sp.evaluasi_flag_3par(None, 0.47, 0.45), "tidak_dievaluasi")
+        self.assertEqual(sp.evaluasi_flag_3par(0.46, None, 0.45), "tidak_dievaluasi")
+
+    def test_cutoff_hilang_tidak_dievaluasi(self):
+        self.assertEqual(sp.evaluasi_flag_3par(0.46, 0.47, None), "tidak_dievaluasi")
+
+
 class TestHitungSetanPemain(unittest.TestCase):
     """Rumus setan per pemain (hitung tangan)."""
 
     def _pemain_rumus(self):
-        # % terbaik liga: ZZZ 60,0% (5,0 x 20 = 100 total >= 50).
+        # % terbaik liga (INFO saja di v18, bukan input rumus):
+        # ZZZ 60,0% (5,0 x 20 = 100 total >= 50).
         return [
             _pemain("P1", "AAA", 15, 30.0, 6.0, 0.400),
             _pemain("P2", "AAA", 15, 20.0, 4.0, 0.200),
-            _pemain("P3_OUT", "AAA", 15, 30.0, 10.0, 0.500),
+            _pemain("P3_OUT", "AAA", 15, 30.0, 10.0, 0.300),
             _pemain("P4_BENCH", "AAA", 15, 5.0, 2.0, 0.400),
             _pemain("Q1", "BBB", 15, 30.0, 5.0, 0.350),
             _pemain("Q2", "BBB", 15, 15.0, 3.0, 0.250),
@@ -366,15 +407,18 @@ class TestHitungSetanPemain(unittest.TestCase):
         ]
 
     def test_rumus_hitung_tangan(self):
-        # AAA: P1 normal 6,0x0,4x3=7,2 setan 6,0x0,6x3=10,8;
-        #      P2 normal 4,0x0,2x3=2,4 setan 4,0x0,6x3=7,2.
-        #      -> att 10,0 normal 9,6 setan 18,0.
-        # BBB: Q1 normal 5,0x0,35x3=5,25 setan 9,0;
-        #      Q2 normal 3,0x0,25x3=2,25 setan 5,4.
-        #      -> att 8,0 normal 7,5 setan 14,4.
-        # Gabung: att 18,0 normal 17,1 setan 32,4.
-        # Total = 230,0 - 17,1 + 32,4 = 245,3; geser 15,3;
-        # deviasi vs 232,5 = +12,8.
+        # Rumus cap v18 (boost 12pp, cap 50%):
+        # AAA: P1 pct setan min(0,50, 0,52)=0,50 -> normal 6,0x0,4x3=7,2
+        #      setan 6,0x0,5x3=9,0; P2 pct setan 0,32 -> normal
+        #      4,0x0,2x3=2,4 setan 4,0x0,32x3=3,84.
+        #      -> att 10,0 normal 9,6 setan 12,84.
+        # BBB: Q1 pct setan 0,47 -> normal 5,0x0,35x3=5,25 setan
+        #      5,0x0,47x3=7,05; Q2 pct setan 0,37 -> normal
+        #      3,0x0,25x3=2,25 setan 3,0x0,37x3=3,33.
+        #      -> att 8,0 normal 7,5 setan 10,38.
+        # Gabung: att 18,0 normal 17,1 setan 23,22.
+        # Total = 230,0 - 17,1 + 23,22 = 236,12; geser 6,12;
+        # deviasi vs 232,5 = +3,62.
         hasil = sp.hitung_setan_pemain(
             self._pemain_rumus(),
             "AAA",
@@ -384,27 +428,137 @@ class TestHitungSetanPemain(unittest.TestCase):
             pemain_absen={"P3_OUT"},
             cfg=CFG_SETAN,
         )
-        self.assertEqual(hasil["total_setan_pemain"], 245.3)
-        self.assertEqual(hasil["geser_setan_pemain"], 15.3)
-        self.assertEqual(hasil["deviasi_setan_pemain_dari_garis_bandar"], 12.8)
+        self.assertEqual(hasil["total_setan_pemain"], 236.12)
+        self.assertEqual(hasil["geser_setan_pemain"], 6.12)
+        self.assertEqual(hasil["deviasi_setan_pemain_dari_garis_bandar"], 3.62)
         self.assertEqual(hasil["percobaan_3p_diharapkan_gabungan"], 18.0)
         self.assertEqual(hasil["poin_3p_normal_gabungan"], 17.1)
-        self.assertEqual(hasil["poin_3p_setan_gabungan"], 32.4)
+        self.assertEqual(hasil["poin_3p_setan_gabungan"], 23.22)
+        self.assertEqual(hasil["boost_pp"], 12.0)
+        self.assertEqual(hasil["cap_pct"], 0.50)
+        self.assertEqual(hasil["sumber_boost_cap"], "config")
+        # % terbaik liga tetap dilaporkan sebagai INFO (bukan input).
         self.assertEqual(hasil["pct_terbaik_liga"]["player"], "ZZZ")
         self.assertEqual(hasil["pct_terbaik_liga"]["pct"], 0.6)
+        # Tanpa 3PAr -> flag tidak dievaluasi (bukan False).
+        self.assertEqual(hasil["flag_3par_volume_risk"], "tidak_dievaluasi")
         aaa = hasil["tim"]["kandang"]
         self.assertEqual(aaa["n_pemain_rotasi_main"], 2)
         self.assertEqual(aaa["n_pemain_absen_dikeluarkan"], 1)
         self.assertEqual(aaa["pemain_absen_dikeluarkan"], ["P3_OUT"])
         self.assertEqual(aaa["n_pemain_di_luar_rotasi"], 1)
         self.assertEqual(aaa["percobaan_3p_diharapkan"], 10.0)
-        # Top kontributor AAA: P2 (selisih 4,8) di atas P1 (3,6).
-        self.assertEqual(aaa["top_kontributor"][0]["player"], "P2")
-        self.assertEqual(aaa["top_kontributor"][0]["selisih_vs_normal"], 4.8)
-        self.assertEqual(aaa["top_kontributor"][1]["player"], "P1")
+        # Top kontributor AAA: P1 (selisih 1,8) di atas P2 (1,44).
+        self.assertEqual(aaa["top_kontributor"][0]["player"], "P1")
+        self.assertEqual(aaa["top_kontributor"][0]["selisih_vs_normal"], 1.8)
+        self.assertEqual(aaa["top_kontributor"][0]["pct_setan_3p"], 0.5)
+        self.assertEqual(aaa["top_kontributor"][1]["player"], "P2")
+        self.assertEqual(aaa["top_kontributor"][1]["pct_setan_3p"], 0.32)
+
+    def test_flag_3par_dari_argumen_tiga_pa_rate(self):
+        hasil = sp.hitung_setan_pemain(
+            self._pemain_rumus(),
+            "AAA",
+            "BBB",
+            230.0,
+            pemain_absen={"P3_OUT"},
+            cfg=CFG_SETAN,
+            tiga_pa_rate={"AAA": 0.46, "BBB": 0.47},
+        )
+        self.assertIs(hasil["flag_3par_volume_risk"], True)
+        self.assertEqual(hasil["tiga_pa_rate"], {"kandang": 0.46, "tandang": 0.47})
+        self.assertEqual(hasil["tiga_pa_rate_top10_cutoff"], 0.45)
+        hasil_rendah = sp.hitung_setan_pemain(
+            self._pemain_rumus(),
+            "AAA",
+            "BBB",
+            230.0,
+            pemain_absen={"P3_OUT"},
+            cfg=CFG_SETAN,
+            tiga_pa_rate={"AAA": 0.46, "BBB": 0.40},
+        )
+        self.assertIs(hasil_rendah["flag_3par_volume_risk"], False)
+
+    def test_cutoff_3par_hilang_flag_tidak_dievaluasi(self):
+        cfg_tanpa_cutoff = {"setan_pemain": dict(CFG_SETAN["setan_pemain"])}
+        hasil = sp.hitung_setan_pemain(
+            self._pemain_rumus(),
+            "AAA",
+            "BBB",
+            230.0,
+            pemain_absen={"P3_OUT"},
+            cfg=cfg_tanpa_cutoff,
+            tiga_pa_rate={"AAA": 0.46, "BBB": 0.47},
+        )
+        self.assertEqual(hasil["flag_3par_volume_risk"], "tidak_dievaluasi")
+        self.assertIsNone(hasil["tiga_pa_rate_top10_cutoff"])
+
+    def test_flag_dimatikan_di_config_tidak_dievaluasi(self):
+        cfg_flag_mati = {
+            "setan_pemain": {
+                **CFG_SETAN["setan_pemain"],
+                "add_3par_volume_flag": False,
+            },
+            "vonis": dict(CFG_SETAN["vonis"]),
+        }
+        hasil = sp.hitung_setan_pemain(
+            self._pemain_rumus(),
+            "AAA",
+            "BBB",
+            230.0,
+            pemain_absen={"P3_OUT"},
+            cfg=cfg_flag_mati,
+            tiga_pa_rate={"AAA": 0.46, "BBB": 0.47},
+        )
+        self.assertEqual(hasil["flag_3par_volume_risk"], "tidak_dievaluasi")
+        self.assertTrue(any("dinonaktifkan" in c for c in hasil["catatan"]))
+
+    def test_boost_cap_hilang_pakai_nilai_kontrak_default(self):
+        # Kunci boost_pp/cap_pct ditulis worker A; bila belum ada,
+        # dipakai nilai kontrak 12,0/0,50 + sumber "default" (pola
+        # DEFAULT_HARGA_MIN_CENTS) — total sama dengan CFG_SETAN.
+        cfg_tanpa_kunci = {
+            "setan_pemain": {
+                "enabled": True,
+                "pct_terbaik_min_total_3pa": 50,
+                "ambang_menit_rotasi": 10.0,
+            },
+            "vonis": dict(CFG_SETAN["vonis"]),
+        }
+        hasil = sp.hitung_setan_pemain(
+            self._pemain_rumus(),
+            "AAA",
+            "BBB",
+            230.0,
+            garis_bandar=232.5,
+            pemain_absen={"P3_OUT"},
+            cfg=cfg_tanpa_kunci,
+        )
+        self.assertEqual(hasil["boost_pp"], 12.0)
+        self.assertEqual(hasil["cap_pct"], 0.50)
+        self.assertEqual(hasil["sumber_boost_cap"], "default")
+        self.assertEqual(hasil["total_setan_pemain"], 236.12)
+
+    def test_boost_cap_tidak_valid_config_error(self):
+        cfg_boost_negatif = {
+            "setan_pemain": {**CFG_SETAN["setan_pemain"], "boost_pp": -1.0}
+        }
+        with self.assertRaises(config_mod.ConfigError):
+            sp.hitung_setan_pemain(
+                self._pemain_rumus(), "AAA", "BBB", 230.0, cfg=cfg_boost_negatif
+            )
+        cfg_cap_lebih_satu = {
+            "setan_pemain": {**CFG_SETAN["setan_pemain"], "cap_pct": 1.5}
+        }
+        with self.assertRaises(config_mod.ConfigError):
+            sp.hitung_setan_pemain(
+                self._pemain_rumus(), "AAA", "BBB", 230.0, cfg=cfg_cap_lebih_satu
+            )
 
     def test_pemain_absen_tidak_dihitung(self):
-        # Tanpa filter absen, P3_OUT (10,0 percobaan) ikut: total naik.
+        # Tanpa filter absen, P3_OUT (10,0 percobaan @30%) ikut:
+        # normal 10,0x0,3x3=9,0; setan 10,0x0,42x3=12,6;
+        # selisih +3,6 -> total tanpa filter 239,72.
         dengan_filter = sp.hitung_setan_pemain(
             self._pemain_rumus(),
             "AAA",
@@ -416,10 +570,8 @@ class TestHitungSetanPemain(unittest.TestCase):
         tanpa_filter = sp.hitung_setan_pemain(
             self._pemain_rumus(), "AAA", "BBB", 230.0, pemain_absen=set(), cfg=CFG_SETAN
         )
-        # P3_OUT: normal 10,0x0,5x3=15,0; setan 10,0x0,6x3=18,0;
-        # selisih +3,0 -> total tanpa filter 248,3.
-        self.assertEqual(dengan_filter["total_setan_pemain"], 245.3)
-        self.assertEqual(tanpa_filter["total_setan_pemain"], 248.3)
+        self.assertEqual(dengan_filter["total_setan_pemain"], 236.12)
+        self.assertEqual(tanpa_filter["total_setan_pemain"], 239.72)
         self.assertEqual(
             tanpa_filter["percobaan_3p_diharapkan_gabungan"],
             dengan_filter["percobaan_3p_diharapkan_gabungan"] + 10.0,
@@ -452,7 +604,7 @@ class TestHitungSetanPemain(unittest.TestCase):
             pemain, "AAA", "BBB", 230.0, pemain_absen={"P3_OUT"}, cfg=CFG_SETAN
         )
         # Total tidak berubah (RUSAK dilewati, bukan ditebak 0).
-        self.assertEqual(hasil["total_setan_pemain"], 245.3)
+        self.assertEqual(hasil["total_setan_pemain"], 236.12)
         self.assertEqual(hasil["tim"]["kandang"]["n_pemain_dilewati_tanpa_data"], 1)
         self.assertTrue(any("RUSAK" in c for c in hasil["catatan"]))
 
@@ -460,10 +612,18 @@ class TestHitungSetanPemain(unittest.TestCase):
         with self.assertRaises(ValueError):
             sp.hitung_setan_pemain([], "AAA", "BBB", 230.0, cfg=CFG_SETAN)
 
-    def test_tidak_ada_kandidat_pct_terbaik_raises(self):
+    def test_tidak_ada_kandidat_pct_terbaik_info_none_tanpa_raise(self):
+        # v18: % terbaik liga hanya INFO — tidak ada kandidat bukan
+        # lagi error. Satu pemain AAA 1,0 percobaan @90%:
+        # pct setan min(0,50, 1,02)=0,50; normal 2,7; setan 1,5;
+        # total = 230,0 - 2,7 + 1,5 = 228,8. BBB tanpa pemain -> 0.
         pemain = [_pemain("Kecil", "AAA", 2, 30.0, 1.0, 0.900)]
-        with self.assertRaises(ValueError):
-            sp.hitung_setan_pemain(pemain, "AAA", "BBB", 230.0, cfg=CFG_SETAN)
+        hasil = sp.hitung_setan_pemain(pemain, "AAA", "BBB", 230.0, cfg=CFG_SETAN)
+        self.assertIsNone(hasil["pct_terbaik_liga"])
+        self.assertEqual(hasil["total_setan_pemain"], 228.8)
+        self.assertTrue(
+            any("tidak ada pemain memenuhi ambang" in c for c in hasil["catatan"])
+        )
 
     def test_config_hilang_raises(self):
         with self.assertRaises(config_mod.ConfigError):
@@ -585,13 +745,22 @@ class TestDenChiEndToEnd(unittest.TestCase):
     """DEN@CHI ujung-ke-ujung dengan fixture nilai asli.
 
     Ekspektasi dihitung tangan dari nilai fixture (stats.nba.com
-    23 Nov 2026, dibulatkan — lihat DEN_CHI_PEMAIN):
-    - DEN rotasi main (10): att 32,10; normal 34,28; setan 52,10.
-    - CHI rotasi main (12): att 35,20; normal 33,81; setan 57,13.
-    - Gabung: att 67,30; normal 68,09; setan 109,23.
-    - Total = 233,0 - 68,09 + 109,23 = 274,14; geser 41,14;
-      deviasi vs garis bandar 236,5 = +37,64.
-    - % terbaik liga: Cam Spencer (MEM) 54,1% (61,2 percobaan).
+    23 Nov 2026, dibulatkan — lihat DEN_CHI_PEMAIN), rumus cap v18
+    (boost 12pp, cap 50%):
+    - DEN rotasi main (10): att 32,10; normal 34,28; setan 43,61
+      (Murray 7,1 @47,2% -> cap 50%: 10,65; Spencer Jones 1,8 @42,9%
+      -> cap 50%: 2,70; sisanya +12pp di bawah cap).
+    - CHI rotasi main (12): att 35,20; normal 33,81; setan 45,19
+      (Jalen Smith 5,2 @41,1% -> cap 50%: 7,80; Hield 4,9 @43,5% ->
+      cap 50%: 7,35; sisanya +12pp di bawah cap).
+    - Gabung: att 67,30; normal 68,09; setan 88,80.
+    - Total = 233,0 - 68,09 + 88,80 = 253,71; geser 20,71;
+      deviasi vs garis bandar 236,5 = +17,21.
+      (v17 dengan % terbaik liga 54,1% seragam: 274,14 — cap
+      menurunkan total 20,43 poin, TAPI kedua kaki nyata tetap
+      rapuh karena 253,71 masih di atas U252,5/U250,5.)
+    - % terbaik liga (INFO saja di v18): Cam Spencer (MEM) 54,1%
+      (61,2 percobaan).
     """
 
     ARTEFAK = (
@@ -610,12 +779,12 @@ class TestDenChiEndToEnd(unittest.TestCase):
             pemain_absen=DEN_CHI_ABSEN,
             cfg=CFG_SETAN,
         )
-        self.assertEqual(hasil["total_setan_pemain"], 274.14)
-        self.assertEqual(hasil["geser_setan_pemain"], 41.14)
-        self.assertEqual(hasil["deviasi_setan_pemain_dari_garis_bandar"], 37.64)
+        self.assertEqual(hasil["total_setan_pemain"], 253.71)
+        self.assertEqual(hasil["geser_setan_pemain"], 20.71)
+        self.assertEqual(hasil["deviasi_setan_pemain_dari_garis_bandar"], 17.21)
         self.assertEqual(hasil["percobaan_3p_diharapkan_gabungan"], 67.3)
         self.assertEqual(hasil["poin_3p_normal_gabungan"], 68.09)
-        self.assertEqual(hasil["poin_3p_setan_gabungan"], 109.23)
+        self.assertEqual(hasil["poin_3p_setan_gabungan"], 88.8)
         self.assertEqual(hasil["pct_terbaik_liga"]["player"], "Cam Spencer")
         self.assertEqual(hasil["pct_terbaik_liga"]["pct"], 0.541)
         self.assertEqual(hasil["pct_terbaik_liga"]["team"], "MEM")
@@ -624,15 +793,19 @@ class TestDenChiEndToEnd(unittest.TestCase):
         self.assertEqual(den["n_pemain_rotasi_main"], 10)
         self.assertEqual(den["n_pemain_absen_dikeluarkan"], 3)
         self.assertEqual(den["n_pemain_di_luar_rotasi"], 3)
+        self.assertEqual(den["poin_3p_setan"], 43.61)
         self.assertEqual(chi["n_pemain_rotasi_main"], 12)
         self.assertEqual(chi["n_pemain_absen_dikeluarkan"], 4)
         self.assertEqual(chi["n_pemain_di_luar_rotasi"], 1)
-        # Top kontributor: DEN Aaron Gordon (selisih 3,10), CHI Matas
-        # Buzelis (selisih 3,17).
-        self.assertEqual(den["top_kontributor"][0]["player"], "Aaron Gordon")
-        self.assertEqual(den["top_kontributor"][0]["selisih_vs_normal"], 3.10)
+        self.assertEqual(chi["poin_3p_setan"], 45.19)
+        # Top kontributor v18: DEN Cameron Johnson (selisih 1,91),
+        # CHI Matas Buzelis (selisih 2,12).
+        self.assertEqual(den["top_kontributor"][0]["player"], "Cameron Johnson")
+        self.assertEqual(den["top_kontributor"][0]["selisih_vs_normal"], 1.91)
+        self.assertEqual(den["top_kontributor"][0]["pct_setan_3p"], 0.479)
         self.assertEqual(chi["top_kontributor"][0]["player"], "Matas Buzelis")
-        self.assertEqual(chi["top_kontributor"][0]["selisih_vs_normal"], 3.17)
+        self.assertEqual(chi["top_kontributor"][0]["selisih_vs_normal"], 2.12)
+        self.assertEqual(chi["top_kontributor"][0]["pct_setan_3p"], 0.482)
         # Strawther (OUT, tidak ada di data) dicatat, bukan error.
         self.assertTrue(any("Strawther" in c for c in hasil["catatan"]))
 
@@ -649,11 +822,14 @@ class TestDenChiEndToEnd(unittest.TestCase):
         ARTEFAK.exists(), "artefak verif tahap 4 tidak ada di checkout ini"
     )
     def test_kedua_kaki_nyata_di_flag_rapuh(self):
-        # Total setan 274,14 > kedua garis nyata (252,5 / 250,5).
-        # P(setan pemain) dari CDF artefak, geser 41,14:
-        # U252,5: CDF(211,36) = 0,12025+0,02211x0,43 = 0,1298.
-        # U250,5: CDF(209,36) = 0,00001+0,12024x(73,86/75) = 0,1184
-        # (CDF tersimpan jarang di ujung bawah: 135,5 -> 210,5).
+        # Total setan v18 253,71 > kedua garis nyata (252,5 / 250,5)
+        # — MASIH rapuh, tapi tipis (hanya +1,21 / +3,21 di atas
+        # garis, vs +21,64 / +23,64 di v17).
+        # P(setan pemain) dari CDF artefak, geser 20,71:
+        # U252,5: CDF(231,79) = 0,45132+0,645x(0,49293-0,45132) = 0,4782
+        #   (interpolasi 230,5 -> 232,5).
+        # U250,5: CDF(229,79) = 0,40996+0,645x(0,45132-0,40996) = 0,4366
+        #   (interpolasi 228,5 -> 230,5).
         cfg = config_mod.load_playstyle()
         hasil_setan = sp.hitung_setan_pemain(
             DEN_CHI_PEMAIN,
@@ -672,17 +848,17 @@ class TestDenChiEndToEnd(unittest.TestCase):
             self._den_chi(), kaki=kaki, cfg=cfg, setan_pemain=hasil_setan
         )
         self.assertTrue(hasil["setan_pemain_dipakai"])
-        self.assertEqual(hasil["skenario"]["setan"]["geser_points"], 41.14)
+        self.assertEqual(hasil["skenario"]["setan"]["geser_points"], 20.71)
         by_ticket = {k["ticket"]: k for k in hasil["kaki"]}
         asuransi = by_ticket["insurance"]
         self.assertTrue(asuransi["flag_setan_pemain"])
-        self.assertEqual(asuransi["total_setan_pemain"], 274.14)
-        self.assertEqual(asuransi["deviasi_setan_pemain_dari_garis_bandar"], 37.64)
-        self.assertAlmostEqual(asuransi["p_setan_pemain"], 0.1298, places=4)
+        self.assertEqual(asuransi["total_setan_pemain"], 253.71)
+        self.assertEqual(asuransi["deviasi_setan_pemain_dari_garis_bandar"], 17.21)
+        self.assertAlmostEqual(asuransi["p_setan_pemain"], 0.4782, places=4)
         self.assertTrue(asuransi["flag_setan"])
         utama = by_ticket["main"]
         self.assertTrue(utama["flag_setan_pemain"])
-        self.assertAlmostEqual(utama["p_setan_pemain"], 0.1184, places=4)
+        self.assertAlmostEqual(utama["p_setan_pemain"], 0.4366, places=4)
         self.assertTrue(utama["flag_setan"])
 
 

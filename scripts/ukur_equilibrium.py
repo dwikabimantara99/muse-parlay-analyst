@@ -249,9 +249,17 @@ def ukur() -> dict:
         "ambang": {
             "min_leg_prob_insurance": cfg["tickets"]["insurance"]["min_leg_prob"],
             "min_leg_prob_main": cfg["tickets"]["main"]["min_leg_prob"],
-            "min_edge_pct_insurance": cfg["tickets"]["insurance"]["min_edge_pct"],
+            "min_p_market_insurance": cfg["tickets"]["insurance"]["min_p_market"],
+            # v18: edge datar 3,5% diganti EV (keputusan user #2);
+            # gate banjir tunggal stress_gate_scenario diganti dua
+            # ambang flood_3p_min/flood_ft_min.
+            "max_negative_ev_pct_insurance": cfg["tickets"]["insurance"][
+                "max_negative_ev_pct"
+            ],
+            "max_negative_ev_pct_main": cfg["tickets"]["main"]["max_negative_ev_pct"],
             "floor_harga_cents": cfg["analis"]["harga_min_asuransi_cents"],
-            "stress_gate_scenario": cfg["tickets"]["insurance"]["stress_gate_scenario"],
+            "flood_3p_min_insurance": cfg["tickets"]["insurance"]["flood_3p_min"],
+            "flood_ft_min_insurance": cfg["tickets"]["insurance"]["flood_ft_min"],
             "geser_banjir_terburuk": max(
                 cfg["stress"]["banjir_3p_points"],
                 cfg["stress"]["banjir_ft_points"],
@@ -260,14 +268,19 @@ def ukur() -> dict:
             "pola_denver_edge_kecil_pct": cfg["skip_awal"]["pola_denver"][
                 "edge_kecil_pct"
             ],
-            "skip_ot_prob": cfg["ot_seleksi"]["skip_ot_prob"],
+            # v18: skip_ot_prob v17 dihapus — OT empiris, hard-skip
+            # hanya bila p_ot empiris >= hard_skip_ot_prob.
+            "ot_empiris_base_rate": cfg["ot_seleksi"]["base_rate_ot"],
+            "ot_empiris_hard_skip": cfg["ot_seleksi"]["hard_skip_ot_prob"],
         },
         "catatan": (
             "Baris yang sama dengan ukur_gate_banjir (10 baris: 7 live "
-            "22 Nov + 3 verif tahap 4; DEN@CHI muncul 2x). Equilibrium "
-            "Asuransi memakai gate banjir p90 + edge + volume + lantai "
-            "75c + bukan-MAHAL; Utama memakai min_leg_prob + lantai "
-            "75c. Skip (a) butuh equilibrium TIDAK ADA di KEDUA tiket. "
+            "22 Nov + 3 verif tahap 4; DEN@CHI muncul 2x). v18: "
+            "Equilibrium Asuransi memakai p_final >= 0,82 + p_market "
+            ">= 0,80 + banjir 3P >= 70% / FT >= 65% + EV >= -1% + "
+            "gate eksekusi volume; Utama p_final >= 0,74 + EV >= -2% "
+            "+ banjir warning-only. Skip (a) butuh equilibrium TIDAK "
+            "ADA di KEDUA tiket. "
             "Racik 'lama' = kedua flag equilibrium/skip_awal dimatikan "
             "(perilaku lama persis)."
         ),

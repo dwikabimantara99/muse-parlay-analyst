@@ -496,29 +496,32 @@ class TestDenChiSetan(unittest.TestCase):
         by_ticket = {k["ticket"]: k for k in hasil["kaki"]}
 
         asuransi = by_ticket["insurance"]
-        # Pola DEN: lolos normal (84,5% >= 74%) tapi jebol di setan.
+        # Pola DEN: lolos normal (84,5% >= 82%) tapi jebol di setan.
         self.assertAlmostEqual(asuransi["p_under"]["normal"], 0.84474, places=4)
         self.assertAlmostEqual(asuransi["p_under"]["setan"], 0.53154, places=4)
-        self.assertLess(asuransi["p_under"]["setan"], 0.74)
+        self.assertLess(asuransi["p_under"]["setan"], 0.82)
         self.assertTrue(asuransi["flag_setan"])
         self.assertIn("84.5%", asuransi["alasan_flag_setan"])
         self.assertIn("53.2%", asuransi["alasan_flag_setan"])
-        # Garis tahan-setan ADA (264,5 @94¢, thin) — dicatat apa adanya.
-        tahan = asuransi["garis_tahan_setan"]
-        self.assertEqual(tahan["line"], 264.5)
-        self.assertEqual(tahan["price_cents"], 94.0)
-        self.assertIsNone(asuransi["alasan_tidak_tahan_setan"])
+        # v18: TIDAK ADA garis tahan-setan Asuransi — target naik
+        # 0,74 -> 0,82, dan garis tertinggi tangga (264,5) hanya
+        # mencapai P(setan) 75,7% < 82% (di v17 garis itu tahan
+        # dengan target 74%).
+        self.assertIsNone(asuransi["garis_tahan_setan"])
+        self.assertIsNotNone(asuransi["alasan_tidak_tahan_setan"])
         # Fakta (bukan vonis dari tes ini): DEN juga gagal gate banjir.
         self.assertFalse(asuransi["tahan_banjir"])
 
         utama = by_ticket["main"]
         self.assertAlmostEqual(utama["p_under"]["normal"], 0.81829, places=4)
         self.assertAlmostEqual(utama["p_under"]["setan"], 0.491474, places=4)
-        self.assertLess(utama["p_under"]["setan"], 0.65)
+        self.assertLess(utama["p_under"]["setan"], 0.74)
         self.assertTrue(utama["flag_setan"])
+        # v18: garis tahan-setan Utama NAIK ke 264,5 @94¢ (di v17:
+        # 258,5 @88,5¢) karena target Utama naik 0,65 -> 0,74.
         tahan_utama = utama["garis_tahan_setan"]
-        self.assertEqual(tahan_utama["line"], 258.5)
-        self.assertEqual(tahan_utama["price_cents"], 88.5)
+        self.assertEqual(tahan_utama["line"], 264.5)
+        self.assertEqual(tahan_utama["price_cents"], 94.0)
         self.assertFalse(utama["tahan_banjir"])
 
 

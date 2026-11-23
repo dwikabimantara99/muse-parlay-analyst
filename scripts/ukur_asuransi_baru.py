@@ -312,7 +312,11 @@ def ukur() -> dict:
             "setan_points": cfg["stress"]["setan_points"],
             "min_leg_prob_insurance": cfg["tickets"]["insurance"]["min_leg_prob"],
             "min_leg_prob_main": cfg["tickets"]["main"]["min_leg_prob"],
-            "min_edge_pct_insurance": cfg["tickets"]["insurance"]["min_edge_pct"],
+            # v18: edge datar 3,5% diganti EV (keputusan user #2).
+            "max_negative_ev_pct_insurance": cfg["tickets"]["insurance"][
+                "max_negative_ev_pct"
+            ],
+            "max_negative_ev_pct_main": cfg["tickets"]["main"]["max_negative_ev_pct"],
             "min_volume_usd": cfg["polymarket_ladder"]["min_volume_usd"],
             "multiplier_min_insurance": cfg["tickets"]["insurance"]["multiplier_min"],
             "multiplier_max_insurance": cfg["tickets"]["insurance"]["multiplier_max"],

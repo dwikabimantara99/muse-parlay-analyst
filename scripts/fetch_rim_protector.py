@@ -22,11 +22,31 @@ ingest/pemain_3p.py):
    Kolom data-stat: name_display, team_name_abbr, games, mp_per_g,
    blk_per_g. Tricode BBRef dipetakan ke konvensi stats.nba.com
    (BRK->BKN, CHO->CHA, PHO->PHX) lewat BBREF_TRICODE_MAP ingest.bbref.
+3. POSISI (SELALU dari BBRef): stats.nba.com
+   leaguedashplayerstats TIDAK punya kolom POSITION (diverifikasi
+   live 2026-11-23 — header respons tidak mengandung posisi) —
+   jadi posisi diambil dari kolom data-stat="pos" tabel per-game
+   BBRef yang sama. Bila sumber blok adalah stats.nba.com, script
+   menarik halaman per-game BBRef SEKALI lagi khusus untuk posisi
+   dan menggabungkan per (nama ternormalisasi, tim); bila sumber
+   blok adalah BBRef, posisi sudah ada dari parse yang sama.
+   Bila tarikan posisi BBRef gagal -> script GAGAL (exit 2) dan
+   file JSON lama dipertahankan: pemetaan tanpa filter posisi
+   adalah cacat v17 (guard ikut masuk) — lebih baik tidak
+   regenerate daripada regenerate cacat.
 
-ATURAN DERIVASI (ambang dari section vonis.rim_protector di
-config/playstyle.yaml — bukan dari kode):
+ATURAN DERIVASI (ambang dari section vonis.veto.rim_protector di
+config/playstyle.yaml — bukan dari kode; v18: pindah dari
+vonis.rim_protector ke vonis.veto.rim_protector):
 - Rotasi: GP >= min_games DAN MP >= min_mp_per_game.
 - Blok bermakna: BLK >= min_blk_per_game.
+- Posisi big: pos BBRef harus ada di position_filter
+  (["C", "PF", "F-C", "C-F"]) — v18: memperbaiki cacat v17 yang
+  menamai guard di tim yang bloknya lemah (DET: Cade Cunningham
+  0,9; IND: Tyrese Haliburton 0,8). Pemain yang lolos ambang
+  blok/menit tapi posisinya tidak diketahui (nama tidak cocok
+  antara kedua sumber) DIKELUARKAN dari pemetaan dan dicatat di
+  daftar "tanpa_posisi" pada JSON output (jejak audit).
 - Per tim diambil maksimal max_per_team pemain, urut BPG tertinggi;
   seri (selisih < 1e-9) -> menit lebih besar -> nama abjad
   (deterministik). Baris TOT (agregat pemain pindah tim) dilewati —
@@ -42,11 +62,10 @@ rotasi (center starter + big cadangan); selisih BPG #1 vs #2 sering
 di dalam noise statistik (CHI: Jalen Smith 1,1 vs Nic Claxton 1,0 —
 satu blok per 10 laga). Hanya memakai #1 akan menyatakan CHI "aman"
 padahal Claxton (1,0 blok/laga) OUT dan cadangan ketiganya (Caleb
-Wilson 0,9) juga OUT. KETERBATASAN JUJUR: aturan BPG murni bisa
-menamai guard di tim yang bloknya lemah (mis. DET: Cade Cunningham
-0,9) — veto hanya menyala bila pemain itu OUT + garis/pace tinggi,
-dan alasannya selalu menyebut nama + angka bloknya supaya bisa
-diaudit.
+Wilson 0,9) juga OUT. v18: filter posisi menutup celah v17 (guard
+di tim yang bloknya lemah); bila suatu tim tidak punya big yang
+lolos ambang, tim itu tidak muncul di pemetaan dan veto tidak bisa
+menilai tim itu (dicatat "tidak_dinilai", BUKAN veto).
 """
 
 from __future__ import annotations
@@ -55,6 +74,7 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -100,6 +120,7 @@ BBREF_REQUIRED_STATS = (
     "games",
     "mp_per_g",
     "blk_per_g",
+    "pos",
 )
 
 STATS_NBA_CACHE_TTL_SECONDS = 600
@@ -145,10 +166,11 @@ def parse_stats_nba_blok(data: dict) -> list[dict]:
     """Ubah respons JSON leaguedashplayerstats jadi list pemain blok.
 
     Setiap pemain: player, team (tricode), games_played, mp_per_game,
-    blk_per_game, source. Baris tanpa nama/tim dilewati; baris TOT
-    (agregat pemain pindah tim) dilewati. ValueError bila resultSet
-    hilang, kolom wajib hilang, atau tidak ada baris pemain sama
-    sekali (format berubah).
+    blk_per_game, pos (None — stats.nba.com tidak menyediakan posisi;
+    diisi dari BBRef oleh gabung_posisi), source. Baris tanpa
+    nama/tim dilewati; baris TOT (agregat pemain pindah tim)
+    dilewati. ValueError bila resultSet hilang, kolom wajib hilang,
+    atau tidak ada baris pemain sama sekali (format berubah).
     """
     if not isinstance(data, dict):
         raise ValueError("respons stats.nba.com bukan dict")
@@ -176,6 +198,7 @@ def parse_stats_nba_blok(data: dict) -> list[dict]:
                 "games_played": _angka(baris.get("GP")),
                 "mp_per_game": _angka(baris.get("MIN")),
                 "blk_per_game": _angka(baris.get("BLK")),
+                "pos": None,
                 "source": SOURCE_STATS_NBA,
             }
         )
@@ -270,6 +293,7 @@ def _parse_bbref_sekali(html: str) -> list[dict]:
                 "games_played": _angka(row.get("games", "")),
                 "mp_per_game": _angka(row.get("mp_per_g", "")),
                 "blk_per_game": _angka(row.get("blk_per_g", "")),
+                "pos": (row.get("pos") or "").strip() or None,
                 "source": SOURCE_BBREF,
             }
         )
@@ -291,6 +315,61 @@ def parse_bbref_blok(html: str) -> list[dict]:
         if "<!--" not in html:
             raise
         return _parse_bbref_sekali(html.replace("<!--", "").replace("-->", ""))
+
+
+def normalisasi_nama(nama: str) -> str:
+    """Nama pemain ternormalisasi untuk pencocokan antar-sumber.
+
+    Aksen dilucuti (Jokić -> Jokic), huruf kecil, spasi diringkas.
+    stats.nba.com dan BBRef memakai ejaan yang sama untuk sebagian
+    besar pemain; yang tidak cocok tercatat di "tanpa_posisi".
+    """
+    tanpa_aksen = unicodedata.normalize("NFKD", nama)
+    tanpa_aksen = tanpa_aksen.encode("ascii", "ignore").decode("ascii")
+    return " ".join(tanpa_aksen.lower().split())
+
+
+def fetch_posisi_bbref(season: str) -> dict[tuple[str, str], str]:
+    """Peta posisi BBRef: (nama ternormalisasi, tim) -> pos.
+
+    Satu tarikan halaman per-game BBRef. Raise RuntimeError bila
+    fetch/parse gagal — pemanggil memutuskan (main: gagal total).
+    """
+    try:
+        url = BBREF_PER_GAME_URL.format(season=_musim_bbref(season))
+        resp = bbref_mod.shared_client().get(url)
+        if resp.get("status") != 200 or not isinstance(resp.get("body"), str):
+            raise RuntimeError(
+                f"BBRef posisi: http_{resp.get('status')} "
+                f"{resp.get('error') or 'gagal'}"
+            )
+        pemain = parse_bbref_blok(resp["body"])
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(f"BBRef posisi: {exc}") from exc
+    posisi: dict[tuple[str, str], str] = {}
+    for entri in pemain:
+        pos = entri.get("pos")
+        if pos:
+            posisi[(normalisasi_nama(entri["player"]), entri["team"])] = pos
+    if not posisi:
+        raise RuntimeError("BBRef posisi: tidak ada posisi terbaca")
+    return posisi
+
+
+def gabung_posisi(pemain: list[dict], posisi: dict[tuple[str, str], str]) -> list[dict]:
+    """Isi field "pos" tiap pemain dari peta posisi BBRef.
+
+    Pemain yang sudah punya pos (sumber BBRef) tidak ditimpa.
+    Pemain yang tidak cocok dibiarkan pos=None (ditangani
+    turunkan_pemetaan -> daftar "tanpa_posisi").
+    """
+    for entri in pemain:
+        if entri.get("pos"):
+            continue
+        entri["pos"] = posisi.get(
+            (normalisasi_nama(entri.get("player") or ""), entri.get("team"))
+        )
+    return pemain
 
 
 def fetch_pemain_blok(season: str) -> tuple[list[dict], str]:
@@ -329,15 +408,27 @@ def turunkan_pemetaan(
     min_mp: float,
     min_blk: float,
     max_per_team: int,
-) -> dict[str, list[dict]]:
+    position_filter: list[str] | tuple[str, ...] | None = None,
+) -> tuple[dict[str, list[dict]], list[dict]]:
     """Pilih rim protector per tim (maks max_per_team, urut BPG).
 
     Hanya pemain rotasi (GP >= min_games, MP >= min_mp) dengan blok
-    bermakna (BLK >= min_blk). Seri BPG (< 1e-9) -> menit lebih besar
-    -> nama abjad (deterministik). Tim tanpa pemain yang memenuhi
-    syarat tidak muncul di pemetaan (veto tidak bisa menilai tim itu).
+    bermakna (BLK >= min_blk) DAN posisi big (pos ada di
+    position_filter; position_filter None/[] = tanpa filter posisi
+    — hanya untuk keperluan tes/kompatibilitas, JANGAN dipakai di
+    produksi v18). Seri BPG (< 1e-9) -> menit lebih besar -> nama
+    abjad (deterministik). Tim tanpa pemain yang memenuhi syarat
+    tidak muncul di pemetaan (veto tidak bisa menilai tim itu).
+
+    Mengembalikan (pemetaan, tanpa_posisi): "tanpa_posisi" adalah
+    pemain yang lolos ambang blok/menit tapi posisinya tidak
+    diketahui (pos None) sehingga dikeluarkan — jejak audit.
+    Pemain yang posisinya diketahui tapi di luar filter (guard/
+    wing) dikeluarkan tanpa dicatat (itu fungsi filter).
     """
+    saringan = set(position_filter or [])
     per_tim: dict[str, list[dict]] = {}
+    tanpa_posisi: list[dict] = []
     for entri in pemain:
         gp = _angka(entri.get("games_played"))
         mp = _angka(entri.get("mp_per_game"))
@@ -348,9 +439,25 @@ def turunkan_pemetaan(
             continue
         if gp < min_games or mp < min_mp or blk < min_blk:
             continue
+        pos = (entri.get("pos") or "").strip() or None
+        if saringan:
+            if pos is None:
+                tanpa_posisi.append(
+                    {
+                        "player": nama,
+                        "team": tim,
+                        "blk_per_game": round(blk, 4),
+                        "mp_per_game": round(mp, 4),
+                        "games_played": int(gp),
+                    }
+                )
+                continue
+            if pos not in saringan:
+                continue
         per_tim.setdefault(tim, []).append(
             {
                 "player": nama,
+                "pos": pos,
                 "blk_per_game": round(blk, 4),
                 "mp_per_game": round(mp, 4),
                 "games_played": int(gp),
@@ -360,7 +467,7 @@ def turunkan_pemetaan(
     for tim, daftar in per_tim.items():
         daftar.sort(key=lambda e: (-e["blk_per_game"], -e["mp_per_game"], e["player"]))
         hasil[tim] = daftar[:max_per_team]
-    return hasil
+    return hasil, tanpa_posisi
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -376,37 +483,59 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     cfg = config_mod.load_playstyle()
-    rp = cfg["vonis"]["rim_protector"]
+    rp = cfg["vonis"]["veto"]["rim_protector"]
     min_games = float(rp["min_games"])
     min_mp = float(rp["min_mp_per_game"])
     min_blk = float(rp["min_blk_per_game"])
     max_per_team = int(rp["max_per_team"])
+    position_filter = list(rp["position_filter"])
     try:
         pemain, sumber = fetch_pemain_blok(args.season)
     except RuntimeError as exc:
         print(f"gagal: {exc}", file=sys.stderr)
         return 2
-    pemetaan = turunkan_pemetaan(pemain, min_games, min_mp, min_blk, max_per_team)
+    # Posisi selalu dari BBRef (stats.nba.com tidak menyediakan
+    # kolom posisi). Bila sumber blok sudah BBRef, pos sudah ada.
+    sumber_posisi = SOURCE_BBREF
+    if sumber == SOURCE_STATS_NBA:
+        try:
+            posisi = fetch_posisi_bbref(args.season)
+        except RuntimeError as exc:
+            print(
+                f"gagal: {exc} — pemetaan tanpa filter posisi "
+                "adalah cacat v17; file JSON lama dipertahankan",
+                file=sys.stderr,
+            )
+            return 2
+        gabung_posisi(pemain, posisi)
+    pemetaan, tanpa_posisi = turunkan_pemetaan(
+        pemain, min_games, min_mp, min_blk, max_per_team, position_filter
+    )
     dokumen = {
         "format": "rim_protector",
         "format_version": 1,
         "season": args.season,
         "fetched_at": now_iso(),
         "source": sumber,
+        "position_source": sumber_posisi,
         "n_players_fetched": len(pemain),
         "rule": {
             "min_games": min_games,
             "min_mp_per_game": min_mp,
             "min_blk_per_game": min_blk,
             "max_per_team": max_per_team,
+            "position_filter": position_filter,
             "penjelasan": (
                 "Per tim maksimal max_per_team pemain rotasi "
                 "(GP >= min_games, MP >= min_mp_per_game) dengan blok "
-                "bermakna (BLK >= min_blk_per_game), urut BPG "
+                "bermakna (BLK >= min_blk_per_game) DAN posisi big "
+                "(pos BBRef ada di position_filter), urut BPG "
                 "tertinggi (seri -> menit -> nama). Aturan + ambang "
-                "di config/playstyle.yaml section vonis.rim_protector."
+                "di config/playstyle.yaml section "
+                "vonis.veto.rim_protector."
             ),
         },
+        "tanpa_posisi": tanpa_posisi,
         "teams": pemetaan,
     }
     out_path = Path(args.out)
@@ -415,14 +544,25 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(dokumen, indent=1, ensure_ascii=False), encoding="utf-8"
     )
     print(f"Sumber: {sumber} ({len(pemain)} pemain, musim {args.season})")
+    print(f"Posisi: {sumber_posisi} (filter {position_filter})")
     print(f"Tim terpetakan: {len(pemetaan)} dari 30")
     for tim in sorted(pemetaan):
         daftar = ", ".join(
-            f"{p['player']} ({p['blk_per_game']} blok/laga, "
+            f"{p['player']} ({p.get('pos')}, {p['blk_per_game']} blok/laga, "
             f"{p['mp_per_game']} mnt, {p['games_played']} laga)"
             for p in pemetaan[tim]
         )
         print(f"  {tim}: {daftar}")
+    if tanpa_posisi:
+        print(
+            f"\nTanpa posisi (lolos ambang tapi dikeluarkan, "
+            f"{len(tanpa_posisi)} pemain):"
+        )
+        for entri in tanpa_posisi:
+            print(
+                f"  {entri['player']} ({entri['team']}, "
+                f"{entri['blk_per_game']} blok/laga)"
+            )
     print(f"\nDitulis: {out_path}")
     return 0
 

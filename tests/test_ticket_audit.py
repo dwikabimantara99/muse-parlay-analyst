@@ -185,15 +185,15 @@ class TestAuditKaki(unittest.TestCase):
         self.assertFalse(gate_prob["lolos"])
 
     def test_prob_yang_sama_lolos_di_utama(self):
-        # 0,70 < 0,74 (Asuransi) tapi >= 0,65 (Utama).
+        # v18: 0,76 < 0,82 (Asuransi) tapi >= 0,74 (Utama).
         art = _artefak(
             "AAA@BBB_2026-11-22",
-            markets={"total_under_240.5": 0.70},
+            markets={"total_under_240.5": 0.76},
             totals=[_tangga(240.5, 80.0)],
         )
         tiket = _tiket("main", [_kaki("AAA@BBB_2026-11-22", 240.5, 80.0)])
         hasil = self._audit(tiket, [art])
-        # Edge 0,70 - 0,80 = -0,10 -> OVERPAY + MAHAL -> PERHATIAN,
+        # Edge 0,76 - 0,80 = -0,04 -> OVERPAY + MAHAL -> PERHATIAN,
         # tapi bukan JANGAN_PASANG (prob lolos ambang Utama).
         self.assertEqual(hasil["legs"][0]["verdict"], "PERHATIAN")
         self.assertEqual(hasil["verdict"], "GO")
@@ -357,13 +357,14 @@ class TestAuditKaki(unittest.TestCase):
         self.assertEqual(kaki["verdict"], "JANGAN_PASANG")
 
     def test_lean_ke_market_asuransi_lolos_bila_pasar_cukup(self):
-        # Gap 8,5 > 5 tapi probabilitas pasar 80% >= 74% -> lolos.
+        # v18: gap 8,5 > 5 tapi probabilitas pasar 84% >= 82%
+        # (min_leg_prob Asuransi v18) -> lolos.
         art = _artefak(
             "AAA@BBB_2026-11-22",
             median=220.0,
             main_line=228.5,
             markets={"total_under_240.5": 0.86},
-            totals=[_tangga(240.5, 80.0)],
+            totals=[_tangga(240.5, 84.0)],
         )
         tiket = _tiket("insurance", [_kaki("AAA@BBB_2026-11-22", 240.5, 80.0)])
         hasil = self._audit(tiket, [art])

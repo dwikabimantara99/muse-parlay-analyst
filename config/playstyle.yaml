@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 17
+  version: 18
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22 + perbaikan racik analis adaptif (bantalan adaptif, nilai wajar, Asuransi >2,5x, section analis), 2026-11-23 + fondasi harga & pengali (Asuransi x2+, Utama x3+, tanpa price cap) + gate edge Asuransi, 2026-11-23 + skenario setan (deviasi maksimal 3PM, deteksi kerapuhan — BUKAN gate), 2026-11-23 + penyempurnaan mesin (equilibrium, skip dari awal, news, ekor 3P, OT di seleksi), 2026-11-23 + vonis per laga + veto rim protector + tanpa kaki kembar + equilibrium Asuransi safety-first + setan per pemain + koreksi banjir ke data bersih, 2026-11-23"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22 + perbaikan racik analis adaptif (bantalan adaptif, nilai wajar, Asuransi >2,5x, section analis), 2026-11-23 + fondasi harga & pengali (Asuransi x2+, Utama x3+, tanpa price cap) + gate edge Asuransi, 2026-11-23 + skenario setan (deviasi maksimal 3PM, deteksi kerapuhan — BUKAN gate), 2026-11-23 + penyempurnaan mesin (equilibrium, skip dari awal, news, ekor 3P, OT di seleksi), 2026-11-23 + vonis per laga + veto rim protector + tanpa kaki kembar + equilibrium Asuransi safety-first + setan per pemain + koreksi banjir ke data bersih, 2026-11-23 + audit Gemini v17 / proposal v18 (vonis baru + veto AND + OT empiris + timing gate + EV ganti edge datar + gate eksekusi), 2026-11-23"
   last_reviewed: "2026-11-23"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -30,42 +30,43 @@ tickets:
     # modal dengan split 50/50 (2,0 x $10 = $20 dari modal $20).
     multiplier_min: 2.0         # dulu 2,5 (filosofi lama) — turun per fondasi baru
     multiplier_max: 2.5         # dulu 3,0 (filosofi lama) — turun per fondasi baru
-    min_leg_prob: 0.74          # §6a idealnya ≥74% per kaki
-    # Gate edge minimum Asuransi (insiden DEN@CHI 2026-11-23): kaki
-    # Asuransi dengan edge (p_final − harga venue/100) di bawah ambang
-    # ini DITOLAK dari Asuransi (hard gate, seperti thin). Utama TIDAK
-    # kena gate ini.
-    # NILAI INI PROPOSAL (pola D12) — menunggu persetujuan user.
-    # Dasar: kaki DEN yang jebol punya edge +2,5% (P_model 84,5% −
-    # harga 82¢); kaki Asuransi lain malam itu yang selamat punya edge
-    # +4,4% s.d. +9,1%. Ambang 3,5% = pembulatan titik tengah 3,45%
-    # antara kaki gagal (+2,5%) dan kaki selamat terendah (+4,4%),
-    # dan kaki standar yang baik (+3,6%) tetap lolos. CATATAN: angka
-    # insiden memakai edge P_model, sedangkan gate memakai edge
-    # p_final (definisi yang sudah dipakai peracik) — pemindahan
-    # ambang antar-definisi ini pendekatan yang menunggu validasi
-    # atas data PAPER + persetujuan user.
-    min_edge_pct: 3.5           # persen (3,5 = 3,5 poin = 0,035 desimal)
-    # Gate skenario banjir Asuransi (insiden DEN@CHI 2026-11-23,
-    # keputusan user R1 09:47 WIB + koreksi 09:52 WIB): kaki
-    # Asuransi lolos hanya bila P(Under) di skenario yang disebut
-    # kunci ini >= min_leg_prob (0,74). Garis yang gagal NAIK ke
-    # garis tahan skenario itu dari tangga (climb, alasan "banjir");
-    # bila tidak ada garis tangga yang tahan, laga di-SKIP untuk
-    # Asuransi (alasan tercatat, tidak pernah dipaksakan). Garis
-    # tahan yang thin TIDAK dipakai (aturan thin Asuransi yang
-    # sudah ada: thin = hard gate) -> SKIP; keputusan ini menunggu
-    # keberatan user/reviewer.
-    # Nilai "banjir_terburuk" = KRITERIA PRODUKSI: P di skenario
-    # banjir terburuk (worst of banjir_3p/banjir_ft p90,
-    # engine/stress.py) — sesuai koreksi user 09:52 WIB bahwa gate
-    # keras Asuransi adalah banjir p90, BUKAN setan. Nilai "setan"
-    # didukung kode (gate berparameter skenario) tapi BUKAN
-    # kriteria produksi: skenario setan hanya deteksi kerapuhan —
-    # jangan ubah nilai ini ke "setan" tanpa persetujuan user.
-    # Kunci hilang / nilai tak dikenal -> ConfigError (fail-closed,
-    # tanpa default dari kode).
-    stress_gate_scenario: banjir_terburuk
+    # TARGET ASURANSI TETAP x2 (keputusan user 2026-11-23 13:57 WIB,
+    # DECISIONS.md "Jawaban user atas 4 keputusan v18" #1): usulan
+    # Gemini 1,80x DITOLAK — x2 satu-satunya jalan menyelamatkan
+    # modal; must_cover_total_stake TETAP true di bawah.
+    # ── Gate kaki Asuransi v18 (audit Gemini §3 + keputusan user
+    # #2/#3, 2026-11-23 13:57 WIB — MENGGANTIKAN gate edge datar
+    # v17): min_edge_pct (3,5%) DIHAPUS — di ekor 85¢+ edge absolut
+    # menyusut secara aljabar (keunggulan 3 poin hanya +1,3% di 82¢,
+    # +0,3% di 90¢) sehingga gate itu + banjir 74% + lean-to-market
+    # mengunci Equilibrium Asuransi 0/10 (deadlock §1.1 referensi).
+    # Penggantinya: EV tidak boleh MAHAL + peluang tinggi + banjir
+    # dilonggarkan ke 70%/65% (dipasangkan dengan min_leg_prob 0,82
+    # yang LEBIH tinggi dari 0,74).
+    min_leg_prob: 0.82          # v18: naik dari 0,74 (§6a idealnya ≥74% diganti)
+    # p_market minimum kaki Asuransi: jangan bertaruh ekstrem melawan
+    # pasar (proposal Gemini §3; keputusan user #2).
+    min_p_market: 0.80
+    # EV terburuk yang masih boleh (persen; -1,0 = EV >= -1%):
+    # kaki Asuransi tidak boleh MAHAL (DISKON/WAJAR boleh masuk).
+    # MENGGANTIKAN min_edge_pct. Utama punya ambang sendiri (-2,0).
+    max_negative_ev_pct: -1.0
+    # Gate skenario banjir v18 (pisah per skenario — MENGGANTIKAN
+    # gate tunggal P banjir terburuk >= min_leg_prob 0,74):
+    # P(Under) di banjir 3P >= 0,70 DAN di banjir FT >= 0,65.
+    # Geser banjir dari section stress (data bersih 8,50/12,52).
+    flood_3p_min: 0.70
+    flood_ft_min: 0.65
+    # Pita harga yang diutamakan equilibrium Asuransi (sen): 80–89¢.
+    # BUKAN gate keras (garis di luar pita tetap boleh bila lolos
+    # semua gate) — arahan pemilihan di dalam band (worker B).
+    preferred_price_band: [80, 89]
+    # ── v18: kunci lama stress_gate_scenario (gate banjir tunggal
+    # v17, "banjir_terburuk") DIHAPUS — digantikan dua ambang
+    # flood_3p_min / flood_ft_min di atas (keputusan integrasi
+    # koordinator; tidak ada lagi pembaca di engine/ — komposer v18
+    # memakai gate banjir CDF-langsung; tes
+    # test_config_stress_gate_scenario_tidak_dibaca membuktikannya).
     # Syarat wajib §6a: pengali x modal Asuransi >= total modal kedua tiket.
     must_cover_total_stake: true
   main:
@@ -89,13 +90,68 @@ tickets:
     # Ambang p_final per kaki untuk kriteria "yakin" Utama di atas
     # target lunak (USULAN Tahap 4 — menunggu keberatan).
     yakin_min_leg_prob: 0.75
-    min_leg_prob: 0.65          # §6a idealnya ≥65% per kaki
+    # v18 (keputusan user #3, 2026-11-23 13:57 WIB): Utama boleh
+    # ketat — min p_final naik dari 0,65 ke 0,74; yang penting
+    # minimal x3 s.d. x5. BUKAN uji ketat-ketatan, tapi mencari kaki
+    # paling masuk akal di dalam tiket.
+    min_leg_prob: 0.74
+    # EV terburuk yang masih boleh (persen; -2,0 = EV >= -2%):
+    # kaki Utama ditolak bila sangat MAHAL (proposal Gemini §3).
+    max_negative_ev_pct: -2.0
+    # Pita harga yang diutamakan equilibrium Utama (sen): 76–84¢.
+    # BUKAN gate keras — arahan pemilihan max-ER di dalam band.
+    preferred_price_band: [76, 84]
+    # Tie-break max-ER Utama: bila selisih ER dua garis < nilai ini,
+    # pilih garis yang lebih aman (harga lebih tinggi).
+    tiebreak_er_tolerance: 0.015
   # Mode default. "aggressive" hanya atas perintah user per malam ("malam ini
   # mode agresif"). Di mode agresif: multiplier_max Utama bebas + moneyline
   # di bawah 65% boleh dengan label wajib (lihat filters.moneyline).
   mode: standard                # standard | aggressive
   # D13: pembagian modal default 50/50, bisa diubah lewat chat.
   stake_split_default: {insurance: 0.5, main: 0.5}
+
+# ── Gate eksekusi & likuiditas (v18 — audit Gemini §3 + keputusan user) ──
+execution:
+  # Volume PINDAH dari vonis laga ke gate eksekusi (v18): volume
+  # adalah sifat orderbook garis jauh di Polymarket/jup.ag, BUKAN
+  # cacat pertandingan — vonis tidak lagi memakai volume (kunci
+  # min_volume di vonis DIHAPUS). Gate eksekusi berbasis stake user:
+  # garis boleh dibeli bila likuiditasnya >= min_liquidity_multiplier
+  # x stake kaki itu (mis. $30 untuk stake $15) DAN >=
+  # liquidity_hard_min_usd (batas bawah absolut agar orderbook tidak
+  # kosong total). MENGGANTIKAN ambang $100 kaku
+  # (polymarket_ladder.min_volume_usd — kunci itu TETAP ADA untuk
+  # flag "thin" di tangga/laporan; gate beli memakai kunci di sini).
+  # ── REVISI KOORDINATOR v18 (integrasi): "likuiditas" di sini
+  # adalah field `liquidity` Gamma (likuiditas pasar saat ini),
+  # BUKAN `volume_usd` (volume kumulatif yang sudah diperdagangkan
+  # — ukuran sejarah, bukan kemampuan beli sekarang). Bukti dari
+  # artefak 22 Nov: garis Under dengan kuotasi hidup spread 2¢
+  # (mis. DET U239,5 bid 79/ask 82, likuiditas $36.580) gagal gate
+  # volume karena volume kumulatifnya cuma $5 — padahal order $15
+  # di ask pasti terisi melawan kuotasi market maker. Gate volume
+  # memblokir hampir semua garis alternatif (14/14 kombinasi
+  # gagal di slate uji) dan membuat Tiket Asuransi tidak bisa
+  # terbentuk. Karena itu gate eksekusi v18 = likuiditas Gamma
+  # >= lantai DI BAWAH + spread bid/ask <= max_spread_cents +
+  # ask nyata (< 99¢). Data hilang -> gagal (fail-closed).
+  # Volume kumulatif TETAP dilaporkan (flag thin + info L3), bukan
+  # gate. Keputusan ini menunggu keberatan user/reviewer.
+  min_liquidity_multiplier: 2.0
+  liquidity_hard_min_usd: 25.0
+  # Spread bid/ask maksimum (sen) agar garis dianggap bisa dibeli:
+  # kuotasi hidup = spread kecil. INITIAL — dari distribusi artefak
+  # 22 Nov: garis kandidat (199,5–255,5) berspread 1–3¢, kuotasi
+  # mati berspread >= 7¢ (47/54) atau 98¢ (1/99); 5¢ duduk di celah
+  # bersih di antara keduanya. RENCANA KALIBRASI: user melaporkan
+  # fill nyata di jup.ag (bila spread 5¢ ternyata sering gagal isi,
+  # turunkan; bila 5¢ terlalu ketat, naikkan — dengan bukti).
+  max_spread_cents: 5.0
+  # Stake default per tiket (USD) bila user tidak menyebut angka —
+  # dipakai gate likuiditas + audit. Stake nyata user 23 Nov 2026
+  # adalah $15 per tiket (2 tiket, total $30).
+  stake_default_usd: 15.0
 
 # ── §6c. Cara memilih racikan terbaik ───────────────────────────────────────
 optimizer:
@@ -175,12 +231,12 @@ anomaly:
 
 # ── Cek garis market vs model (prinsip psikologi market, 2026-11-22) ───────
 market_line_check:
-  # NILAI AWAL — BELUM DIKALIBRASI. Menunggu validasi atas data PAPER +
-  # persetujuan user. Jangan dipakai untuk keputusan tiket nyata sebelum
-  # divalidasi (lihat LAPORAN-TAHAP-3-LANGKAH-1.md).
-  # Selisih |median proyeksi - garis market| di atas ini -> ANOMALI
-  # "total_line_vs_model" (kira-kira sepertiga sigma total 18,22 poin).
-  total_gap_points: 5.0
+  # v18: total_gap_points (5,0) DIPINDAHKAN ke
+  # calibration.lean_to_market_gap (satu sumber kebenaran untuk
+  # ambang |median model - garis market| 5,0 poin). Semua pembaca
+  # sudah di-point ulang (integrasi koordinator v18):
+  # engine/anomaly.py, engine/qa.py, engine/recheck.py,
+  # engine/ticket_audit.py, engine/ticket_composer.py.
   # Peluang Under model minimum agar Under dianggap "aman" oleh model
   # dalam cek keselarasan dengan market.
   min_model_under_prob: 0.70
@@ -688,168 +744,290 @@ skip_awal:
     # hanya atas persetujuan user.
     edge_kecil_pct: 3.5
 
-# ── Vonis per laga (keputusan user 2026-11-23 12:38 WIB) ──────────────────
+# ── Vonis per laga (keputusan user 2026-11-23 12:38 WIB; ROMBAK v18) ─────
 vonis:
   # Mesin menghitung vonis per laga NBA dari DATA (bukan perasaan):
   # HIJAU (kandidat Asuransi), MENENGAH_HIJAU (kandidat Utama),
-  # KUNING/lempar koin (skip dari kedua tiket). Aturan persis di
-  # engine/vonis.py + LAPORAN-VONIS.md. Sistem demerit: tiap indikator
-  # yang lemah memberi 1 demerit; HIJAU = 0 demerit, MENENGAH_HIJAU =
-  # 1 s.d. max_demerit_menengah demerit, KUNING = lebih dari itu atau
-  # pemicu keras (data wajib hilang / OT tinggi / edge tidak positif).
-  # AMBANG YANG DIPAKAI ULANG (tidak diduplikasi di sini): target
-  # banjir = tickets.insurance.min_leg_prob (0,74); ambang OT keras =
-  # ot_seleksi.skip_ot_prob (0,028); gap besar = anomaly.
-  # model_vs_market_points (8,0 poin); volume tipis =
-  # polymarket_ladder.min_volume_usd ($100 — JANGAN diubah).
+  # KUNING/lempar koin (skip dari kedua tiket), TUNGGU_LINEUP
+  # (tahan — bintang Questionable, lihat subsection tunggu_lineup).
+  # Aturan persis di engine/vonis.py + LAPORAN-VONIS-V18.md.
+  # ── ROMBAK v18 (audit Gemini §2.2/§2.7 + keputusan user 13:57
+  # WIB): sistem demerit DIRAMPINGKAN dari 9 indikator ke 6 (tiap
+  # indikator lemah = 1 demerit), dan HIJAU kini menuntut BUKTI
+  # POSITIF (minimal 1 "rem alami"), bukan sekadar absennya bahaya:
+  #   HIJAU = 0 veto + <= hijau_max_demerits demerit + >= 1 rem alami
+  #   MENENGAH_HIJAU = <= menengah_max_demerits demerit
+  #     (atau 0–1 demerit TANPA rem alami)
+  #   KUNING = >= 4 demerit ATAU pemicu keras (veto / OT empiris
+  #     ekstrem / data wajib hilang).
+  # YANG DIHAPUS di v18 (alasan di referensi audit §1–§2):
+  #   - edge_hijau_pct (demerit edge kecil): edge datar menghukum
+  #     kaki harga tinggi secara aljabar (§1.2); nilai kini dinilai
+  #     lewat EV di gate per kaki (tickets.*.max_negative_ev_pct),
+  #     bukan di vonis laga.
+  #   - p_setan_hijau (demerit setan terpisah): banjir + setan
+  #     mengukur hal yang sama (kerapuhan ekor) — digabung jadi 1
+  #     demerit tail_fragility; setan per pemain tetap jadi flag
+  #     diagnostik (worker C), bukan demerit.
+  #   - gap_kecil_pct (demerit gap < 4): menghukum kesepakatan
+  #     model-vs-pasar justru membuang laga paling bersih (§1.3 —
+  #     Brier total model belum terbukti mengalahkan pasar).
+  #   - pemakaian min_volume di vonis (demerit volume tipis / tidak
+  #     diketahui): volume adalah sifat orderbook, bukan cacat laga
+  #     — pindah ke gate eksekusi (section execution).
+  #   - veto_total_tinggi_points / veto_pace_tinggi (v17, logika OR):
+  #     digantikan subsection veto di bawah (logika AND).
+  #   - max_demerit_menengah: digantikan hijau/menengah_max_demerits.
+  # AMBANG YANG DIPAKAI ULANG (tidak diduplikasi di sini): gap besar
+  # = anomaly.model_vs_market_points (8,0 poin); ambang OT keras =
+  # ot_seleksi.hard_skip_ot_prob (0,085); sigma margin OT empiris =
+  # simulation.nba.sigma_margin_points.
   # Kunci ini (false) mematikan vonis di komposer (perilaku lama
   # persis: tidak ada laga yang dikeluarkan karena vonis; laporan
   # tetap menampilkan vonis bila dihitung).
   enabled: true
-  # Edge kaki terbaik (p_final − harga venue, maks atas kaki artefak +
-  # garis equilibrium kedua tiket) di bawah ini -> demerit edge_kecil.
-  # NILAI AWAL (INITIAL) — FIT dari slate 10 baris 22 Nov 2026:
-  # edge terbaik DEN@CHI verif +1,0% (terendah), DET +1,2%,
-  # OKC live +1,4%, BOS verif +1,9%, DEN live +2,1%, IND +2,2%,
-  # OKC verif +3,4%, BOS live +4,2%, DAL +4,2%, ORL −0,6%
-  # (negatif = pemicu keras tersendiri). Ambang 2,5% memisahkan
-  # kelompok DEN/DET/OKC-live (<=2,2%) dari OKC-verif/BOS/DAL
-  # (>=3,4%). KALIBRASI: kumpulkan edge terbaik + hasil settled
-  # per laga; ukur win rate kaki di tiap pita edge; geser ambang
-  # hanya atas persetujuan user.
-  edge_hijau_pct: 2.5
-  # P Under di skenario setan pada garis Asuransi di bawah ini ->
-  # demerit setan_lemah. NILAI AWAL (INITIAL) — FIT dari slate yang
-  # sama: OKC verif 73,8% (satu-satunya di atas 60%), tertinggi
-  # berikutnya BOS live 56,5%; ambang 65% di tengah celah 56,5–73,8.
-  # KALIBRASI: seperti edge_hijau_pct (hasil settled per pita P setan).
-  p_setan_hijau: 0.65
-  # Gap model-vs-pasar (p_model − p_market, poin) pada garis Asuransi
-  # di bawah ini -> demerit gap_kecil: model hampir setuju dengan
-  # bandar = tidak ada keunggulan (pelajaran Denver: gap DEN +3,3).
-  # NILAI AWAL (INITIAL) — FIT dari slate yang sama: DEN verif +3,3,
-  # DEN live +3,4, OKC live +2,7 di bawah ambang; OKC verif +4,4 di
-  # atas (ambang 4,0 di tengah celah 3,4–4,4). Gap di ATAS 8,0 poin
-  # -> demerit gap_besar (ambang dipakai ulang dari anomaly).
-  # KALIBRASI: seperti edge_hijau_pct (hasil settled per pita gap).
-  gap_kecil_pct: 4.0
-  # Sinyal ekor gemuk (garis jauh + harga rendah = pasar bilang ekor
-  # gemuk): jarak garis Asuransi ke total pasar >= ekor_jauh_points
-  # DAN harga venue <= ekor_harga_rendah_cents -> demerit ekor_gemuk.
-  # Rumus eksplisit di engine/vonis.py. NILAI AWAL (INITIAL) — FIT
-  # dari slate yang sama: DEN verif 14 poin @78,5¢, DEN live 11 poin
-  # @72¢, ORL 12 poin @77,5¢, OKC live 11 poin @74¢, BOS verif 13
-  # poin @77,5¢ kena sinyal; OKC verif 19 poin @89,5¢ TIDAK kena
-  # (harganya tinggi — pasar percaya garis itu), DET 8, DAL 9, IND 8,
-  # BOS live 8 poin TIDAK kena (garisnya dekat). Ambang 10 poin /
-  # 85¢ memisahkan kedua kelompok. KALIBRASI: ukur win rate kaki
-  # Under pada laga ber-sinyal vs tidak dari hasil settled.
-  ekor_jauh_points: 10.0
-  ekor_harga_rendah_cents: 85
-  # Garis bandar (main_total_line) di atas ini -> demerit total_tinggi
-  # (total tinggi = variasi lebih besar — klaim ini BELUM TERBUKTI:
-  # sim memakai satu sigma_total global, jadi mesin belum mengukur
-  # apakah laga total-tinggi benar-benar lebih bervariasi; karena itu
-  # indikator ini SEKUNDER — hanya 1 demerit, tidak pernah sendirian
-  # membuat KUNING). NILAI AWAL (INITIAL) — FIT dari slate yang sama:
-  # DEN live 237,5 dan DEN verif 236,5 di atas ambang; tertinggi
-  # berikutnya OKC 231,5 (ambang 235,0 di tengah celah 231,5–236,5).
-  # KALIBRASI: ukur simpangan baku total aktual per pita garis bandar
-  # dari hasil settled; bila tidak ada hubungan, hapus indikator ini.
+  # ── (a) Kerapuhan ekor GABUNGAN (1 demerit): P(Under) di banjir
+  # 3P pada garis Asuransi < p_flood_3p_below ATAU di banjir FT <
+  # p_flood_ft_below. Nilai dari proposal Gemini §3 (0,72/0,67 —
+  # di antara gate banjir Asuransi 0,70/0,65 dan ambang v17 0,74);
+  # INITIAL + rencana kalibrasi ledger (ukur win rate kaki per pita
+  # P banjir; geser hanya atas persetujuan user). Setan TIDAK ikut
+  # di sini (flag diagnostik saja, per koreksi user 09:52 WIB).
+  tail_fragility:
+    p_flood_3p_below: 0.72
+    p_flood_ft_below: 0.67
+  # ── (b) Total tinggi: garis bandar (main_total_line) >= nilai ini
+  # -> demerit. TETAP 235,0 (v17, FIT slate 22 Nov: DEN 236,5/237,5
+  # di atas, tertinggi berikutnya OKC 231,5). Klaim "total tinggi =
+  # variasi lebih besar" BELUM TERBUKTI (sim memakai satu
+  # sigma_total global) — indikator sekunder, 1 demerit.
   total_tinggi_points: 235.0
-  # Batas demerit untuk MENENGAH_HIJAU (kandidat Utama): 1 s.d. nilai
-  # ini -> MENENGAH_HIJAU; lebih dari ini -> KUNING. NILAI AWAL
-  # (INITIAL) — FIT dari slate yang sama: OKC verif 0 demerit
-  # (HIJAU), DAL + BOS live 4 demerit (MENENGAH_HIJAU), IND 5,
-  # OKC live 6, ORL 6, BOS verif 6, DEN live 7, DEN verif 7 demerit
-  # (KUNING) — ambang 4 di celah 4–5. KALIBRASI: ukur win rate kaki
-  # per jumlah demerit dari hasil settled; geser hanya atas
-  # persetujuan user.
-  max_demerit_menengah: 4
-  # ── VETO RIM PROTECTOR (pemicu keras -> KUNING) ─────────────────
-  # Aturan: rim protector (lihat subsection rim_protector + file
-  # config/rim_protector_2026-27.json) OUT terkonfirmasi (status OUT
-  # dari >= 2 sumber di data ketersediaan artefak) DAN (garis pasar
-  # tinggi ATAU pace tinggi) -> veto menyala: laga KUNING, tidak
-  # masuk Asuransi (juga tidak masuk Utama — veto memblokir kedua
-  # tiket karena vonisnya KUNING). Veto tidak bisa dikalahkan skor
-  # EV simulasi: sim menyesuaikan BPM pemain absen, tapi tidak
-  # memodelkan hilangnya perlindungan ring secara eksplisit.
-  # KONTEKS: Nic Claxton (center utama CHI, 1,0 blok/laga) OUT vs
-  # Jokic terkonfirmasi 2 sumber di artefak verif DEN@CHI — veto
-  # HARUS menyala di laga itu. Klaim "Aday Mara OUT di OKC" TIDAK
-  # dipakai (tidak ada di data cedera mesin 2 sumber/2 snapshot dan
-  # tidak ada di boxscore — Mara justru pemimpin blok OKC yang MAIN).
-  # Garis pasar tinggi: main_total_line >= nilai ini. NILAI AWAL
-  # (INITIAL) — sama dengan potongan total_tinggi_points (DEN 236,5/
-  # 237,5 di atas, tertinggi berikutnya OKC 231,5); kunci terpisah
-  # supaya veto bisa dikalibrasi sendiri. KALIBRASI: seperti
-  # total_tinggi_points (hasil settled per pita garis pada laga
-  # yang rim protector-nya OUT).
-  veto_total_tinggi_points: 235.0
-  # Pace tinggi: pace musim tertinggi di antara kedua tim
-  # (inputs.{home,away}.stats_season.pace) >= nilai ini. Pace tim
-  # tercepat dipakai (bukan pace laga rata-rata sim) karena tim
-  # tercepat yang menentukan tempo menyerang melawan pertahanan
-  # tanpa pelindung ring. NILAI AWAL (INITIAL) — FIT dari slate
-  # yang sama: rata-rata liga 99,46; kelompok cepat {102,19 (MIA),
-  # 103,11 (ATL), 103,22 (CHI)} vs sisanya <= 101,22 — ambang
-  # 102,0 di tengah celah 101,22–102,19. CATATAN: dengan ambang
-  # ini veto juga menyala di OKC@MIA verif (Chet Holmgren 3,0
-  # blok/laga OUT + MIA 102,19) — itu hasil yang BENAR, bukan
-  # efek samping: OKC tanpa frontcourt-nya bukan kandidat Asuransi
-  # yang sehat. KALIBRASI: seperti veto_total_tinggi_points.
-  veto_pace_tinggi: 102.0
-  # ── Definisi rim protector (dipakai scripts/fetch_rim_protector.py
-  # untuk menurunkan config/rim_protector_2026-27.json) ──────────────
-  # Per tim diambil maksimal max_per_team pemain rotasi (GP >=
-  # min_games, MP >= min_mp_per_game) dengan blok bermakna (BLK >=
-  # min_blk_per_game), urut BPG tertinggi (seri -> menit -> nama).
-  # KENAPA TOP-2: perlindungan ring adalah pekerjaan rotasi; selisih
-  # BPG #1 vs #2 sering di dalam noise (CHI: Jalen Smith 1,1 vs Nic
-  # Claxton 1,0 — satu blok per 10 laga). KENAPA min_games = 3:
-  # pemain bintang yang cedera (Chet Holmgren 3 laga, Jaren Jackson
-  # Jr. 4 laga) tidak bisa diidentifikasi bila ambangnya 5 — dan
-  # merekalah yang justru perlu ditangkap veto; 2 laga (Jalen Duren)
-  # terlalu sedikit (2 blok total = noise). KETERBATASAN: aturan
-  # BPG murni bisa menamai guard di tim yang bloknya lemah (DET:
-  # Cade Cunningham 0,9) dan tidak menangkap pemain 0–2 laga;
-  # alasan veto selalu menyebut nama + angka bloknya supaya bisa
-  # diaudit. Detail + bukti data di LAPORAN-VONIS.md §Veto.
-  rim_protector:
-    min_games: 3
-    min_mp_per_game: 15.0
-    min_blk_per_game: 0.8
-    max_per_team: 2
+  # ── (d) Ekor gemuk DIPERKETAT (v17: >= 10 poin DAN <= 85¢):
+  # jarak garis Asuransi ke total pasar >= min_offset_points DAN
+  # harga venue <= max_price_cents -> demerit. Alasan (§2.2):
+  # di sigma ~19, jarak +14 s.d. +16 memang wajar di 80–84¢, jadi
+  # ambang lama menyala di laga normal. Nilai 16,0/80 dari proposal
+  # Gemini §3 (INITIAL + kalibrasi ledger: win rate kaki Under pada
+  # laga ber-sinyal vs tidak dari hasil settled).
+  ekor_gemuk:
+    min_offset_points: 16.0
+    max_price_cents: 80
+  # ── (e) Lingkungan foul tinggi: FTr GABUNGAN >= ftr_p80 ->
+  # demerit. DEFINISI "GABUNGAN" (diputuskan worker A v18, menunggu
+  # keberatan): rata-rata aritmetik FTr musim kedua tim
+  # (FTr = FTA/FGA per tim, dari stats_season.ftr). Rata-rata
+  # dipakai karena kedua tim sama-sama menyumbang lemparan bebas
+  # ke total laga; alternatif (maks / jumlah) ditolak — maks
+  # menghukum satu tim pelanggar, jumlah menggandakan skala.
+  # ftr_p80 + ftr_p50 FIT dari data liga (bukan tebakan):
+  # stats.nba.com leaguedashteamstats Base+Advanced musim 2026-27,
+  # ditarik 2026-11-23T07:03:56Z, n=30 tim, snapshot
+  # out/fit_cutoff_liga_v18.json; persentil interpolasi linear
+  # (metode numpy default). ftr_p50 dipakai rem alami (3) di bawah.
+  # RENCANA KALIBRASI: tarik ulang tiap ~20 laga liga / tiap
+  # perubahan rotasi besar; bila cutoff bergeser > 0,01, ajukan
+  # nilai baru ke user (pola D12). Cutoff FIT dari data MUSIM
+  # BERJALAN (parsial ~15 laga/tim) — akan bergeser seiring musim.
+  foul:
+    ftr_p80: 0.308111
+    ftr_p50: 0.274398
+  # ── (f) Spread tipis: |spread| <= nilai ini -> demerit (risiko
+  # clutch/OT). Spread = |median margin sim| (poin). Nilai 3,0
+  # dari proposal Gemini §3 (INITIAL + kalibrasi ledger: frekuensi
+  # OT + win rate Under per pita spread dari hasil settled).
+  spread_tipis_max: 3.0
+  # ── (c) Gap besar (TIDAK punya kunci sendiri — ambang dipakai
+  # ulang dari anomaly.model_vs_market_points, 8,0 poin): gap
+  # model-vs-pasar > 8,0 HANYA jadi demerit bila TANPA cedera baru
+  # terverifikasi (tidak ada entri OUT terkonfirmasi yang melibatkan
+  # pemain berdampak: BPM >= +2,0 atau USG >= 24%); bila ada cedera
+  # berdampak -> flag investigasi saja, bukan demerit (aturan
+  # persis di engine/vonis.py). Ambang pemain berdampak dipakai
+  # ulang dari subsection tunggu_lineup di bawah.
+  # ── Batas demerit (proposal Gemini §3; INITIAL + kalibrasi
+  # ledger: ukur win rate kaki per jumlah demerit dari hasil
+  # settled; geser hanya atas persetujuan user).
+  hijau_max_demerits: 1
+  menengah_max_demerits: 3
+  # ── REM ALAMI (bukti positif keamanan — HIJAU butuh >= 1).
+  # Tiap rem dicatat mana yang terpenuhi di indikator vonis; bila
+  # datanya tidak tersedia (artefak lama), rem itu
+  # "tidak_dievaluasi" (bukan gagal). Definisi persis (5 rem):
+  #   (1) pertahanan Top-10 ATAU pace Bottom-12: salah satu tim
+  #       punya DRtg musim <= drtg_top10_cutoff ATAU pace musim
+  #       <= pace_bottom12_cutoff. CATATAN ARAH PACE: pace lambat =
+  #       angka pace KECIL — Bottom-12 berarti 12 tim paling lambat,
+  #       jadi pace <= cutoff (bukan >=). Kedua cutoff FIT dari
+  #       data liga yang sama dengan foul di atas (DRtg terkecil
+  #       ke-10 = 112,9; pace terkecil ke-12 = 98,91; n=30).
+  #   (2) pencetak utama OUT di KEDUA tim: tiap tim kehilangan
+  #       minimal satu pemain OUT terkonfirmasi (status OUT, >= 2
+  #       sumber) dengan USG >= usg_scorer_out. USG dari
+  #       ingest/pemain_usg.py (cache satu-proses); bila USG tidak
+  #       tersedia, rem ini tidak_dievaluasi (BPM TIDAK dipakai
+  #       sebagai pengganti — USG dan BPM mengukur hal berbeda).
+  #   (3) paint utuh + blowout ATAU kedua tim FTr rendah: (tidak
+  #       ada rim protector OUT di kedua tim DAN |spread| >=
+  #       blowout_spread) ATAU (FTr kedua tim < foul.ftr_p50).
+  #       "Rim protector OUT" memakai pemetaan yang sama dengan
+  #       veto (status OUT apa pun sumbernya — di sini tidak
+  #       menuntut 2 sumber karena ini bukti positif, bukan veto;
+  #       bila data cedera tidak ada, rem ini tidak_dievaluasi).
+  #   (4) selaras pasar: |median model - total pasar| <=
+  #       market_align_max_gap DAN total pasar <=
+  #       market_align_max_total. (Klausul Gemini "atau > 5,0
+  #       dengan alasan cedera segar" TIDAK diadopsi di v18 —
+  #       penyusutan pre-vonbis worker B sudah menangani gap besar
+  #       beralasan; menunggu keberatan.)
+  # Nilai blowout_spread 8,5 / market_align_* dari proposal Gemini
+  # §3 (INITIAL + kalibrasi ledger); usg_scorer_out 0,25 dari
+  # proposal yang sama.
+  rem_alami:
+    drtg_top10_cutoff: 112.9
+    pace_bottom12_cutoff: 98.91
+    usg_scorer_out: 0.25
+    blowout_spread: 8.5
+    market_align_max_gap: 5.0
+    market_align_max_total: 228.0
+  # ── VETO RIM PROTECTOR (pemicu keras -> KUNING, blokir KEDUA tiket)
+  # v18: logika AND (keputusan user #4, 2026-11-23 13:59 WIB —
+  # "pake AND yang diusulkan gemini, aku setuju"). Veto menyala
+  # HANYA bila KETIGA kondisi benar: rim protector OUT terkonfirmasi
+  # (status OUT, >= 2 sumber) + garis pasar >= total_tinggi_points
+  # + pace tercepat >= pace_tinggi. Logika OR v17 memblokir
+  # OKC@MIA hanya karena pace MIA (102,19) tanpa memperhitungkan
+  # hilangnya SGA & Giannis di sisi serangan (false positive yang
+  # dikeluhkan user). Bila HANYA satu kondisi lingkungan menyala,
+  # veto TIDAK menyala tapi hasil veto mencatat
+  # "peringatan_parsial": true + kondisi mana yang menyala (worker B
+  # memakai ini untuk +3 bantalan). AMBANG INITIAL (Gemini §3):
+  # dipasang dari 2 titik data (DEN 236,5/103,22 vs OKC 231,5/
+  # 102,19) — risiko overfitting, baru teruji di 10 baris.
+  # RENCANA KALIBRASI (ledger): kumpulkan laga dengan rim protector
+  # OUT + hasil settled; ukur win rate Under per pita
+  # (garis, pace); geser ambang hanya atas persetujuan user.
+  # Balik ke OR adalah perubahan satu baris config (logic: "OR")
+  # bila user membatalkan — kode mendukung kedua logika.
+  # KONTEKS (tetap): Nic Claxton (CHI, 1,0 blok/laga) OUT vs Jokic
+  # terkonfirmasi 2 sumber di artefak verif DEN@CHI — veto HARUS
+  # menyala di laga itu (garis 236,5 + pace 103,22).
+  veto:
+    logic: "AND"
+    total_tinggi_points: 232.0
+    pace_tinggi: 100.5
+    # ── Definisi rim protector (dipakai
+    # scripts/fetch_rim_protector.py untuk menurunkan
+    # config/rim_protector_2026-27.json) ──
+    # v18: filter POSISI (proposal Gemini §2.3) — aturan BPG murni
+    # v17 menamai guard di tim yang bloknya lemah (DET: Cade
+    # Cunningham 0,9; juga Jamal Murray / Haliburton masuk daftar
+    # v17). Posisi dari BBRef (kolom "pos" tabel per-game) karena
+    # leaguedashplayerstats stats.nba.com TIDAK mengembalikan posisi
+    # (terverifikasi live 2026-11-23: tidak ada kolom POSITION di
+    # header respons). Nilai posisi dinormalisasi (huruf besar,
+    # spasi dibuang); "F-C"/"C-F" diterima. Ambang diperketat dari
+    # v17 (MP 15 -> 18, BLK 0,8 -> 1,0) per proposal Gemini §3.
+    # Per tim maksimal max_per_team pemain, urut BPG tertinggi
+    # (seri -> menit -> nama). KENAPA TOP-2: perlindungan ring
+    # adalah pekerjaan rotasi; selisih BPG #1 vs #2 sering di dalam
+    # noise (CHI: Jalen Smith 1,1 vs Nic Claxton 1,0). KENAPA
+    # min_games = 3: pemain bintang yang cedera (Chet Holmgren 3
+    # laga, Jaren Jackson Jr. 4 laga) tidak bisa diidentifikasi
+    # bila ambangnya 5 — dan merekalah yang justru perlu ditangkap
+    # veto. KETERBATASAN: pemain 0–2 laga tidak bisa
+    # diidentifikasi; alasan veto selalu menyebut nama + angka
+    # bloknya supaya bisa diaudit.
+    rim_protector:
+      position_filter: ["C", "PF", "F-C", "C-F"]
+      min_mp_per_game: 18.0
+      min_blk_per_game: 1.0
+      min_games: 3
+      max_per_team: 2
+  # ── BANTALAN VETO PARSIAL (v18, worker B): bila hanya SATU kondisi
+  # veto menyala (peringatan parsial — logika AND tidak memblokir),
+  # kaki laga itu wajib garis >= garis_acuan_normal + nilai ini
+  # (engine/ticket_composer.py::_pilih_garis_veto_parsial). Nilai 3,0
+  # dari proposal Gemini §3 (INITIAL — belum dikalibrasi; rencana:
+  # ukur hasil kaki parsial di ledger PAPER).
+  veto_parsial_bantalan_points: 3.0
+  # ── Flag volume 3P (untuk worker C — engine/setan_pemain.py):
+  # kedua tim masuk Top-10 3PAr -> flag 3P Volume Risk. Cutoff FIT
+  # dari data liga yang sama dengan foul di atas (3PAr terbesar
+  # ke-10 = 0,457207; n=30; snapshot out/fit_cutoff_liga_v18.json).
+  # RENCANA KALIBRASI: sama seperti foul (tarik ulang berkala).
+  # NAMA KUNCI: "tiga_pa_rate_top10_cutoff" (bukan "3par_...") —
+  # menyesuaikan kode worker C yang sudah mendarat
+  # (engine/setan_pemain.py membaca kunci ini; LAPORAN-VONIS-V18.md
+  # §Koordinasi).
+  tiga_pa_rate_top10_cutoff: 0.457207
+  # ── TIMING GATE (TUNGGU_LINEUP): bintang Questionable (status
+  # QUESTIONABLE) dengan USG >= usg_bintang ATAU BPM >= bpm_bintang
+  # -> laga ditahan di vonis "tunggu_lineup" (bukan HIJAU/KUNING)
+  # sampai injury report final ~30 menit sebelum tip-off
+  # (proposal Gemini §2.2/§2.8; contoh: IND@NYK — KAT & Siakam
+  # Questionable). USG dari ingest/pemain_usg.py (cache
+  # satu-proses); bila fetch USG gagal -> fallback BPM saja +
+  # dicatat. BPM dari inputs pemain artefak. Ambang dari proposal
+  # Gemini §3 (INITIAL + kalibrasi ledger: seberapa sering
+  # Questionable bintang akhirnya OUT vs main, dan dampaknya ke
+  # hasil Under).
+  tunggu_lineup:
+    usg_bintang: 0.24
+    bpm_bintang: 2.0
+    # KUALIFIKASI JALUR USG (v18, keputusan desain worker A — menunggu
+    # keberatan; bukti: slate 22 Nov, 2 dari 6 pemicu timing gate
+    # adalah pemain pinggiran — RayJ Dennis ATL USG 26,7% tapi BPM
+    # -3,2 / 11,5 mnt, Felix Okpara WAS USG 25,0% BPM -6,7 / 1,7
+    # mnt. USG tanpa konteks menit + kualitas menangkap pemain
+    # garbage-time). "Pemain berdampak via USG" = USG >= ambang DAN
+    # mp_per_game >= mp_min_rotasi DAN BPM >= bpm_min_jalur_usg
+    # (bila BPM diketahui; BPM hilang -> lantai dilewati, bukan
+    # gagal — tidak ada bukti negatif. mp hilang -> jalur USG TIDAK
+    # AKTIF: USG tanpa menit tidak bisa ditafsirkan).
+    # Definisi ini DIBAGI timing gate + rem alami (3) + aturan gap
+    # besar ("satu definisi pemain berdampak" — lihat
+    # engine/vonis.py::_lolos_jalur_usg).
+    mp_min_rotasi: 10.0  # = setan_pemain.ambang_menit_rotasi (definisi rotasi mesin)
+    bpm_min_jalur_usg: 0.0  # BPM 0 = rata-rata liga menurut konstruksi BPM
 
-# ── Peluang OT dipakai di seleksi (keputusan user 2026-11-23 10:22 WIB) ───
+# ── Peluang OT dipakai di seleksi (keputusan user 2026-11-23 10:22 WIB; ROMBAK v18) ───
 ot_seleksi:
-  # Sim sudah menghitung ot_probability (simulation.score_distribution)
-  # tapi selama ini hanya dipakai Q&A. Sekarang dipakai di seleksi:
-  # potensi OT tinggi -> SKIP kaki Under dari kedua tiket (bukan
-  # bantalan lebih besar — OT menambah loncatan diskret ~20+ poin yang
-  # SUDAH dimodelkan sim dalam distribusi total; risiko sisa adalah
-  # model MEREMEHKAN OT, yang tidak bisa diperbaiki bantalan dari
-  # model yang sama. Lihat LAPORAN-EQUILIBRIUM-SKIP-AWAL.md §3).
-  # NILAI AWAL (INITIAL) — BELUM DIKALIBRASI.
-  # Dasar (bukan tebakan): peluang seri laga imbang di bawah
-  # sigma_margin hasil fit = 1 / (14,4307 x √(2π)) ≈ 0,0277
-  # (densitas normal di 0); nilai sim teramati di 10 baris slate
-  # 22 Nov: 1,7–2,9% (median 2,4%). Ambang 0,028 = praktis plafon
-  # sim — hanya laga yang praktis imbang (estimasi OT model sudah di
-  # plafonnya) yang kena skip. CATATAN SKALA: sim MEREMEHKAN OT —
-  # nilai sim 1,7–2,9% vs laju OT historis NBA ~5–6% — jadi ambang
-  # ini dalam SKALA SIM, bukan skala historis; ambang 5% dalam skala
-  # sim tidak akan pernah terpicu. DEN@CHI (yang benar-benar OT)
-  # punya ot_prob sim hanya 2,36%/2,13% — TIDAK kena aturan ini;
-  # Denver ditangkap pola_denver, bukan aturan OT (kejujuran: aturan
-  # OT bukan penangkap Denver).
-  # KALIBRASI: (1) kumpulkan ot_prob sim + hasil OT aktual selama
-  # satu musim slate; (2) ukur kalibrasi (apakah OT terjadi lebih
-  # sering dari kata sim, dan seberapa besar selisihnya menurut
-  # ot_prob sim?); (3) fit ulang ambang ke anggaran skip yang
-  # dipilih user; (4) berlaku hanya atas persetujuan user.
-  skip_ot_prob: 0.028
+  # v18: OT EMPIRIS (audit Gemini §1.4 + §2.10). Pemicu keras v17
+  # (skip_ot_prob 0,028 atas ot_probability SIM) DIHAPUS — CACAT:
+  # kap teoretis P(OT) sim di spread 0 hanya 2,74% (densitas t(35)
+  # di 0 = 0,3961 / 14,4307), jadi ambang 2,8% BERADA DI ATAS kap
+  # dan hanya mendeteksi noise Monte Carlo (kasus DET@ATL 2,89%).
+  # Sim MEREMEHKAN OT (1,7–2,9% vs laju nyata NBA ~5,5–6,0%)
+  # karena strategi clutch Q4 (foul, tembakan 3 poin) tidak
+  # dimodelkan. Vonis + skip_awal kini memakai
+  # engine/ot_empiris.probabilitas_ot_empiris (spread -> peluang
+  # OT empiris); ot_probability sim tetap dicatat sebagai INFO.
+  # Rumus (docstring engine/ot_empiris.py): p_ot = base_rate_ot x
+  # exp(-spread^2 / (2 x sigma_margin^2)), spread = |median margin
+  # sim|, sigma_margin dipakai ulang dari simulation.nba
+  # (HASIL FIT 14,4307 — bukan parameter baru).
+  mode: "empiris"
+  # Laju dasar OT NBA (PRIOR, bukan fit — didokumentasikan):
+  # ~5,5–6,0% adalah laju OT umum NBA (angka umum yang dipakai
+  # Gemini §1.4; 0,0575 = titik tengah). BUKAN hasil fit dari data
+  # repo: gamelog stats.nba.com (leaguegamefinder, 2.701 laga fit)
+  # TIDAK membawa flag OT (hanya PTS/WL/MATCHUP), jadi fit dari
+  # data historis belum bisa dilakukan. RENCANA FIT: kumpulkan flag
+  # OT per laga (boxscore BBRef / ESPN — tiap laga selesai dicatat
+  # OT/tidak + spread penutupnya), lalu fit laju dasar + sensitivitas
+  # spread per pita; berlaku hanya atas persetujuan user (pola D12).
+  base_rate_ot: 0.0575
+  # Hard-skip hanya bila p_ot empiris >= nilai ini (INITIAL, dari
+  # proposal Gemini §3). TEMUAN JUJUR v18 (LAPORAN-VONIS-V18.md):
+  # dengan rumus densitas di atas, p_ot MAKSIMUM (spread 0) =
+  # base_rate_ot = 0,0575 < 0,085 — ambang ini TIDAK TERJANGKAU
+  # rumus saat ini, jadi hard-skip OT DORMAN sampai kalibrasi
+  # ledger menyediakan laju OT per pita spread (yang bisa menaikkan
+  # laju laga pick'em di atas 0,085) ATAU ambang diturunkan atas
+  # persetujuan user. Ini disengaja: gate yang tidak bisa
+  # dibuktikan tidak boleh membunuh laga diam-diam. DET@ATL
+  # (spread ~2) TIDAK hard-skip (p_ot ~0,057) — kasus uji wajib.
+  hard_skip_ot_prob: 0.085
 
 # ── §9. Ledger & kalibrasi ──────────────────────────────────────────────────
 calibration:
@@ -862,6 +1040,37 @@ calibration:
   # w_rekomendasi None. Sama dengan report_every_legs (§9: kalibrasi
   # Brier tiap 50 kaki). Rekomendasi TIDAK diterapkan otomatis.
   min_legs_w: 50
+  # ── v18: lean-to-market + penyusutan pre-vonbis ──────────────
+  # Ambang |median model - garis market| (poin) di atas mana model
+  # dianggap menyimpang dari pasar: tanpa penyebab cedera baru,
+  # median disusutkan ke arah pasar SEBELUM vonis + equilibrium
+  # (proposal Gemini §2.8 — pindahkan Vegas Sanity Check ke tepat
+  # setelah sim, jangan hanya di tahap akhir Asuransi). Nilai 5,0
+  # TETAP (dipindahkan dari market_line_check.total_gap_points —
+  # satu sumber kebenaran; semua pembaca sudah di-point ulang di
+  # integrasi v18). NILAI AWAL — BELUM DIKALIBRASI (kira-kira
+  # sepertiga sigma total 18,22 poin); menunggu validasi atas data
+  # PAPER + persetujuan user.
+  lean_to_market_gap: 5.0
+  # True = terapkan penyusutan median ke pasar sebelum vonis bila
+  # gap > lean_to_market_gap tanpa cedera baru terverifikasi
+  # (worker B — engine yang menerapkan; vonis membaca median yang
+  # sudah disusutkan dari artefak).
+  apply_shrinkage_pre_verdict: true
+  # Cara penyusutan (keputusan desain worker B v18 — engine/vegas.py,
+  # menunggu keberatan user/reviewer; LAPORAN-GATE-V18.md §Vegas):
+  # mode "setengah_jarak" + fraction 0,5 = median digeser setengah
+  # jarak menuju garis pasar. Alasan B: pasar NBA efisien (selisih
+  # besar tanpa sebab cedera lebih mungkin berarti model meleset),
+  # tapi model punya informasi independen yang tidak boleh dibuang
+  # sepenuhnya. KALIBRASI (B): kumpulkan median pra/pasca-susut +
+  # total aktual dari slate PAPER; ukur Brier/MAE total pada tiap
+  # fraction (0,25/0,5/0,75/1,0); pilih yang paling akurat, hanya
+  # atas persetujuan user. Nilai di sini SAMA dengan pilihan B yang
+  # sudah mendarat di engine/vegas.py (bukan lagi placeholder).
+  shrinkage:
+    mode: "setengah_jarak"
+    fraction: 0.5
 
 # ── §9. Belajar dari hasil (Tahap 3 Langkah 6) ─────────────────────────────
 learning:
@@ -890,34 +1099,34 @@ learning:
 # Uji stress deviasi tripoin berbasis data pemain (engine/setan_pemain.py
 # + ingest/pemain_3p.py) — MENGGANTIKAN setan umum (stress.setan_points)
 # sebagai demon utama bila data pemain tersedia; setan umum tetap jadi
-# fallback bila data pemain tidak tersedia. Rumus (disetujui user
-# 12:38 WIB): demon per pemain = percobaan 3P per laganya x % 3P
-# TERBAIK liga musim ini; total setan laga = median sim - poin 3P
-# normal kedua tim + poin 3P setan kedua tim. BUKAN prediksi — uji
+# fallback bila data pemain tidak tersedia. BUKAN prediksi — uji
 # stress (batas atas) untuk DETEKSI kerapuhan; regresi ekor 3P
 # (LAPORAN-EKOR-3P.md, n=2.466) menemukan laju 3PA tidak memengaruhi
 # ekor total, dan setan per pemain tidak bertentangan dengan itu.
+# ── ROMBAK RUMUS v18 (audit Gemini §2.6 — worker C): rumus v17
+# (demon per pemain = percobaannya x % 3P TERBAIK liga, 54,1% Cam
+# Spencer untuk SEMUA pemain rotasi) membuat terlalu banyak laga
+# biasa tampak rapuh. Rumus v18: % 3P setan per pemain =
+# min(cap_pct, % 3P musim pemain + boost_pp poin persentase), yaitu
+# min(50%, 3P% + 12pp). Kunci pct_terbaik_min_total_3pa DIHAPUS
+# (tidak dipakai lagi dengan rumus cap). Flag volume 3PAr
+# (add_3par_volume_flag): bila kedua tim masuk Top-10 3PAr (cutoff
+# vonis.tiga_pa_rate_top10_cutoff), catat flag 3P Volume Risk — pemicu
+# ledakan volume seperti DEN@CHI (90 percobaan vs ~72 ekspektasi).
+# KOORDINASI: engine/setan_pemain.py (worker C) yang menerapkan
+# rumus baru ini; nilai-nilai di bawah dari proposal Gemini §3
+# (INITIAL + kalibrasi ledger: apakah kaki DEN@CHI tetap rapuh
+# dengan cap baru — celah desain yang harus diukur C).
 setan_pemain:
   # Kill-switch: false -> skenario_panas mengabaikan data pemain dan
   # selalu memakai setan umum (stress.setan_points) + catatan.
   enabled: true
-  # Percobaan 3P TOTAL minimum musim ini agar seorang pemain boleh
-  # menjadi "% 3P terbaik liga". INITIAL (bukan fit) — menunggu
-  # keberatan reviewer + kalibrasi. SENSITIF: pada data 23 Nov 2026,
-  # ambang 25 -> 62,1% (Moritz Wagner, 28,5 percobaan — sampel kecil),
-  # 50 -> 54,1% (Cam Spencer, MEM, 61,2 percobaan), 75 -> 47,2%
-  # (Jamal Murray, 106,5 percobaan), 100 -> 47,2% (Murray), 150 ->
-  # 37,6% (hanya 4 pemain lolos — terlalu ketat). Nilai 50 dipilih
-  # karena memberi sampel yang berarti (~3 percobaan/laga selama
-  # musim berjalan) dengan kumpulan kandidat yang luas (174 pemain);
-  # total setan DEN@CHI pada ambang 50 adalah 274,14 vs 260,21 pada
-  # ambang 75 — KEDUANYA menandai kaki U252,5/U250,5 sebagai rapuh,
-  # jadi vonisnya kokoh walau levelnya bergerak. RENCANA KALIBRASI:
-  # tinjau tiap pertambahan ~20 laga liga; pertimbangkan ambang yang
-  # tumbuh mengikuti musim (mis. ~3,5 percobaan x jumlah laga tim)
-  # atau ambang berbasis laga dimainkan, dan ajukan perubahan ke user
-  # (seperti D12) bila ambang mengubah vonis kerapuhan di slate uji.
-  pct_terbaik_min_total_3pa: 50
+  # Kenaikan % 3P setan per pemain (POIN PERSENTASE: 12,0 = +12pp).
+  boost_pp: 12.0
+  # Batas atas % 3P setan per pemain (pecahan: 0,50 = 50%).
+  cap_pct: 0.50
+  # True = catat flag 3P Volume Risk bila kedua tim Top-10 3PAr.
+  add_3par_volume_flag: true
   # Menit per laga minimum agar pemain dihitung sebagai rotasi.
   # INITIAL (bukan fit) — menunggu keberatan reviewer. Pemain di bawah
   # ambang ini tidak menyumbang percobaan ke setan (juga proksi

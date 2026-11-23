@@ -38,7 +38,8 @@ ada default diam-diam):
     ambang -> hitung ulang.
   - data.stale_hours_injury_lineup (3): data cedera lebih tua dari
     ini = basi.
-  - market_line_check.total_gap_points (5.0): pemicu aturan
+  - calibration.lean_to_market_gap (5.0 — v18, dipindahkan dari
+    market_line_check.total_gap_points): pemicu aturan
     condong-ke-market (lihat bawah).
   - filters.nba_alt_under.insurance_target_probability (0.74):
     probabilitas minimum kaki Asuransi.
@@ -1455,7 +1456,7 @@ def decide(
     ambang_sharp = _ambang(cfg, "anomaly", "sharp_move_cents")
     ambang_gerak_garis = _ambang(cfg, "recheck", "market_line_move_points")
     stale_hours = _ambang(cfg, "data", "stale_hours_injury_lineup")
-    ambang_gap = _ambang(cfg, "market_line_check", "total_gap_points")
+    ambang_gap = _ambang(cfg, "calibration", "lean_to_market_gap")
     target_asuransi = _ambang(
         cfg, "filters", "nba_alt_under", "insurance_target_probability"
     )

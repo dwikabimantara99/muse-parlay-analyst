@@ -122,6 +122,39 @@ ADV_LAST10 = [
     },
 ]
 
+# Statistik dasar musim v18 (bentuk parse_team_base): FTr + 3PAr
+# untuk vonis (FTr p80, 3PAr Top-10). Rasio dipilih bulat
+# (FGA 100,0) supaya asersi stats_season eksak.
+BASE_SEASON = [
+    {
+        "team": "Utah Jazz",
+        "tricode": "UTA",
+        "fga_per_game": 100.0,
+        "fta_per_game": 28.0,
+        "fg3a_per_game": 44.0,
+        "ftr": 0.28,
+        "tiga_pa_rate": 0.44,
+    },
+    {
+        "team": "Dallas Mavericks",
+        "tricode": "DAL",
+        "fga_per_game": 100.0,
+        "fta_per_game": 26.0,
+        "fg3a_per_game": 42.0,
+        "ftr": 0.26,
+        "tiga_pa_rate": 0.42,
+    },
+    {
+        "team": "Oklahoma City Thunder",
+        "tricode": "OKC",
+        "fga_per_game": 100.0,
+        "fta_per_game": 30.0,
+        "fg3a_per_game": 38.0,
+        "ftr": 0.30,
+        "tiga_pa_rate": 0.38,
+    },
+]
+
 # Fallback BBRef (nama tim lengkap, tanpa tricode).
 BBREF_TEAMS = [
     {
@@ -404,6 +437,7 @@ class _PatchSemua:
     def __enter__(self):
         defaults = {
             "fetch_league_games": _ok("stats.nba.com", 1, GAMES),
+            "fetch_team_base_stats": _ok("stats.nba.com", 1, BASE_SEASON),
             "fetch_player_advanced": _ok("Basketball-Reference", 2, PLAYERS),
             "fetch_team_shooting_baselines": _ok("Basketball-Reference", 2, SHOOTING),
             "fetch_report": _ok("Official NBA Injury Report", 1, PDF_INJURIES),
@@ -468,13 +502,15 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
         )
         self.assertIsNone(data["tournament"])
         self.assertEqual(data["fetched_at"], result.fetched_at)
-        # 8 sumber tercatat (urutan fetch; musim lalu untuk shrinkage;
-        # tembakan 3P ditambahkan langkah ekor 3P, setelah pemain).
+        # 9 sumber tercatat (urutan fetch; musim lalu untuk shrinkage;
+        # tembakan 3P ditambahkan langkah ekor 3P, setelah pemain;
+        # statistik dasar Base v18 ditambahkan setelah Advanced musim).
         self.assertEqual(
             [(s["data_kind"], s["source"], s["tier"]) for s in data["sources"]],
             [
                 ("nba_games_season", "stats.nba.com", 1),
                 ("nba_team_advanced_season", "stats.nba.com", 1),
+                ("nba_team_base_season", "stats.nba.com", 1),
                 ("nba_team_advanced_last10", "stats.nba.com", 1),
                 ("nba_player_impact", "Basketball-Reference", 2),
                 ("nba_player_impact_musim_lalu", "Basketball-Reference", 2),
@@ -515,7 +551,14 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
         self.assertTrue(home["altitude_home"])
         self.assertEqual(
             home["stats_season"],
-            {"off_rtg": 112.0, "def_rtg": 113.5, "net_rtg": -1.5, "pace": 100.0},
+            {
+                "off_rtg": 112.0,
+                "def_rtg": 113.5,
+                "net_rtg": -1.5,
+                "pace": 100.0,
+                "ftr": 0.28,
+                "tiga_pa_rate": 0.44,
+            },
         )
         self.assertEqual(
             home["stats_last10"],
@@ -584,7 +627,14 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
         self.assertFalse(away["altitude_home"])
         self.assertEqual(
             away["stats_season"],
-            {"off_rtg": 114.5, "def_rtg": 111.0, "net_rtg": 3.5, "pace": 99.0},
+            {
+                "off_rtg": 114.5,
+                "def_rtg": 111.0,
+                "net_rtg": 3.5,
+                "pace": 99.0,
+                "ftr": 0.26,
+                "tiga_pa_rate": 0.42,
+            },
         )
         self.assertEqual(
             away["stats_last10"],
@@ -750,10 +800,19 @@ class TestFetchMatchInputsGagalSebagian(unittest.TestCase):
         ):
             result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
         self.assertTrue(result.ok)
-        # Statistik musim dari BBRef (tier 2).
+        # Statistik musim dari BBRef (tier 2). BBRef fixture tidak
+        # membawa fta_per_fga_pct/fg3a_per_fga_pct -> FTr/3PAr None
+        # (bukan 0 — tidak ada data, bukan tidak ada lemparan bebas).
         self.assertEqual(
             result.data["home"]["stats_season"],
-            {"off_rtg": 112.2, "def_rtg": 113.6, "net_rtg": -1.4, "pace": 100.1},
+            {
+                "off_rtg": 112.2,
+                "def_rtg": 113.6,
+                "net_rtg": -1.4,
+                "pace": 100.1,
+                "ftr": None,
+                "tiga_pa_rate": None,
+            },
         )
         self.assertEqual(result.data["home"]["team"], "Utah Jazz")
         # Last10 tetap dari stats.nba.com.
@@ -782,11 +841,28 @@ class TestFetchMatchInputsGagalSebagian(unittest.TestCase):
         home = result.data["home"]
         self.assertEqual(
             home["stats_season"],
-            {"off_rtg": None, "def_rtg": None, "net_rtg": None, "pace": None},
+            {
+                "off_rtg": None,
+                "def_rtg": None,
+                "net_rtg": None,
+                "pace": None,
+                "ftr": None,
+                "tiga_pa_rate": None,
+            },
         )
+        # stats_last10 GAGAL memakai _empty_stats() (6 kunci, sama
+        # seperti stats_season); last10 yang BERHASIL hanya 4 kunci
+        # (tanpa FTr/3PAr — lihat docstring _empty_stats).
         self.assertEqual(
             home["stats_last10"],
-            {"off_rtg": None, "def_rtg": None, "net_rtg": None, "pace": None},
+            {
+                "off_rtg": None,
+                "def_rtg": None,
+                "net_rtg": None,
+                "pace": None,
+                "ftr": None,
+                "tiga_pa_rate": None,
+            },
         )
         # Nama tim masih didapat dari daftar laga.
         self.assertEqual(home["team"], "Utah Jazz")

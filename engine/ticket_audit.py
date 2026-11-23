@@ -58,7 +58,8 @@ GATE (selaras ``engine/ticket_composer.py``):
   Tangga tidak ditemukan untuk garis itu: Asuransi JANGAN_PASANG
   (volume tidak terverifikasi — fail-closed), Utama PERHATIAN.
 - condong-ke-market (aturan 2026-11-22): bila |median − garis
-  market| > market_line_check.total_gap_points dan probabilitas
+  market| > calibration.lean_to_market_gap (v18, 5,0 — dipindahkan
+  dari market_line_check.total_gap_points) dan probabilitas
   pasar < ambang Asuransi, kaki Asuransi JANGAN_PASANG. Utama
   hanya dicatat (peracik: Utama selalu memakai model); bila
   probabilitas pasar juga < ambang Utama, kaki Utama PERHATIAN.
@@ -1034,7 +1035,7 @@ def _audit_satu_tiket(
         "harga_min_asuransi_cents" if tipe == "insurance" else "harga_min_utama_cents"
     )
     lantai_harga = _ambang(cfg, "analis", kunci_lantai)
-    ambang_gap = _ambang(cfg, "market_line_check", "total_gap_points")
+    ambang_gap = _ambang(cfg, "calibration", "lean_to_market_gap")
     ambang_sharp = _ambang(cfg, "anomaly", "sharp_move_cents")
     # Cache skenario panas per laga untuk tampilan p_banjir/p_setan
     # (dihitung sekali per match_id, bukan per kaki — lihat _p_stress).
