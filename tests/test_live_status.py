@@ -333,6 +333,22 @@ class TestEvaluateLeg(unittest.TestCase):
         hasil = live_status.evaluate_leg(leg, buat_live(), None, CFG)
         self.assertAlmostEqual(hasil["margin_points"], -2.0, places=6)
 
+    def test_leg_kalah_saat_total_berjalan_lewat_garis(self):
+        # Insiden DEN@CHI 2026-11-23: laga berjalan, total 116, garis
+        # 110 — total berjalan sudah di atas garis, Under sudah pasti
+        # kalah (total hanya bisa naik). Dulu: TERANCAM.
+        leg = buat_kaki(garis=110)
+        hasil = live_status.evaluate_leg(leg, buat_live(), None, CFG)
+        self.assertEqual(hasil["status"], "KALAH")
+        self.assertAlmostEqual(hasil["margin_points"], -122.0, places=6)
+
+    def test_leg_total_berjalan_pas_garis_belum_kalah(self):
+        # Total berjalan 116 = garis 116: belum pasti kalah (sisa laga
+        # tanpa poin = push) -> tetap dari proyeksi (232, margin -116).
+        leg = buat_kaki(garis=116)
+        hasil = live_status.evaluate_leg(leg, buat_live(), None, CFG)
+        self.assertEqual(hasil["status"], "TERANCAM")
+
     def test_leg_blend_vs_live_only(self):
         # Laga total 118, garis 237,5. Dengan median 226 (blend):
         # projected 233,5, margin 4,0 -> WASPADA. Tanpa median:

@@ -42,6 +42,8 @@ METODE PROYEKSI (pace-based; didokumentasikan jujur, lihat "Keterbatasan"):
 STATUS KAKI (Under): margin = garis - projected_total. margin >=
 ``live.status_margin_aman_points`` -> AMAN; >=
 ``live.status_margin_waspada_points`` -> WASPADA; sisanya TERANCAM.
+Pengecualian: total berjalan sudah > garis -> KALAH langsung walau laga
+belum selesai (total hanya bisa naik — insiden DEN@CHI 2026-11-23).
 Laga selesai: total akhir < garis -> MENANG; > garis -> KALAH; == garis
 -> PUSH (keputusan modul ini: total sama dengan garis adalah seri —
 modal kaki biasanya kembali, tergantung aturan venue; garis .5 praktis
@@ -405,6 +407,16 @@ def evaluate_leg(
     hasil["projected_total"] = proyeksi["projected_total"]
     margin = garis - proyeksi["projected_total"]
     hasil["margin_points"] = margin
+    # Total berjalan sudah melewati garis: kaki Under sudah pasti kalah
+    # walau laga belum selesai (total hanya bisa naik). Insiden DEN@CHI
+    # 2026-11-23: total berjalan 256 > garis 252,5 masih "TERANCAM".
+    if hasil["current_total"] is not None and hasil["current_total"] > garis:
+        hasil["status"] = "KALAH"
+        hasil["notes"].append(
+            "Total berjalan sudah melewati garis — kaki Under ini sudah "
+            "pasti kalah walau laga belum selesai."
+        )
+        return hasil
     cfg_penuh = _muat_cfg(cfg)
     aman = _ambang(cfg_penuh, "live", "status_margin_aman_points")
     waspada = _ambang(cfg_penuh, "live", "status_margin_waspada_points")
