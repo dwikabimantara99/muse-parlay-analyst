@@ -2,7 +2,7 @@
 
 **Tanggal:** 2026-11-23 (sore WIB) · **Repo:** muse-parlay-analyst, branch main ·
 **Config:** v16 → **v17** · **Suite:** **1806 tes OK** (baseline 1698 + 108 baru) ·
-**Kredit Odds API:** 0 · **Commit:** `PENDING` (diisi koordinator setelah commit)
+**Kredit Odds API:** 0 · **Commit:** `c1c641e`
 
 Build ini menjawab pelajaran insiden Denver 23 Nov (total akhir 296, OT,
 42 tripoin — kedua tiket nyata user kalah karena satu kaki yang sama ada
