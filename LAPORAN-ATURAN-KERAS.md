@@ -1,7 +1,8 @@
 # LAPORAN — Aturan Keras Pasca-Denver: Gate Banjir, Skenario Setan, Sharp Move Bukan Diskon
 
 **Status: SELESAI, terverifikasi koordinator dari disk, commit + push ke main.**
-Commit: `<hash-diisi-setelah-commit>` (feat) — config v15, **1.537 tes lulus**
+Commit: `c361a04` (feat) + `<hash-docs>` (docs hash). Remote HEAD terverifikasi
+sama; tree bersih — config v15, **1.537 tes lulus**
 (dari 1.483, +54), ruff + black bersih, **0 kredit Odds API**.
 
 Keputusan user yang diterapkan: DECISIONS.md, "Aturan keras pasca-Denver +
