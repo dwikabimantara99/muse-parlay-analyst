@@ -1559,3 +1559,46 @@ menangkap ledakan high-total + 3P volume risk + P_setan < 0,55
 equilibrium).
 RENCANA BESOK PAGI (Selasa 24 Nov): gas v18.1 pakai data segar +
 recheck pra-tip-off (30–40 menit sebelum tiap kloter tip-off).
+
+## Uji coba v18.1 slate 24 Nov (preview, 2026-11-23 16:58 WIB)
+
+User meminta uji coba; dijalankan subagent + DIVERIFIKASI main agent
+dari disk (artefak, tiket, laporan, log). Analyze HANYA 3m33d untuk
+10 laga (jauh di bawah perkiraan ~35 menit — kabar baik untuk timing
+besok pagi). 0 kredit Odds API (--tanpa-odds-api).
+Vonis (dari laporan, terverifikasi): HIJAU 3 (OKC@IND, PHX@NOP,
+LAC@HOU) / MENENGAH 2 (POR@PHI, UTA@LAL) / KUNING 4 (MEM, MIL, BKN
+karena data; CLE karena veto) / TUNGGU 1 (SAS@SAC — Wembanyama
+Questionable, BPM +14,2).
+TIDAK ADA tiket terbentuk + TIDAK ADA fallback (tiket null semua,
+Utama maks x1,13). Sebab: 8/10 laga HOLD + 1 DATA_INCOMPLETE (CLE)
++ hanya UTA@LAL OK (dialokasikan ke Utama sebagai MENENGAH).
+Akar HOLD: (a) konflik cedera PDF resmi vs ESPN (11 pemain, wajar
+sehari sebelum laga — besok pagi dengan data segar sebagian bisa
+terurai); (b) INKONSISTENSI DUA JALUR — pembangun kaki artefak
+(legacy) masih memakai gate volume kumulatif lama (≥$100) sementara
+equilibrium v18 memakai likuiditas+spread: `asuransi_tidak_memenuhi:
+tidak_ada_garis_lolos: volume_tipis` di 8 laga. Ini TIDAK akan hilang
+sendiri besok pagi — kandidat v18.2 / pertanyaan ke Gemini.
+(c) Kalshi tidak memberi p_market untuk 4 laga (MEM, MIL, BKN, SAS)
+— fetch berhasil, pencocokan garis gagal. BESOK PAGI: analyze
+DENGAN Odds API (devig sportsbook jadi pembanding utama).
+YANG BEKERJA (verifikasi positif): veto AND menangkap CLE@CHI
+(Mobley OUT 2 sumber + garis 240,5 + pace 103,03; Jarrett Allen
+1,3 BPG main — veto menyala atas Mobley); peta 30/30 terpakai
+(termasuk fallback Maluach PHX 0,8 / Brook Lopez LAC 0,9); Vegas
+sanity check menyusutkan OKC@IND median mentah 200,0 -> 210,75
+(gap 21,5 poin — anomali terbesar di slate, bahan diskusi besok)
+dan LAC@HOU 236,0 -> 230,25 (gap 11,5); setan per pemain ok di 9
+laga; timing gate menahan SAS dengan benar; demerit foul (FTr)
+teruji di data nyata pertama kali (POR 0,321 / UTA 0,318 ≥ p80
+0,308); log bersih (0 error).
+CACAT BUILDER (untuk v18.2): build_slate mengembalikan DUPLIKAT
+BKN@MIN (11 baris untuk 10 laga — dibersihkan subagent dari file
+slate, bukan ubah kode); output build_slate TIDAK BISA langsung
+jadi input analyze (skema menolak kunci tambahan generated_at /
+odds_api / slate_date / sport / summary — subagent menulis slate
+format-skema terpisah).
+File: out/slate_preview_2026-11-24.json, out/analysis_preview_2026-11-24.json,
+out/tickets_preview_2026-11-24.json, out/laporan_preview_2026-11-24.txt
+(2.527 baris). Tidak ada commit / perubahan kode / kredit.
