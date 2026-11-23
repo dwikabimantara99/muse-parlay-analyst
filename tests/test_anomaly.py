@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import config
-from engine import anomaly
+from engine import anomaly, price_labels
 
 # cfg lengkap untuk semua fungsi anomaly (angka sama dengan playstyle.yaml).
 CFG = {
@@ -145,6 +145,57 @@ class TestPriceSnapshots(unittest.TestCase):
         self.assertEqual(gerak["first_at"], THUNDER_FIRST_AT)
 
 
+class TestFramingSharpMoveBukanDiskon(unittest.TestCase):
+    """Sharp move BUKAN diskon (keputusan user 2026-11-23, kasus Thunder).
+
+    Komposisi deteksi (anomaly) + penekanan label (price_labels):
+    gerak 75¢ -> 71¢ terdeteksi sharp move, dan EV yang tampak seperti
+    DISKON di harga baru TIDAK BOLEH berlabel DISKON polos.
+    """
+
+    def _gerak_thunder(self, harga_kini):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snaps = anomaly.PriceSnapshots(Path(tmpdir) / "snapshots.json")
+            snaps.record(THUNDER_KEY, 75.0, THUNDER_FIRST_AT)
+            return snaps.sharp_move(THUNDER_KEY, harga_kini, CFG)
+
+    def test_thunder_diskon_ditekan(self):
+        gerak = self._gerak_thunder(71.0)
+        self.assertIsNotNone(gerak)
+        self.assertEqual(gerak["type"], "sharp_move")
+        # p_final 0,75 (fixture kaki Thunder) di harga baru 71¢:
+        # EV = (0,75 x 100/71 - 1) x 100 ≈ +5,63% -> tampak DISKON.
+        ev_pct = (0.75 * (100.0 / 71.0) - 1.0) * 100.0
+        self.assertGreaterEqual(ev_pct, 2.0)
+        # Tanpa flag sharp move, labelnya DISKON — ini jebakan yang
+        # dilakukan Gemini ("bagian dari diskon").
+        self.assertEqual(price_labels.label_for_ev(ev_pct, CFG), "DISKON")
+        # Dengan sharp move terdeteksi, DISKON polos DILARANG.
+        self.assertEqual(
+            price_labels.label_for_ev(ev_pct, CFG, sharp_move=True),
+            "DISKON_DITEKAN",
+        )
+
+    def test_gerak_kecil_bukan_sharp_label_tetap_diskon(self):
+        # Gerak 2¢ (75¢ -> 73¢) di bawah ambang sharp 3¢: bukan
+        # anomali, penekanan tidak berlaku, DISKON polos boleh.
+        self.assertIsNone(self._gerak_thunder(73.0))
+        ev_pct = (0.75 * (100.0 / 73.0) - 1.0) * 100.0
+        self.assertEqual(
+            price_labels.label_for_ev(ev_pct, CFG, sharp_move=False), "DISKON"
+        )
+
+    def test_tepat_ambang_sharp_label_ditekan(self):
+        # Tepat 3¢ (75¢ -> 72¢) = anomali (>= 3¢, D9).
+        gerak = self._gerak_thunder(72.0)
+        self.assertIsNotNone(gerak)
+        ev_pct = (0.75 * (100.0 / 72.0) - 1.0) * 100.0
+        self.assertEqual(
+            price_labels.label_for_ev(ev_pct, CFG, sharp_move=True),
+            "DISKON_DITEKAN",
+        )
+
+
 class TestCheckJupVsMarket(unittest.TestCase):
     def test_tepat_di_ambang_bukan_anomali(self):
         # |75¢ - 0,71| = tepat 4 poin -> bukan anomali (aturan "lebih dari").
@@ -263,6 +314,39 @@ class TestEvaluateLeg(unittest.TestCase):
         gerak = hasil["anomalies"][0]
         self.assertEqual(gerak["type"], "sharp_move")
         self.assertAlmostEqual(gerak["delta_cents"], -4.0)
+
+    def test_thunder_label_ditekan_lewat_evaluate_leg(self):
+        """Thunder ujung-ke-ujung: sharp move menekan label DISKON.
+
+        p_model 0,75, p_market 0,72 -> p_final 0,741; di harga 71¢
+        EV = (0,741 x 100/71 - 1) x 100 = +4,37% -> tampak DISKON.
+        Tapi ada sharp move 75¢ -> 71¢, jadi labelnya harus
+        DISKON_DITEKAN, bukan DISKON polos (kesalahan Gemini).
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            snaps = anomaly.PriceSnapshots(Path(tmpdir) / "snapshots.json")
+            snaps.record(THUNDER_KEY, 75.0, THUNDER_FIRST_AT)
+            hasil = anomaly.evaluate_leg(
+                0.75,
+                0.72,
+                71.0,
+                "odds_api_devig",
+                CFG,
+                venue="jup",
+                snapshots=snaps,
+                snapshot_key=THUNDER_KEY,
+            )
+        self.assertEqual(hasil["price_label"], "DISKON_DITEKAN")
+        jenis = [a["type"] for a in hasil["anomalies"]]
+        self.assertIn("sharp_move", jenis)
+
+    def test_tanpa_sharp_move_label_diskon_boleh(self):
+        """Kontrol: tanpa sharp move, EV +4,37% tetap DISKON polos."""
+        hasil = anomaly.evaluate_leg(
+            0.75, 0.72, 71.0, "odds_api_devig", CFG, venue="jup"
+        )
+        self.assertEqual(hasil["price_label"], "DISKON")
+        self.assertEqual(hasil["anomalies"], [])
 
     def test_tanpa_snapshot_tidak_ada_sharp_move(self):
         # snapshots tidak diberikan -> tidak ada cek sharp move.

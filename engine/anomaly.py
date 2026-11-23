@@ -487,9 +487,12 @@ def evaluate_leg(
     Langkah: (a) harga efektif = harga + fee taker bila venue "kalshi",
     else harga apa adanya; (b) blend -> p_final (+ model_only bila
     p_market None); (c) EV% = (p_final × (100/harga_efektif) − 1) × 100
-    (D7); (d) label via price_labels.label_for_ev; (e) anomali:
-    sharp_move (bila snapshots + snapshot_key diberikan), jup_vs_market
-    dan model_vs_market (bila p_market ada).
+    (D7); (d) anomali sharp_move dulu (bila snapshots + snapshot_key
+    diberikan) karena label bergantung padanya: bila sharp move
+    terdeteksi, label DISKON ditekan jadi DISKON_DITEKAN (sharp move
+    BUKAN diskon — kasus Thunder); (e) label via
+    price_labels.label_for_ev; (f) anomali jup_vs_market dan
+    model_vs_market (bila p_market ada).
 
     jup_price_cents adalah harga venue dalam sen (harga jup.ag bila
     venue "jup", harga Kalshi bila venue "kalshi"). comparison_source
@@ -508,12 +511,17 @@ def evaluate_leg(
     hasil_blend = devig.blend(p_model, p_market, cfg)
     p_final = hasil_blend["p_final"]
     ev_pct = (p_final * (100.0 / harga_efektif) - 1.0) * 100.0
-    label = price_labels.label_for_ev(ev_pct, cfg)
     anomalies: list[dict] = []
+    sharp_move_terdeteksi = False
     if snapshots is not None and snapshot_key is not None:
         gerak = snapshots.sharp_move(snapshot_key, harga, cfg)
         if gerak is not None:
             anomalies.append(gerak)
+            sharp_move_terdeteksi = True
+    # Sharp move BUKAN diskon (kasus Thunder): bila harga baru bergerak
+    # tajam, label DISKON ditekan jadi DISKON_DITEKAN — jangan pernah
+    # mengembalikan DISKON polos bersamaan dengan anomali sharp_move.
+    label = price_labels.label_for_ev(ev_pct, cfg, sharp_move=sharp_move_terdeteksi)
     if p_market is not None:
         jup_anomali = check_jup_vs_market(harga, p_market, cfg)
         if jup_anomali is not None:

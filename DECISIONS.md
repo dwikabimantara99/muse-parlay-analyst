@@ -609,3 +609,103 @@ Build yang diusulkan (menunggu persetujuan user): (1) audit tiket sebelum
 pasang, (2) skenario panas, (3) edge jadi gate Asuransi, (4) sesuaikan
 target pengali dengan fondasi ini, (5) proyeksi live pakai median pra-laga
 untuk tiket nyata.
+
+## Aturan keras pasca-Denver + kasus Thunder (keputusan user 2026-11-23 09:47 WIB)
+
+Latar: insiden DEN@CHI 23 Nov 2026 (banjir 3 poin, dua tiket hangus,
+$30 hilang) + pengakuan Gemini (09:21 WIB) + kasus Thunder (lihat
+bawah). Prinsip user: "statistik gak bisa bohong" — mesin harus
+mensimulasikan penyimpangan MAKSIMAL, dan posisi tiket harus selalu
+unggul. Bila statistik bilang sebuah laga tidak masuk akal dipasang
+bahkan di 82¢, MUNDURIN lagi (naik ke garis/harga yang lebih aman);
+bila tidak ada garis yang lolos, SKIP laga itu — jangan pernah
+dipaksakan.
+
+- **R1 — Kaki Asuransi wajib lolos skenario banjir.** Peluang Under
+  ≥ 0,74 bukan cuma di skenario normal, tapi juga di skenario banjir.
+  Ini yang membuat jarak bantalan antar-tiket nyata (pelajaran Gemini:
+  laga berisiko yang sama di dua tiket dengan selisih bantalan cuma
+  2 poin membuat fungsi asuransi mati total).
+- **R2 — Laga berisiko hanya boleh di Utama**, tidak pernah di
+  Asuransi.
+- **R3 — Jangan isi tiket demi pengali.** Bila tidak ada kaki yang
+  lolos, tiket tidak jadi (fail-closed, sudah berlaku — dipertahankan).
+- **R4 — Semua hasil tiket dicatat ke ledger** untuk kalibrasi
+  (tiket 23 Nov dicatat setelah semua kaki selesai).
+- **R5 — Blacklist POLA, bukan tim.** DEN/CHI secara statistik tim
+  3-poin yang buruk — banjirnya tail event. Yang di-blacklist adalah
+  pola: edge kecil + rapuh banjir + volume tipis.
+- **Skenario "setan" (deviasi maksimal).** Mesin mensimulasikan tiap
+  tim "kerasukan setan iblis tri poin" — penyimpangan maksimal, bukan
+  cuma banjir biasa (p90). Garis Asuransi harus tahan terhadap
+  deviasi maksimal ini. Acuan: insiden DEN (pace halftime +51 di atas
+  median 233; total akhir ~261+ vs median 233).
+- **Sharp move BUKAN diskon.** Pergerakan harga tajam (≥3¢) menjelang
+  tip-off adalah PERINGATAN (pasar kemungkinan tahu sesuatu), bukan
+  peluang diskon. Label DISKON tidak boleh dipakai untuk kaki yang
+  harganya baru bergerak tajam sebelum pergerakannya dijelaskan
+  ("Kenapa beda?"). Kasus Thunder: beli di 75¢, 1 jam sebelum tip-off
+  turun ke 71¢; Gemini bilang itu "bagian dari diskon"; Under-nya
+  jebol. Mesin tidak boleh mengulangi kesalahan framing ini.
+- **Fondasi pengali (penegasan):** Asuransi x2; Utama x3 (x4 rejeki,
+  x5 amazing). Kaki Utama di 78¢ tidak masalah selama tembus x3.
+  Bantalan kuat selalu diutamakan di atas pengali.
+
+### Catatan implementasi (koordinator, 2026-11-23 — keputusan user di atas TIDAK diubah)
+
+- **Gate banjir (R1)** di `engine/ticket_composer.py`: kaki Asuransi
+  lolos hanya bila P(Under) di skenario banjir terburuk (worst of
+  banjir_3p/banjir_ft p90) ≥ `min_leg_prob` 0,74. Bila gagal: naik ke
+  garis tahan-banjir; bila tidak ada garis tahan-banjir (atau garisnya
+  thin — keputusan: thin = hard gate, menunggu keberatan) → SKIP laga
+  itu untuk Asuransi. Kunci config:
+  `tickets.insurance.stress_gate_scenario: banjir_terburuk`
+  (fail-closed; nilai `setan` didukung kode tapi BUKAN kriteria
+  produksi — jangan diubah tanpa persetujuan user). Kaki yang naik
+  garis memakai p_final/EV garis LAMA (konservatif, tidak dihitung
+  ulang) — interaksi gate banjir × gate edge: kaki yang naik garis
+  hampir selalu gagal gate edge karena harga naik sementara p_final
+  tetap (lihat LAPORAN-ATURAN-KERAS.md §5).
+- **Skenario setan = DETEKSI, bukan gate** (koreksi user 09:52 WIB):
+  `stress.setan_points: 18.07` (maksimum teramati, bukan p99 —
+  mengikuti kata user "MAKSIMAL"). Flag `flag_setan` per kaki: True
+  bila lolos normal tapi jebol di setan. Tidak ada kode yang memblokir
+  berdasarkan setan.
+- **Kontaminasi derivasi p90 (temuan, bukan perubahan):** nilai banjir
+  p90 di config (13,54/17,54) diturunkan dari snapshot yang tercemar
+  4 laga yang sedang berjalan; data bersih memberi p90 8,50/12,52.
+  Nilai config TIDAK diubah — kalibrasi ulang menunggu keputusan
+  user. Konterfaktual: dengan geser bersih, block rate gate banjir
+  tetap 1/10 lolos (temuan kokoh).
+- **Sharp move bukan diskon:** label `DISKON_DITEKAN` di
+  `price_labels.py` (parameter `sharp_move`), diterapkan di recheck
+  (verdict tetap JANGAN_PASANG — aturan 6 yang sudah ada),
+  audit (gate lunak PERHATIAN), dan `anomaly.evaluate_leg`
+  (sebelumnya mengembalikan DISKON polos bersamaan dengan anomali
+  sharp_move — diperbaiki koordinator dengan tes fail-first).
+- **Hasil ukur (slate nyata, LAPORAN-ATURAN-KERAS.md §5):** gate
+  banjir 1 lolos / 9 terblokir dari 10 baris; garis tahan-banjir ada
+  di 9/10 (mayoritas thin); flag setan 10/10. Gabungan gate banjir +
+  gate edge: 0/10 kaki Asuransi lolos (satu-satunya yang lolos banjir,
+  OKC U250,5 @89¢, gagal edge +1,3% < 3,5%). Angka ini untuk
+  keputusan user, bukan untuk dilonggarkan diam-diam.
+
+## Koreksi: skenario setan adalah deteksi, bukan gate (keputusan user 2026-11-23 09:52 WIB)
+
+Mengoreksi bagian "Skenario 'setan'" di atas (09:47 WIB):
+
+- **Skenario setan BUKAN gate keras.** Gate keras Asuransi tetap
+  skenario banjir p90 (R1) + edge + volume + min_leg_prob — batas
+  ketat yang MASUK AKAL. User menegaskan: bukan maksudnya semua laga
+  dianggap anomali; bila semua pemeriksaan terlalu ketat, semua kaki
+  bisa kena skip.
+- **Fungsi skenario setan: deteksi dini + analisis.** Membaca sejak
+  awal apakah sebuah laga punya statistik anomali seperti Denver;
+  menunjukkan seberapa rapuh tiap kaki terhadap deviasi maksimal dan
+  garis/harga mana yang lebih tahan. Kaki yang lolos gate banjir
+  boleh dipasang (di harga tinggi) walau rapuh-setan, asal risikonya
+  TERLIHAT di laporan/audit. Bila anomali ekstrem benar-benar datang,
+  itu kalah dengan terhormat — bukan kegagalan proses.
+- **Strategi tumpuk:** pasang di harga tinggi (89¢/94¢) tidak masalah
+  untuk menumpuk BANYAK laga dan menambah daya ungkit pengali — asal
+  tiap kaki fundamentalnya kuat (lolos semua gate).

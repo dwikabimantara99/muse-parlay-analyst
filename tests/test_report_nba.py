@@ -1164,21 +1164,33 @@ class TestSkenarioPanas(unittest.TestCase):
     def test_hitung_otomatis_dari_artefak(self):
         teks = nba_report_mod.render_nba_report(_artefak())
         self.assertIn("Skenario panas", teks)
-        # Geser dari config (13,54 / 17,54) + konservatif (225,5-219).
+        # Geser dari config (13,54 / 17,54 / setan 18,07) + konservatif
+        # (225,5-219).
         self.assertIn("banjir tripoin +13,54 poin", teks)
         self.assertIn("banjir lemparan bebas +17,54 poin", teks)
+        self.assertIn("deviasi maksimal (setan tripoin) +18,07 poin", teks)
         self.assertIn("konservatif (selaras garis market) +6,50 poin", teks)
         self.assertIn("Skenario banjir terburuk: banjir lemparan bebas.", teks)
         # Under 233,5: CDF(233,5-13,54)=CDF(219,96)=51,8%;
         # CDF(233,5-17,54)=CDF(215,96) dijepit ke 50,0%;
-        # CDF(233,5-6,5)=CDF(227)=65,0%.
+        # CDF(233,5-6,5)=CDF(227)=65,0%;
+        # setan CDF(233,5-18,07)=CDF(215,43) dijepit ke 50,0%.
         self.assertIn(
             "Under 233,5 (Asuransi, 68¢): normal 77,2%; banjir tripoin "
-            "51,8%; banjir lemparan bebas 50,0%; konservatif 65,0%.",
+            "51,8%; banjir lemparan bebas 50,0%; konservatif 65,0%; "
+            "setan 50,0%.",
             teks,
         )
         self.assertIn("TIDAK tahan banjir", teks)
         self.assertIn("1 dari 10 laga terpanas", teks)
+        # Flag setan: normal 77,2% >= 74% tapi setan 50,0% < 74%.
+        self.assertIn("FLAG SETAN", teks)
+        self.assertIn("lolos normal (77,2%)", teks)
+        self.assertIn("setan 50,0%", teks)
+        # Tidak ada garis tahan-setan di tangga fixture (garis tertinggi
+        # 241,5 -> CDF(223,43)=58,3% < 74%).
+        self.assertIn("Tidak ada garis tahan setan", teks)
+        self.assertIn("tidak ada garis tahan-setan", teks)
 
     def test_membaca_stress_tersimpan_bila_ada(self):
         artefak = _artefak()

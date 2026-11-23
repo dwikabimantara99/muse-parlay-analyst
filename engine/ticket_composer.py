@@ -55,6 +55,27 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   gate, seperti thin), alasan tercatat ("edge_kecil" + nilainya).
   Utama TIDAK kena gate ini. Nilai ambang adalah PROPOSAL (pola
   D12) — menunggu persetujuan user; lihat komentar di config.
+- Gate skenario banjir Asuransi (insiden DEN@CHI 2026-11-23,
+  keputusan user R1 + koreksi 09:52 WIB): kaki Asuransi (NBA
+  total_under) lolos hanya bila P(Under) di skenario banjir
+  TERBURUK (worst of banjir_3p/banjir_ft p90, engine/stress.py)
+  >= ``tickets.insurance.min_leg_prob`` (0,74). Skenario dibaca
+  dari ``tickets.insurance.stress_gate_scenario``
+  ("banjir_terburuk"; "setan" didukung kode tapi BUKAN kriteria
+  produksi — setan hanya deteksi kerapuhan). Garis yang gagal
+  NAIK ke garis tahan skenario itu dari tangga (climb tercatat,
+  alasan "banjir"); bila tidak ada garis tangga yang tahan, laga
+  di-SKIP untuk Asuransi (alasan "tidak_ada_garis_tahan_banjir").
+  Garis tahan yang thin TIDAK dipakai (aturan thin Asuransi yang
+  sudah ada: thin = hard gate) -> SKIP — keputusan ini menunggu
+  keberatan user/reviewer. Skenario yang tidak bisa dihitung (CDF
+  tidak ada dsb.) -> kaki ditolak (fail-closed), bukan lolos
+  diam-diam. Utama TIDAK kena gate ini. Kaki yang naik garis
+  memakai p_final/EV garis lama (konservatif: peluang sebenarnya
+  di garis baru lebih tinggi; peracik tidak menghitung ulang
+  blend di garis baru — menunggu keputusan reviewer). Kaki bola
+  dan total_over tidak kena gate ini (tidak ada model stress
+  untuk keduanya).
 - Lantai harga (filosofi user 2026-11-23): kaki NBA dengan harga
   venue (jup_estimated_cents, fallback price_cents) di bawah
   analis.harga_min_utama_cents (Utama) / analis.harga_min_asuransi_cents
@@ -137,6 +158,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import config as config_mod
+from engine import stress as stress_mod
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 _SKEMA_TIKET = REPO_ROOT / "schemas" / "ticket.schema.json"
@@ -282,6 +304,235 @@ def _ambang_edge_asuransi(cfg: dict) -> tuple[float, str]:
         100.0,
     )
     return nilai_pct / 100.0, sumber
+
+
+def _skenario_gate_asuransi(cfg: dict) -> str:
+    """Nama skenario gate Asuransi dari config (fail-closed).
+
+    Dibaca dari ``tickets.insurance.stress_gate_scenario``. Kunci
+    hilang / bukan "banjir_terburuk" atau "setan" -> ConfigError
+    (tanpa default dari kode). Nilai produksi: "banjir_terburuk"
+    (koreksi user 09:52 WIB 2026-11-23: gate keras Asuransi adalah
+    banjir p90; "setan" hanya deteksi kerapuhan, bukan kriteria
+    produksi — jangan ubah nilai ini tanpa persetujuan user).
+    """
+    try:
+        nilai = config_mod.get_value(
+            cfg, "tickets", "insurance", "stress_gate_scenario"
+        )
+    except config_mod.ConfigError as exc:
+        raise config_mod.ConfigError(
+            "playstyle.yaml kehilangan kunci: "
+            "tickets.insurance.stress_gate_scenario (gate banjir Asuransi)"
+        ) from exc
+    if nilai not in ("banjir_terburuk", "setan"):
+        raise config_mod.ConfigError(
+            "playstyle.yaml tickets.insurance.stress_gate_scenario harus "
+            f"'banjir_terburuk' atau 'setan', dapat: {nilai!r}"
+        )
+    return nilai
+
+
+def _kunci_skenario(hasil_stress: dict, skenario: str) -> tuple[str, str, str]:
+    """Kunci output stress untuk satu skenario gate.
+
+    Mengembalikan (kunci P di p_under, kunci garis tahan, kunci
+    alasan tidak tahan): "banjir_terburuk" -> P dari
+    hasil["banjir_terburuk"] ("banjir_3p"/"banjir_ft", mana yang
+    gesernya terbesar) + "garis_tahan_banjir";
+    "setan" -> p_under["setan"] + "garis_tahan_setan".
+    Raise ValueError bila skenario tak dikenal atau hasil stress
+    tidak menyebut skenario banjir terburuknya.
+    """
+    if skenario == "banjir_terburuk":
+        terburuk = hasil_stress.get("banjir_terburuk")
+        if terburuk not in ("banjir_3p", "banjir_ft"):
+            raise ValueError(
+                f"hasil skenario panas tanpa banjir_terburuk yang dikenal: {terburuk!r}"
+            )
+        return terburuk, "garis_tahan_banjir", "alasan_tidak_tahan_banjir"
+    if skenario == "setan":
+        return "setan", "garis_tahan_setan", "alasan_tidak_tahan_setan"
+    raise ValueError(f"skenario gate tidak dikenal: {skenario!r}")
+
+
+def _label_skenario(hasil_stress: dict, skenario: str) -> str:
+    """Label skenario untuk pesan coret ("banjir terburuk (banjir_ft)")."""
+    if skenario == "banjir_terburuk":
+        terburuk = hasil_stress.get("banjir_terburuk")
+        return (
+            f"banjir terburuk ({terburuk})"
+            if isinstance(terburuk, str) and terburuk
+            else "banjir terburuk"
+        )
+    return skenario
+
+
+def _stress_laga(
+    analisis: dict, cfg: dict, cache: dict[str, tuple[dict | None, str | None]]
+) -> tuple[dict | None, str | None]:
+    """Hasil skenario_panas satu laga (cache per match_id).
+
+    Mengembalikan (hasil, galat): hasil None + galat berisi pesan bila
+    skenario tidak bisa dihitung (CDF tidak bisa dibangun, kunci
+    config hilang, dsb.) — gate memakai ini untuk fail-closed, bukan
+    crash. Kaki yang dihitung: kaki total_under bergaris dari artefak
+    (tiket dikenali lewat ``_tiket_kaki``, termasuk turunan leg_id) —
+    kaki tanpa tiket/garis tidak ikut, supaya satu kaki aneh tidak
+    menggagalkan seluruh laga.
+    """
+    match_id = analisis.get("match_id")
+    if isinstance(match_id, str) and match_id in cache:
+        return cache[match_id]
+    kaki: list[dict] = []
+    for leg in analisis.get("legs") or []:
+        if not isinstance(leg, dict):
+            continue
+        if leg.get("market_type") != "total_under":
+            continue
+        tiket = _tiket_kaki(leg)
+        garis = _angka(leg.get("line"))
+        if tiket is None or garis is None:
+            continue
+        kaki.append({"line": garis, "ticket": tiket})
+    try:
+        hasil = stress_mod.skenario_panas(analisis, kaki=kaki, cfg=cfg)
+        pasangan: tuple[dict | None, str | None] = (hasil, None)
+    except (ValueError, TypeError, config_mod.ConfigError) as exc:
+        # TypeError: artefak/config bentuk tak terduga (mis. nilai
+        # config None) — tetap fail-closed per laga, bukan crash
+        # seluruh slate.
+        pasangan = (None, str(exc))
+    if isinstance(match_id, str):
+        cache[match_id] = pasangan
+    return pasangan
+
+
+def _entri_stress_kaki(hasil_stress: dict, garis: float, tiket: str) -> dict | None:
+    """Entri kaki (garis, tiket) di hasil skenario_panas, atau None."""
+    for entri in hasil_stress.get("kaki") or []:
+        if not isinstance(entri, dict):
+            continue
+        if entri.get("ticket") != tiket:
+            continue
+        garis_entri = _angka(entri.get("line"))
+        if garis_entri is not None and abs(garis_entri - garis) < 1e-9:
+            return entri
+    return None
+
+
+def _gate_skenario(
+    hasil_stress: dict, entri_kaki: dict, skenario: str, ambang: float
+) -> tuple[str, float | None, dict | None, str | None]:
+    """Nilai satu kaki Asuransi di satu skenario stress (gate banjir/setan).
+
+    Mengembalikan (putusan, p_skenario, garis_tahan, alasan):
+    - ("lolos", p, None, None): P(Under) di skenario >= ambang.
+    - ("naik", p, garis_tahan, None): P < ambang tapi ada garis tangga
+      yang tahan skenario itu (garis_tahan = ringkasan entri tangga
+      dari stress: line/price/thin/volume).
+    - ("tolak", p, None, alasan): P tidak tersedia di skenario itu
+      (p None), atau tidak ada garis tangga yang tahan.
+    ``skenario``: "banjir_terburuk" atau "setan" (lihat
+    ``_kunci_skenario``). Kunci skenario yang belum ada di output
+    stress -> "tolak" (fail-closed), bukan lolos diam-diam.
+    """
+    kunci_p, kunci_garis, kunci_alasan = _kunci_skenario(hasil_stress, skenario)
+    p_under = entri_kaki.get("p_under")
+    p = _angka(p_under.get(kunci_p)) if isinstance(p_under, dict) else None
+    if p is None:
+        return (
+            "tolak",
+            None,
+            None,
+            f"P(Under) skenario {kunci_p} tidak tersedia di hasil skenario panas",
+        )
+    if p >= ambang:
+        return "lolos", p, None, None
+    garis_tahan = entri_kaki.get(kunci_garis)
+    if not isinstance(garis_tahan, dict) or _angka(garis_tahan.get("line")) is None:
+        alasan = entri_kaki.get(kunci_alasan)
+        if not isinstance(alasan, str) or not alasan:
+            alasan = (
+                f"tidak ada garis tangga yang tahan skenario {kunci_p} "
+                f"(P(Under) < {ambang:.0%} di semua garis)"
+            )
+        return "tolak", p, None, alasan
+    return "naik", p, garis_tahan, None
+
+
+def _kaki_naik_garis(kaki: dict, garis_tahan: dict, tangga: list[dict]) -> dict | None:
+    """Salinan kaki yang garisnya naik ke garis tahan + climb tercatat.
+
+    ``garis_tahan``: ringkasan entri tangga dari stress (line, harga,
+    volume, thin). ``tangga``: entri Under terurut
+    (``stress.tangga_under``) untuk hitung rungs. Mengembalikan None
+    bila garis tahan tidak lebih tinggi dari garis kaki (tidak boleh
+    "naik" ke bawah). Climb lama (dari cushion) dirangkai: from_line
+    asal dipertahankan, rungs dijumlah, alasan digabung "+" (gaya
+    cushion); alasan climb gate ini: "banjir".
+    p_final/EV/cushion kaki TIDAK dihitung ulang di garis baru —
+    nilainya masih garis lama (konservatif: peluang sebenarnya di
+    garis baru lebih tinggi; edge/EV sebenarnya lebih baik).
+    """
+    dari = _angka(kaki.get("line"))
+    ke = _angka(garis_tahan.get("line"))
+    if dari is None or ke is None or ke <= dari:
+        return None
+    urut = [float(entri["line"]) for entri in tangga]
+
+    def _indeks(garis_cari: float) -> int | None:
+        for i, garis_tangga in enumerate(urut):
+            if abs(garis_tangga - garis_cari) < 1e-9:
+                return i
+        return None
+
+    indeks_dari = _indeks(dari)
+    indeks_ke = _indeks(ke)
+    rungs_baru = (
+        indeks_ke - indeks_dari
+        if indeks_dari is not None and indeks_ke is not None
+        else None
+    )
+    climb_lama = kaki.get("climb") if isinstance(kaki.get("climb"), dict) else None
+    if climb_lama is not None:
+        dari_awal = _angka(climb_lama.get("from_line")) or dari
+        rungs_lama = climb_lama.get("rungs")
+        if (
+            isinstance(rungs_lama, int)
+            and not isinstance(rungs_lama, bool)
+            and rungs_baru is not None
+        ):
+            rungs = rungs_baru + rungs_lama
+        else:
+            rungs = rungs_baru
+        alasan_lama = climb_lama.get("reason")
+        alasan = (
+            f"{alasan_lama}+banjir"
+            if isinstance(alasan_lama, str) and alasan_lama
+            else "banjir"
+        )
+    else:
+        dari_awal = dari
+        rungs = rungs_baru
+        alasan = "banjir"
+    baru = dict(kaki)
+    baru.update(
+        {
+            "line": ke,
+            "price_cents": _angka(garis_tahan.get("price_cents")),
+            "jup_estimated_cents": _angka(garis_tahan.get("jup_estimated_cents")),
+            "volume_usd": _angka(garis_tahan.get("volume_usd")),
+            "thin": garis_tahan.get("thin"),
+            "climb": {
+                "from_line": dari_awal,
+                "to_line": ke,
+                "rungs": rungs,
+                "reason": alasan,
+            },
+        }
+    )
+    return baru
 
 
 def _parse_iso(teks) -> datetime | None:
@@ -583,6 +834,11 @@ def _kumpulkan_kandidat(
         lantai, _sumber_lantai = _lantai_harga(cfg)
     if edge_min_ins is None:
         edge_min_ins, _sumber_edge = _ambang_edge_asuransi(cfg)
+    # Skenario gate Asuransi (fail-closed bila kunci hilang) + cache
+    # skenario panas per laga (dihitung sekali per match_id, bukan
+    # per kaki — lihat _stress_laga).
+    skenario_gate = _skenario_gate_asuransi(cfg)
+    stress_per_laga: dict[str, tuple[dict | None, str | None]] = {}
     tolak_mahal_ins = bool(
         config_mod.get_value(cfg, "optimizer", "exclude_mahal_from_insurance")
     )
@@ -630,6 +886,108 @@ def _kumpulkan_kandidat(
                 # BTTS memang tidak punya garis (line null itu sah).
                 coret[tiket].append(f"{match_id} ({label_kaki}): garis total tidak ada")
                 continue
+            # --- Gate skenario banjir Asuransi (R1, insiden DEN
+            # 2026-11-23). Hanya kaki NBA total_under Asuransi: bola
+            # tidak punya model stress, total_over bukan Under.
+            # Berjalan SEBELUM gate lain yang memakai garis/harga,
+            # supaya kaki yang naik garis dinilai di garis barunya
+            # (lantai harga, thin, edge). p_final/EV tetap garis lama
+            # (konservatif — lihat _kaki_naik_garis).
+            if (
+                tiket == "insurance"
+                and analisis.get("format") != "soccer_analysis"
+                and market_type == "total_under"
+            ):
+                hasil_stress, galat_stress = _stress_laga(
+                    analisis, cfg, stress_per_laga
+                )
+                if hasil_stress is None:
+                    nama_skenario = "setan" if skenario_gate == "setan" else "banjir"
+                    coret[tiket].append(
+                        f"{match_id} ({label_kaki}): skenario {nama_skenario} "
+                        f"tidak bisa dihitung ({galat_stress}) — kaki "
+                        "Asuransi ditolak (fail-closed)"
+                    )
+                    continue
+                entri_stress = _entri_stress_kaki(hasil_stress, garis, tiket)
+                if entri_stress is None:
+                    coret[tiket].append(
+                        f"{match_id} ({label_kaki}): kaki tidak ada di hasil "
+                        "skenario panas — kaki Asuransi ditolak (fail-closed)"
+                    )
+                    continue
+                label_skenario = _label_skenario(hasil_stress, skenario_gate)
+                putusan, p_skenario, garis_tahan, alasan_gate = _gate_skenario(
+                    hasil_stress, entri_stress, skenario_gate, min_prob["insurance"]
+                )
+                if putusan == "tolak":
+                    if p_skenario is None:
+                        coret[tiket].append(
+                            f"{match_id} ({label_kaki}): {alasan_gate} — kaki "
+                            "Asuransi ditolak (fail-closed)"
+                        )
+                    else:
+                        token_tidak_tahan = (
+                            "tidak_ada_garis_tahan_banjir"
+                            if skenario_gate == "banjir_terburuk"
+                            else "tidak_ada_garis_tahan_setan"
+                        )
+                        coret[tiket].append(
+                            f"{match_id} ({label_kaki}): {token_tidak_tahan} — "
+                            f"P(Under) di skenario {label_skenario} "
+                            f"{p_skenario * 100:.1f}% < "
+                            f"{min_prob['insurance'] * 100:.0f}% dan {alasan_gate}"
+                        )
+                    continue
+                if putusan == "naik":
+                    garis_tahan_line = (
+                        _angka(garis_tahan.get("line"))
+                        if isinstance(garis_tahan, dict)
+                        else None
+                    )
+                    if garis_tahan_line is None:
+                        coret[tiket].append(
+                            f"{match_id} ({label_kaki}): garis tahan "
+                            f"{label_skenario} tidak valid — kaki Asuransi ditolak"
+                        )
+                        continue
+                    if (
+                        isinstance(garis_tahan, dict)
+                        and garis_tahan.get("thin") is True
+                    ):
+                        # Garis tahan yang thin TIDAK dipakai (aturan
+                        # thin Asuransi yang sudah ada: thin = hard
+                        # gate) -> SKIP. Keputusan ini menunggu
+                        # keberatan user/reviewer.
+                        nama_garis_tahan = (
+                            "garis tahan-setan"
+                            if skenario_gate == "setan"
+                            else "garis tahan-banjir"
+                        )
+                        coret[tiket].append(
+                            f"{match_id} ({label_kaki}): {nama_garis_tahan} "
+                            f"Under {garis_tahan_line:g} volume tipis — "
+                            "tidak dipakai (aturan thin Asuransi); P(Under) "
+                            f"di skenario {label_skenario} "
+                            f"{p_skenario * 100:.1f}% < "
+                            f"{min_prob['insurance'] * 100:.0f}% di garis awal"
+                        )
+                        continue
+                    kaki_baru = _kaki_naik_garis(
+                        kaki,
+                        garis_tahan,
+                        stress_mod.tangga_under(analisis.get("market")),
+                    )
+                    if kaki_baru is None:
+                        coret[tiket].append(
+                            f"{match_id} ({label_kaki}): garis tahan "
+                            f"{label_skenario} tidak lebih tinggi dari garis "
+                            "kaki — kaki Asuransi ditolak"
+                        )
+                        continue
+                    kaki = kaki_baru
+                    garis = _angka(kaki.get("line"))
+                    label_kaki = _seleksi_kaki(kaki, analisis)
             p_final = _angka(kaki.get("p_final"))
             p_model = _angka(kaki.get("p_model"))
             p_market = _angka(kaki.get("p_market"))

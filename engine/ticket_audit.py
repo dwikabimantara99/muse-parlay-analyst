@@ -41,9 +41,12 @@ tidak ada, kaki DATA_INCOMPLETE, tidak ditebak), harga, edge =
 P_model − harga/100, EV + label harga (dari P_model, selaras
 ``engine/price_labels.py``), volume tangga + thin?, evaluasi
 condong-ke-market (|median − garis market| vs ambang config dan
-apakah probabilitas pasar < target), hasil tiap gate, verdict
-LOLOS / PERHATIAN / JANGAN_PASANG / DATA_INCOMPLETE + alasan
-Bahasa Indonesia sederhana.
+apakah probabilitas pasar < target), gerak harga sejak analisis +
+sharp_move? (lihat gate sharp move di bawah), P(Under) kaki di
+skenario banjir terburuk + setan (tampilan saja — bukan gate,
+lihat ``_p_stress``), hasil tiap gate, verdict LOLOS /
+PERHATIAN / JANGAN_PASANG / DATA_INCOMPLETE + alasan Bahasa
+Indonesia sederhana.
 
 GATE (selaras ``engine/ticket_composer.py``):
 - peluang minimum: P_model >= tickets.<tipe>.min_leg_prob
@@ -66,6 +69,16 @@ GATE (selaras ``engine/ticket_composer.py``):
 - edge tipis (0 <= edge < 5 poin, NILAI AWAL): PERHATIAN — pelajaran
   DEN 23 Nov (edge +2,5% adalah kaki terlemah yang akhirnya jebol);
   menunggu kalibrasi + persetujuan user.
+- sharp move sejak analisis (kasus Thunder, keputusan user
+  2026-11-23 09:47 WIB — sharp move BUKAN diskon): harga tiket vs
+  harga saat analisis untuk garis yang sama; |selisih| >=
+  anomaly.sharp_move_cents (3¢) -> PERHATIAN (lunak; tetap
+  JANGAN_PASANG bila gate keras lain juga gagal) + flag SHARP_MOVE
+  + label DISKON ditekan jadi DISKON_DITEKAN + "Kenapa beda?" wajib
+  (kenapa_beda_required) sampai pergerakannya dijelaskan. Harga
+  analisis = snapshot pertama price_snapshots bila ada, else harga
+  kaki analisis pada garis yang sama (prioritas yang sama seperti
+  recheck).
 
 Per tiket: kaki terlemah (P_model terendah), peluang gabungan
 (produk P_model — asumsi kaki independen, sama seperti peracik),
@@ -94,6 +107,15 @@ Batasan (dicatat, bukan disembunyikan):
 - Aturan condong-ke-market di sini tidak mengenal "alasan
   konkret" / "Kenapa beda?" (audit tidak menerima input recheck)
   — gap besar selalu memakai probabilitas pasar untuk Asuransi.
+- Gerak harga sejak analisis hanya bisa dinilai bila artefak
+  membawa harga saat analisis (snapshot pertama atau harga kaki);
+  bila tidak ada, gate sharp_move mencatat "tidak bisa dinilai"
+  (bukan bukti tidak ada gerak) dan label tidak ditekan.
+  Perbandingan memakai basis harga yang sama seperti recheck
+  (estimasi jup.ag bila tersedia). Bila snapshot tersimpan di basis
+  price_cents mentah, gerak semu maksimal sebesar markup tipikal
+  (0,5¢) bisa muncul — di bawah ambang sharp (3¢), jadi tidak
+  mengubah putusan.
 """
 
 from __future__ import annotations
@@ -104,6 +126,7 @@ from datetime import UTC, datetime
 
 import config as config_mod
 from engine import price_labels as price_labels_mod
+from engine import stress as stress_mod
 
 _TIPE_TIKET = {
     "insurance": "insurance",
@@ -444,6 +467,119 @@ def _entri_tangga(analisis: dict, garis: float) -> dict | None:
     return None
 
 
+def _harga_analisis(analisis: dict, garis: float) -> tuple[float | None, str | None]:
+    """Harga kaki saat analisis untuk garis itu (¢) + sumbernya.
+
+    Prioritas sama seperti recheck (compare_prices): snapshot
+    PERTAMA price_snapshots bila ada, else harga venue kaki analisis
+    (jup_estimated_cents, else price_cents) pada garis yang sama.
+    (None, None) bila keduanya tidak tersedia — gerak harga sejak
+    analisis tidak bisa dinilai (tidak ditebak).
+    """
+    snapshots = analisis.get("price_snapshots")
+    if isinstance(snapshots, dict):
+        snapshot = snapshots.get(f"total_under_{garis:g}")
+        if isinstance(snapshot, dict):
+            harga = _angka(snapshot.get("cents"))
+            if harga is not None:
+                return harga, "snapshot pertama analisis (price_snapshots)"
+    legs = analisis.get("legs")
+    if isinstance(legs, list):
+        for leg in legs:
+            if not isinstance(leg, dict):
+                continue
+            if leg.get("market_type") not in (None, "total_under"):
+                continue
+            garis_leg = _angka(leg.get("line"))
+            if garis_leg is None or abs(garis_leg - garis) >= 1e-9:
+                continue
+            harga_jup = _angka(leg.get("jup_estimated_cents"))
+            if harga_jup is not None:
+                return harga_jup, "harga kaki analisis (jup_estimated_cents)"
+            harga_poly = _angka(leg.get("price_cents"))
+            if harga_poly is not None:
+                return harga_poly, "harga kaki analisis (price_cents)"
+    return None, None
+
+
+def _entri_stress(hasil_stress: dict, garis: float, tiket: str) -> dict | None:
+    """Entri kaki (garis, tiket) di hasil skenario_panas, atau None."""
+    for entri in hasil_stress.get("kaki") or []:
+        if not isinstance(entri, dict) or entri.get("ticket") != tiket:
+            continue
+        garis_entri = _angka(entri.get("line"))
+        if garis_entri is not None and abs(garis_entri - garis) < 1e-9:
+            return entri
+    return None
+
+
+def _p_stress(
+    analisis: dict,
+    garis: float,
+    tiket: str,
+    cfg: dict,
+    cache: dict | None,
+) -> tuple[float | None, float | None, str | None]:
+    """P(Under) kaki di skenario banjir terburuk + setan (tampilan saja).
+
+    Mengembalikan (p_banjir, p_setan, alasan). p_banjir = P(Under) di
+    skenario banjir terburuk (worst of banjir_3p/banjir_ft);
+    p_setan = P(Under) di skenario setan, atau None bila kunci
+    "setan" belum ada di output skenario_panas (bukan error).
+    (None, None, alasan) bila skenario tidak bisa dihitung sama
+    sekali. Tidak pernah raise — tampilan tidak boleh menggagalkan
+    audit (verdict tidak memakai angka ini).
+    ``cache``: dict per match_id (dibuat ``_audit_satu_tiket``)
+    supaya skenario_panas tidak dihitung ulang per kaki; None =
+    tanpa cache. Bila garis tiket tidak ada di kaki analisis (mis.
+    tiket luar seperti file Gemini), dihitung eksplisit untuk garis
+    itu (tidak di-cache).
+    """
+    match_id = analisis.get("match_id")
+    kunci_cache = match_id if isinstance(match_id, str) else None
+    hasil_stress: dict | None = None
+    galat: str | None = None
+    if cache is not None and kunci_cache is not None and kunci_cache in cache:
+        hasil_stress, galat = cache[kunci_cache]
+    else:
+        try:
+            hasil_stress = stress_mod.skenario_panas(analisis, cfg=cfg)
+        except Exception as exc:  # Tampilan saja — alasannya dicatat.
+            galat = str(exc)
+        if cache is not None and kunci_cache is not None:
+            cache[kunci_cache] = (hasil_stress, galat)
+    entri = (
+        _entri_stress(hasil_stress, garis, tiket) if hasil_stress is not None else None
+    )
+    terburuk = hasil_stress.get("banjir_terburuk") if hasil_stress is not None else None
+    if entri is None:
+        # Garis tiket tidak ada di kaki analisis, atau hitungan
+        # kaki=None gagal karena satu kaki artefak yang aneh:
+        # hitung eksplisit untuk garis ini.
+        try:
+            hasil_satu = stress_mod.skenario_panas(
+                analisis, kaki=[{"line": garis, "ticket": tiket}], cfg=cfg
+            )
+        except Exception as exc:
+            return None, None, str(exc)
+        entri = _entri_stress(hasil_satu, garis, tiket)
+        terburuk = hasil_satu.get("banjir_terburuk")
+        if entri is None:
+            return None, None, "kaki tidak ada di hasil skenario panas"
+    p_under = entri.get("p_under")
+    if not isinstance(p_under, dict):
+        return None, None, "hasil skenario panas tanpa p_under"
+    p_banjir = _angka(p_under.get(terburuk)) if isinstance(terburuk, str) else None
+    p_setan = _angka(p_under.get("setan"))
+    if p_banjir is None and p_setan is None:
+        return (
+            None,
+            None,
+            "P banjir/setan tidak tersedia di hasil skenario panas",
+        )
+    return p_banjir, p_setan, None
+
+
 def _audit_kaki(
     kaki: dict,
     tipe: str,
@@ -453,6 +589,8 @@ def _audit_kaki(
     lantai_harga: float,
     ambang_gap: float,
     edge_tipis: float,
+    ambang_sharp: float,
+    stress_cache: dict | None = None,
 ) -> dict:
     """Audit satu kaki tiket terhadap artefak analisis laganya."""
     nama_tiket = _NAMA_TIPE[tipe]
@@ -475,6 +613,21 @@ def _audit_kaki(
         "ev_pct": None,
         "price_label": None,
         "overpay": False,
+        # Sharp move sejak analisis (kasus Thunder): harga tiket vs
+        # harga saat analisis. sharp_move False bila tidak tajam ATAU
+        # tidak bisa dinilai (harga analisis tidak tersedia — lihat
+        # gate sharp_move untuk bedanya).
+        "sharp_move": False,
+        "harga_analisis_cents": None,
+        "gerak_harga_cents": None,
+        "kenapa_beda_required": False,
+        # Skenario panas (tampilan saja, bukan gate): P(Under) kaki di
+        # banjir terburuk + skenario setan. None bila tidak bisa
+        # dihitung / kunci setan belum ada di output stress (lihat
+        # stress_alasan).
+        "p_banjir": None,
+        "p_setan": None,
+        "stress_alasan": None,
         "volume_usd": None,
         "thin": None,
         "lean": {
@@ -539,13 +692,40 @@ def _audit_kaki(
         f"({analisis.get('generated_at') or 'tanpa stempel waktu'})"
     )
 
+    # --- Skenario panas (tampilan saja — tidak memengaruhi verdict).
+    # P(Under) kaki bila laga memanas: banjir terburuk + setan (bila
+    # ada di output stress). Gagal hitung -> None + alasan, audit
+    # tetap jalan.
+    p_banjir, p_setan, stress_alasan = _p_stress(
+        analisis, garis, tipe, cfg, stress_cache
+    )
+    hasil["p_banjir"] = p_banjir
+    hasil["p_setan"] = p_setan
+    hasil["stress_alasan"] = stress_alasan
+
+    # --- Sharp move sejak analisis (Bukan diskon, kasus Thunder). ---
+    # Dihitung SEBELUM label harga: kaki yang harganya baru bergerak
+    # tajam tidak boleh berlabel DISKON polos.
+    harga_analisis, _sumber_harga = _harga_analisis(analisis, garis)
+    hasil["harga_analisis_cents"] = harga_analisis
+    sharp_move = False
+    gerak_harga = None
+    if harga_analisis is not None:
+        gerak_harga = round(harga - harga_analisis, 9)
+        hasil["gerak_harga_cents"] = gerak_harga
+        sharp_move = abs(gerak_harga) >= ambang_sharp
+    hasil["sharp_move"] = sharp_move
+    hasil["kenapa_beda_required"] = sharp_move
+    if sharp_move:
+        hasil["flags"].append("SHARP_MOVE")
+
     # --- Edge, EV, label harga (dari P_model mesin). ---
     edge = p_model - harga / 100.0
     hasil["edge"] = edge
     ev_pct = (p_model * (100.0 / harga) - 1.0) * 100.0
     hasil["ev_pct"] = ev_pct
     try:
-        label = price_labels_mod.label_for_ev(ev_pct, cfg)
+        label = price_labels_mod.label_for_ev(ev_pct, cfg, sharp_move=sharp_move)
     except (ValueError, config_mod.ConfigError) as exc:
         return _gagal(f"Label harga tidak bisa dihitung: {exc}")
     hasil["price_label"] = label
@@ -712,6 +892,49 @@ def _audit_kaki(
             {"gate": "condong_ke_market", "lolos": True, "detail": detail_lean}
         )
 
+    # --- Sharp move sejak analisis (kasus Thunder). ---
+    if harga_analisis is None:
+        gates.append(
+            {
+                "gate": "sharp_move",
+                "lolos": True,
+                "detail": (
+                    "harga saat analisis tidak tersedia di artefak "
+                    "(tanpa snapshot maupun harga kaki) — gerak harga "
+                    "sejak analisis tidak bisa dinilai (bukan bukti "
+                    "tidak ada gerak)"
+                ),
+            }
+        )
+    elif sharp_move:
+        gates.append(
+            {
+                "gate": "sharp_move",
+                "lolos": False,
+                "detail": (
+                    "harga bergerak tajam sejak analisis: "
+                    f"{harga_analisis:g}¢ -> {harga:g}¢ "
+                    f"({gerak_harga:+g}¢, ambang {ambang_sharp:g}¢)"
+                ),
+            }
+        )
+        lunak_gagal.append(
+            f"harga bergerak tajam sejak analisis: {harga_analisis:g}¢ "
+            f"-> {harga:g}¢ ({gerak_harga:+g}¢) — selidiki dulu, pasar "
+            "kemungkinan tahu sesuatu (bukan diskon)"
+        )
+    else:
+        gates.append(
+            {
+                "gate": "sharp_move",
+                "lolos": True,
+                "detail": (
+                    f"harga stabil sejak analisis ({gerak_harga:+g}¢, "
+                    f"ambang {ambang_sharp:g}¢)"
+                ),
+            }
+        )
+
     if label == price_labels_mod.MAHAL:
         gates.append(
             {
@@ -812,6 +1035,10 @@ def _audit_satu_tiket(
     )
     lantai_harga = _ambang(cfg, "analis", kunci_lantai)
     ambang_gap = _ambang(cfg, "market_line_check", "total_gap_points")
+    ambang_sharp = _ambang(cfg, "anomaly", "sharp_move_cents")
+    # Cache skenario panas per laga untuk tampilan p_banjir/p_setan
+    # (dihitung sekali per match_id, bukan per kaki — lihat _p_stress).
+    stress_cache: dict = {}
     for kaki in kaki_list:
         hasil["legs"].append(
             _audit_kaki(
@@ -823,6 +1050,8 @@ def _audit_satu_tiket(
                 lantai_harga,
                 ambang_gap,
                 edge_tipis,
+                ambang_sharp,
+                stress_cache=stress_cache,
             )
         )
     # --- Agregat. ---
@@ -950,7 +1179,22 @@ def _baris_kaki(kaki: dict) -> list[str]:
         info += " [OVERPAY]"
     if kaki.get("thin") is True:
         info += " [volume tipis]"
+    if kaki.get("sharp_move") is True:
+        info += " [harga bergerak tajam]"
     baris = [info]
+    p_banjir = kaki.get("p_banjir")
+    p_setan = kaki.get("p_setan")
+    if p_banjir is not None or p_setan is not None:
+        teks_banjir = _fmt_persen(p_banjir)
+        teks_setan = _fmt_persen(p_setan) if p_setan is not None else "belum tersedia"
+        baris.append(
+            "      Kalau panas: banjir terburuk "
+            f"{teks_banjir}; skenario setan {teks_setan}."
+        )
+    elif kaki.get("stress_alasan"):
+        baris.append(
+            f"      Skenario panas tidak bisa dihitung: {kaki['stress_alasan']}"
+        )
     for alasan in kaki.get("alasan") or []:
         baris.append(f"      Alasan: {alasan}")
     return baris

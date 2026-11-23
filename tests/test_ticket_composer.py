@@ -20,9 +20,11 @@ condong-ke-market tidak terpicu) kecuali di tes condong.
 
 import copy
 import json
+import math
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import jsonschema
 
@@ -345,10 +347,11 @@ class TestRacikStandar(unittest.TestCase):
 
     def test_config_main_maks_5_target_35(self):
         # Perubahan config Langkah 3 (profil user 2026-11-22); versi
-        # config kini 14 (fondasi harga & pengali 2026-11-23:
-        # Asuransi 2,0-2,5, target lunak Utama 3,5, gate edge
-        # Asuransi 3,5% PROPOSAL — lihat komentar playstyle.yaml).
-        self.assertEqual(CFG["meta"]["version"], 14)
+        # config kini 15 (aturan keras pasca-Denver 2026-11-23:
+        # fondasi harga & pengali + gate banjir Asuransi + skenario
+        # setan + sharp-move bukan diskon — lihat komentar
+        # playstyle.yaml).
+        self.assertEqual(CFG["meta"]["version"], 15)
         self.assertEqual(CFG["tickets"]["main"]["multiplier_max"], 5.0)
         self.assertEqual(CFG["tickets"]["main"]["target_multiplier_max"], 3.5)
         self.assertEqual(CFG["tickets"]["insurance"]["multiplier_min"], 2.0)
@@ -873,8 +876,13 @@ class TestMatematikaKombo(unittest.TestCase):
         # 5 kaki Utama p 0,70 @78c: pengali 3,27 (di dalam jendela
         # lunak 3,0-3,5, tanpa perlu "yakin"), EV tiket =
         # 0,70^5 x 3,27 - 1 = -45% -> peringatan EV negatif. Kaki
-        # Utama boleh ber-EV negatif (MAHAL, label wajib); Asuransi
-        # standar tetap terracik (3 kaki, EV positif).
+        # Utama boleh ber-EV negatif (MAHAL, label wajib).
+        # CATATAN (gate banjir 2026-11-23): kaki Asuransi fixture ini
+        # DITOLAK gate banjir — CDF fixture 2 titik menjepit P banjir
+        # ke p_model kaki Utama (0,70 < 0,74) dan tidak ada tangga
+        # untuk naik garis. Itu tidak memengaruhi tes ini (hanya
+        # Utama yang diasersi); perilaku gate banjir diuji sendiri
+        # dengan CDF realistis di TestGateBanjirAsuransi.
         # CATATAN (fondasi 2026-11-23): versi lama tes ini memakai
         # Asuransi ber-EV negatif — skenario itu kini TIDAK MUNGKIN
         # karena gate edge Asuransi: tiap kaki lolos punya edge
@@ -1954,6 +1962,595 @@ class TestFieldBaruKaki(unittest.TestCase):
                 "rungs": None,
                 "reason": None,
             },
+        )
+
+
+def _cdf_normal(median, sigma, garis_min, garis_max, langkah=2.0):
+    """CDF total normal (median, sigma) sebagai sim markets.
+
+    Garis-garis tangga tiap ``langkah`` poin; peluang dibulatkan
+    6 desimal seperti output sim. Dipakai tes gate banjir supaya
+    putusan gate diuji pada CDF realistis (bukan CDF 2 titik).
+    """
+    markets = {}
+    n = int(round((garis_max - garis_min) / langkah)) + 1
+    for i in range(n):
+        garis = garis_min + i * langkah
+        z = (garis - median) / sigma
+        p = 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+        markets[f"total_under_{garis:g}"] = round(p, 6)
+    return markets
+
+
+def _tangga_banjir(baris):
+    """Tangga totals dari daftar (garis, harga, volume, thin).
+
+    Harga jup.ag = harga Polymarket + 0,5¢ (markup tipikal).
+    """
+    return [
+        {
+            "line": garis,
+            "side": "under",
+            "price_cents": harga,
+            "jup_estimated_cents": harga + 0.5,
+            "volume_usd": volume,
+            "thin": thin,
+        }
+        for garis, harga, volume, thin in baris
+    ]
+
+
+def buat_analisis_banjir(
+    match_id,
+    median,
+    sigma,
+    kaki_ins,
+    kaki_main,
+    tangga,
+    garis_market=None,
+    garis_min=None,
+    garis_max=None,
+):
+    """Artefak nba_analysis dengan CDF normal penuh + tangga.
+
+    Berawal dari ``buat_analisis`` lalu mengganti sim markets
+    dengan CDF normal (median, sigma) dan market.totals dengan
+    tangga yang diberikan — bentuk yang dipakai gate banjir.
+    """
+    analisis = buat_analisis(
+        match_id,
+        kaki_ins=kaki_ins,
+        kaki_main=kaki_main,
+        median=median,
+        garis_market=garis_market if garis_market is not None else median + 1.5,
+    )
+    analisis["simulation"]["markets"] = _cdf_normal(
+        median,
+        sigma,
+        garis_min if garis_min is not None else median - 30,
+        garis_max if garis_max is not None else median + 45,
+    )
+    analisis["market"]["totals"] = tangga
+    return analisis
+
+
+def _tangga_den():
+    """Tangga DEN@CHI sintetis (garis 238,5–274,5; garis >= 264,5 thin).
+
+    Harga naik dengan garis; 252,5 @82¢, 264,5 @94¢ (mirip artefak
+    nyata stress_den_chi_2026-11-22.json).
+    """
+    baris = []
+    garis = 238.5
+    while garis <= 274.5 + 1e-9:
+        harga = round(55.0 + (garis - 238.5) * 1.5, 1)
+        baris.append((garis, harga, 500.0, garis >= 264.5))
+        garis = round(garis + 2.0, 9)
+    # Harga kunci disamakan dengan artefak nyata.
+    for i, (garis, _, volume, thin) in enumerate(baris):
+        if abs(garis - 252.5) < 1e-9:
+            baris[i] = (garis, 82.0, volume, thin)
+        if abs(garis - 264.5) < 1e-9:
+            baris[i] = (garis, 94.0, None, True)
+    return _tangga_banjir(baris)
+
+
+class TestGateBanjirAsuransi(unittest.TestCase):
+    """Gate skenario banjir Asuransi (R1, insiden DEN@CHI 2026-11-23).
+
+    CATATAN FIXTURE: slate standar file ini memakai CDF 2 titik
+    (hanya garis kedua kakinya), sehingga P banjir terjepit
+    (clamp) ke p_model kaki Utama — kaki standar lolos gate bukan
+    karena tahan banjir, melainkan karena CDF-nya degenerat. Tes
+    gate di sini memakai CDF realistis (normal penuh + tangga)
+    supaya putusan gate benar-benar diuji; tes lain file ini tidak
+    menguji gate banjir.
+    """
+
+    def _kandidat(self, analisis, cfg=None):
+        return ticket_composer._kumpulkan_kandidat(
+            {analisis["match_id"]: analisis}, {}, cfg or CFG
+        )
+
+    def test_den_ditolak_gate_banjir(self):
+        # Kasus wajib: DEN@CHI 23 Nov — U252,5 (P banjir FT ~54%)
+        # harus DITOLAK dari Asuransi; garis tahan-banjir 264,5
+        # @94¢ thin -> SKIP (bukan dipaksakan), alasan tercatat.
+        # Median 233, sigma 19,2 (jangkar P normal 252,5 = 84,5%).
+        analisis = buat_analisis_banjir(
+            LAGA[0],
+            233.0,
+            19.2,
+            kaki_ins=buat_kaki(LAGA[0], "insurance", 252.5, 0.845, 0.83, 82.0),
+            kaki_main=buat_kaki(LAGA[0], "main", 250.5, 0.819, 0.80, 79.0),
+            tangga=_tangga_den(),
+        )
+        kandidat, coret = self._kandidat(analisis)
+        self.assertEqual(kandidat["insurance"], [])
+        alasan = " ".join(coret["insurance"])
+        self.assertIn("264.5", alasan)
+        self.assertIn("volume tipis", alasan)
+        self.assertIn("54.1%", alasan)
+        # Kaki Utama laga yang sama tidak kena gate banjir.
+        self.assertEqual(len(kandidat["main"]), 1)
+
+    def test_garis_tahan_banjir_dipakai_bila_tidak_thin(self):
+        # Median 224, sigma 5: U240,5 P banjir 41,8% (gagal) ->
+        # naik ke garis tahan-banjir 246,5 (P banjir 83,9%, tidak
+        # thin, 88¢) -> masuk kandidat dengan climb tercatat.
+        tangga = _tangga_banjir(
+            [
+                (232.5, 74.0, 500.0, False),
+                (234.5, 76.0, 500.0, False),
+                (236.5, 78.0, 500.0, False),
+                (238.5, 80.0, 500.0, False),
+                (240.5, 82.0, 500.0, False),
+                (242.5, 84.0, 500.0, False),
+                (244.5, 86.0, 500.0, False),
+                (246.5, 88.0, 500.0, False),
+                (248.5, 90.0, 500.0, False),
+                (250.5, 92.0, 500.0, False),
+            ]
+        )
+        # p_final = 0,3*0,99 + 0,7*0,90 = 0,927; edge di 88,5¢
+        # (harga venue garis naik) = +4,2% -> lolos gate edge.
+        analisis = buat_analisis_banjir(
+            LAGA[0],
+            224.0,
+            5.0,
+            kaki_ins=buat_kaki(LAGA[0], "insurance", 240.5, 0.99, 0.90, 82.0),
+            kaki_main=buat_kaki(LAGA[0], "main", 236.5, 0.99, 0.90, 78.0),
+            tangga=tangga,
+        )
+        kandidat, _coret = self._kandidat(analisis)
+        self.assertEqual(len(kandidat["insurance"]), 1)
+        kand = kandidat["insurance"][0]
+        self.assertEqual(kand["line"], 246.5)
+        self.assertEqual(kand["harga_jup"], 88.5)
+        self.assertEqual(
+            kand["leg"]["climb"],
+            {
+                "from_line": 240.5,
+                "to_line": 246.5,
+                "rungs": 3,
+                "reason": "banjir",
+            },
+        )
+        # p_final/EV tetap garis lama (konservatif, didokumentasi).
+        self.assertEqual(kand["p_final"], 0.927)
+
+    def test_kaki_lolos_banjir_tetap_diterima(self):
+        # Median 224, sigma 5: U252,5 P banjir 98,6% -> lolos tanpa
+        # naik garis (climb None).
+        analisis = buat_analisis_banjir(
+            LAGA[0],
+            224.0,
+            5.0,
+            kaki_ins=buat_kaki(LAGA[0], "insurance", 252.5, 0.99, 0.97, 88.0),
+            kaki_main=buat_kaki(LAGA[0], "main", 236.5, 0.99, 0.90, 78.0),
+            tangga=[],
+        )
+        kandidat, _coret = self._kandidat(analisis)
+        self.assertEqual(len(kandidat["insurance"]), 1)
+        self.assertEqual(kandidat["insurance"][0]["line"], 252.5)
+        self.assertIsNone(kandidat["insurance"][0]["leg"].get("climb"))
+
+    def test_tanpa_garis_tahan_banjir_skip(self):
+        # Tangga berhenti di 244,5 (di bawah garis tahan 246,5) ->
+        # SKIP dengan alasan tidak_ada_garis_tahan_banjir.
+        tangga = _tangga_banjir(
+            [
+                (232.5, 74.0, 500.0, False),
+                (234.5, 76.0, 500.0, False),
+                (236.5, 78.0, 500.0, False),
+                (238.5, 80.0, 500.0, False),
+                (240.5, 82.0, 500.0, False),
+                (242.5, 84.0, 500.0, False),
+                (244.5, 86.0, 500.0, False),
+            ]
+        )
+        analisis = buat_analisis_banjir(
+            LAGA[0],
+            224.0,
+            5.0,
+            kaki_ins=buat_kaki(LAGA[0], "insurance", 240.5, 0.99, 0.90, 82.0),
+            kaki_main=buat_kaki(LAGA[0], "main", 236.5, 0.99, 0.90, 78.0),
+            tangga=tangga,
+        )
+        kandidat, coret = self._kandidat(analisis)
+        self.assertEqual(kandidat["insurance"], [])
+        self.assertTrue(
+            any("tidak_ada_garis_tahan_banjir" in c for c in coret["insurance"]),
+            coret["insurance"],
+        )
+
+    def test_garis_tahan_banjir_thin_skip_meski_garis_atas_tebal(self):
+        # Garis tahan 246,5 thin, garis di atasnya (248,5) tebal ->
+        # gate TIDAK melompat ke garis tebal di atasnya; SKIP.
+        # (Perilaku yang diputuskan: thin = hard gate Asuransi.)
+        tangga = _tangga_banjir(
+            [
+                (232.5, 74.0, 500.0, False),
+                (234.5, 76.0, 500.0, False),
+                (236.5, 78.0, 500.0, False),
+                (238.5, 80.0, 500.0, False),
+                (240.5, 82.0, 500.0, False),
+                (242.5, 84.0, 500.0, False),
+                (244.5, 86.0, 500.0, False),
+                (246.5, 88.0, 12.0, True),
+                (248.5, 90.0, 500.0, False),
+                (250.5, 92.0, 500.0, False),
+            ]
+        )
+        analisis = buat_analisis_banjir(
+            LAGA[0],
+            224.0,
+            5.0,
+            kaki_ins=buat_kaki(LAGA[0], "insurance", 240.5, 0.99, 0.90, 82.0),
+            kaki_main=buat_kaki(LAGA[0], "main", 236.5, 0.99, 0.90, 78.0),
+            tangga=tangga,
+        )
+        kandidat, coret = self._kandidat(analisis)
+        self.assertEqual(kandidat["insurance"], [])
+        alasan = " ".join(coret["insurance"])
+        self.assertIn("246.5", alasan)
+        self.assertIn("volume tipis", alasan)
+
+    def test_utama_tidak_kena_gate_banjir(self):
+        # Kaki Utama dengan P banjir 41,8% (< 65%) tetap lolos —
+        # gate banjir HANYA untuk Asuransi.
+        tangga = _tangga_banjir([(240.5, 82.0, 500.0, False)])
+        analisis = buat_analisis_banjir(
+            LAGA[0],
+            224.0,
+            5.0,
+            kaki_ins=buat_kaki(
+                LAGA[0],
+                "insurance",
+                240.5,
+                0.99,
+                0.90,
+                82.0,
+                meets=False,
+                reason="bantalan_kurang",
+            ),
+            kaki_main=buat_kaki(LAGA[0], "main", 240.5, 0.99, 0.90, 82.0),
+            tangga=tangga,
+        )
+        kandidat, _coret = self._kandidat(analisis)
+        self.assertEqual(len(kandidat["main"]), 1)
+        self.assertEqual(kandidat["main"][0]["line"], 240.5)
+
+    def test_skenario_tidak_bisa_dihitung_fail_closed(self):
+        # Artefak tanpa sim markets (CDF tidak bisa dibangun) ->
+        # kaki Asuransi ditolak fail-closed; Utama tetap lolos.
+        analisis = buat_analisis(LAGA[0])
+        analisis["simulation"]["markets"] = {}
+        kandidat, coret = self._kandidat(analisis)
+        self.assertEqual(kandidat["insurance"], [])
+        self.assertTrue(
+            any("tidak bisa dihitung" in c for c in coret["insurance"]),
+            coret["insurance"],
+        )
+        self.assertEqual(len(kandidat["main"]), 1)
+
+    def test_stress_dihitung_sekali_per_laga(self):
+        # skenario_panas dipanggil sekali per match_id, bukan per
+        # kaki (5 laga -> 5 panggilan).
+        analyses = slate_standar()
+        nyata = ticket_composer.stress_mod.skenario_panas
+        with mock.patch.object(
+            ticket_composer.stress_mod, "skenario_panas", wraps=nyata
+        ) as tiruan:
+            ticket_composer.compose_tickets(
+                analyses,
+                recheck_semua_ok(analyses),
+                CFG,
+                stake_total=20,
+                now=SEKARANG,
+            )
+        self.assertEqual(tiruan.call_count, 5)
+
+    def test_config_kunci_hilang_config_error(self):
+        cfg = copy.deepcopy(CFG)
+        del cfg["tickets"]["insurance"]["stress_gate_scenario"]
+        with self.assertRaises(config.ConfigError):
+            ticket_composer.compose_tickets(
+                slate_standar(), None, cfg, stake_total=20, now=SEKARANG
+            )
+
+    def test_config_nilai_tidak_dikenal_config_error(self):
+        cfg = copy.deepcopy(CFG)
+        cfg["tickets"]["insurance"]["stress_gate_scenario"] = "banjir"
+        with self.assertRaises(config.ConfigError):
+            ticket_composer.compose_tickets(
+                slate_standar(), None, cfg, stake_total=20, now=SEKARANG
+            )
+
+    def test_racik_penuh_dengan_kaki_naik_garis(self):
+        # End-to-end: 7 laga, semua kaki Asuransi naik garis ke
+        # 246,5 @88,5¢; 7 kaki -> pengali 2,22 (target 2,0–2,5;
+        # 6 kaki hanya 1,97). Tiket mencatat climb alasan "banjir"
+        # di tiap kakinya. (Garis naik itu mahal — Asuransi butuh
+        # banyak kaki, sesuai arahan user "tumpuk banyak kaki di
+        # harga tinggi".)
+        tangga = _tangga_banjir(
+            [
+                (232.5, 74.0, 500.0, False),
+                (234.5, 76.0, 500.0, False),
+                (236.5, 78.0, 500.0, False),
+                (238.5, 80.0, 500.0, False),
+                (240.5, 82.0, 500.0, False),
+                (242.5, 84.0, 500.0, False),
+                (244.5, 86.0, 500.0, False),
+                (246.5, 88.0, 500.0, False),
+                (248.5, 90.0, 500.0, False),
+                (250.5, 92.0, 500.0, False),
+            ]
+        )
+        laga = LAGA + ["UTA@MIN_2026-11-22", "SAS@POR_2026-11-22"]
+        analyses = [
+            buat_analisis_banjir(
+                match_id,
+                224.0,
+                5.0,
+                kaki_ins=buat_kaki(match_id, "insurance", 240.5, 0.99, 0.90, 82.0),
+                kaki_main=buat_kaki(match_id, "main", 236.5, 0.99, 0.90, 78.0),
+                tangga=tangga,
+            )
+            for match_id in laga
+        ]
+        hasil = ticket_composer.compose_tickets(
+            analyses,
+            recheck_semua_ok(analyses),
+            CFG,
+            stake_total=20,
+            now=SEKARANG,
+        )
+        tiket = hasil["insurance"]
+        self.assertIsNotNone(tiket)
+        self.assertEqual(len(tiket["legs"]), 7)
+        for kaki in tiket["legs"]:
+            # Format seleksi tiket NBA: "Under 246.5 (TIM@TIM)".
+            self.assertTrue(
+                kaki["selection"].startswith("Under 246.5"),
+                kaki["selection"],
+            )
+            self.assertEqual(
+                kaki["climb"],
+                {
+                    "from_line": 240.5,
+                    "to_line": 246.5,
+                    "rungs": 3,
+                    "reason": "banjir",
+                },
+            )
+            self.assertEqual(kaki["jup_price_cents"], 88.5)
+
+
+class TestGateSkenarioUnit(unittest.TestCase):
+    """Tes unit _gate_skenario + _kaki_naik_garis (tanpa artefak)."""
+
+    def _hasil_stress(self, **ubah):
+        hasil = {
+            "banjir_terburuk": "banjir_ft",
+            "kaki": [],
+        }
+        hasil.update(ubah)
+        return hasil
+
+    def _entri(self, **ubah):
+        entri = {
+            "line": 252.5,
+            "ticket": "insurance",
+            "p_under": {
+                "normal": 0.845,
+                "banjir_3p": 0.62,
+                "banjir_ft": 0.54,
+                "setan": 0.53,
+                "konservatif": 0.80,
+            },
+            "tahan_banjir": False,
+            "garis_tahan_banjir": {
+                "line": 264.5,
+                "price_cents": 94.0,
+                "jup_estimated_cents": 94.5,
+                "volume_usd": None,
+                "thin": True,
+            },
+            "alasan_tidak_tahan_banjir": None,
+            "tahan_setan": False,
+            "garis_tahan_setan": {
+                "line": 266.5,
+                "price_cents": 95.0,
+                "jup_estimated_cents": 95.5,
+                "volume_usd": 400.0,
+                "thin": False,
+            },
+            "alasan_tidak_tahan_setan": None,
+        }
+        entri.update(ubah)
+        return entri
+
+    def test_lolos_bila_p_banjir_di_atas_ambang(self):
+        entri = self._entri()
+        entri["p_under"] = dict(entri["p_under"], banjir_ft=0.80)
+        putusan, p, garis, alasan = ticket_composer._gate_skenario(
+            self._hasil_stress(), entri, "banjir_terburuk", 0.74
+        )
+        self.assertEqual((putusan, p, garis, alasan), ("lolos", 0.80, None, None))
+
+    def test_naik_bila_gagal_tapi_ada_garis_tahan(self):
+        putusan, p, garis, alasan = ticket_composer._gate_skenario(
+            self._hasil_stress(), self._entri(), "banjir_terburuk", 0.74
+        )
+        self.assertEqual(putusan, "naik")
+        self.assertEqual(p, 0.54)
+        self.assertEqual(garis["line"], 264.5)
+        self.assertIsNone(alasan)
+
+    def test_tolak_bila_tidak_ada_garis_tahan(self):
+        entri = self._entri(
+            garis_tahan_banjir=None,
+            alasan_tidak_tahan_banjir="tidak ada garis tangga yang lolos",
+        )
+        putusan, p, garis, alasan = ticket_composer._gate_skenario(
+            self._hasil_stress(), entri, "banjir_terburuk", 0.74
+        )
+        self.assertEqual(putusan, "tolak")
+        self.assertEqual(p, 0.54)
+        self.assertIsNone(garis)
+        self.assertIn("tidak ada garis tangga yang lolos", alasan)
+
+    def test_tolak_bila_p_tidak_tersedia(self):
+        entri = self._entri()
+        entri["p_under"] = {"normal": 0.845}
+        putusan, p, garis, alasan = ticket_composer._gate_skenario(
+            self._hasil_stress(), entri, "banjir_terburuk", 0.74
+        )
+        self.assertEqual(putusan, "tolak")
+        self.assertIsNone(p)
+        self.assertIsNone(garis)
+        self.assertIn("banjir_ft", alasan)
+
+    def test_skenario_setan_memakai_kunci_setan(self):
+        # Cabang "setan" (parameter skenario): P + garis dari kunci
+        # setan, bukan banjir.
+        putusan, p, garis, alasan = ticket_composer._gate_skenario(
+            self._hasil_stress(), self._entri(), "setan", 0.74
+        )
+        self.assertEqual(putusan, "naik")
+        self.assertEqual(p, 0.53)
+        self.assertEqual(garis["line"], 266.5)
+        self.assertIsNone(alasan)
+
+    def test_skenario_setan_hilang_fail_closed(self):
+        # Output stress tanpa kunci "setan" (sebelum Worker A
+        # selesai) -> tolak, bukan lolos diam-diam.
+        entri = self._entri()
+        p_under = dict(entri["p_under"])
+        del p_under["setan"]
+        entri["p_under"] = p_under
+        putusan, p, garis, _alasan = ticket_composer._gate_skenario(
+            self._hasil_stress(), entri, "setan", 0.74
+        )
+        self.assertEqual(putusan, "tolak")
+        self.assertIsNone(p)
+        self.assertIsNone(garis)
+
+    def test_skenario_tidak_dikenal_value_error(self):
+        with self.assertRaises(ValueError):
+            ticket_composer._gate_skenario(
+                self._hasil_stress(), self._entri(), "hujan", 0.74
+            )
+
+    def test_kaki_naik_garis_dasar(self):
+        kaki = buat_kaki(LAGA[0], "insurance", 240.5, 0.98, 0.90, 82.0)
+        tangga = _tangga_banjir(
+            [
+                (240.5, 82.0, 500.0, False),
+                (242.5, 84.0, 500.0, False),
+                (244.5, 86.0, 500.0, False),
+                (246.5, 88.0, 500.0, False),
+                (248.5, 80.0, 500.0, False),
+            ]
+        )
+        baru = ticket_composer._kaki_naik_garis(
+            kaki,
+            {
+                "line": 248.5,
+                "price_cents": 80.0,
+                "jup_estimated_cents": 80.5,
+                "volume_usd": 500.0,
+                "thin": False,
+            },
+            tangga,
+        )
+        self.assertIsNotNone(baru)
+        self.assertEqual(baru["line"], 248.5)
+        self.assertEqual(baru["jup_estimated_cents"], 80.5)
+        self.assertEqual(
+            baru["climb"],
+            {"from_line": 240.5, "to_line": 248.5, "rungs": 4, "reason": "banjir"},
+        )
+        # Kaki asal tidak berubah.
+        self.assertEqual(kaki["line"], 240.5)
+        self.assertIsNone(kaki.get("climb"))
+
+    def test_kaki_naik_garis_dirangkai_dengan_climb_cushion(self):
+        kaki = buat_kaki(
+            LAGA[0],
+            "insurance",
+            240.5,
+            0.98,
+            0.90,
+            82.0,
+            climb={
+                "from_line": 236.5,
+                "to_line": 240.5,
+                "rungs": 2,
+                "reason": "harga_minimum",
+            },
+        )
+        tangga = _tangga_banjir(
+            [
+                (236.5, 78.0, 500.0, False),
+                (238.5, 80.0, 500.0, False),
+                (240.5, 82.0, 500.0, False),
+                (242.5, 84.0, 500.0, False),
+                (244.5, 86.0, 500.0, False),
+                (246.5, 88.0, 500.0, False),
+                (248.5, 80.0, 500.0, False),
+            ]
+        )
+        baru = ticket_composer._kaki_naik_garis(
+            kaki,
+            {
+                "line": 248.5,
+                "price_cents": 80.0,
+                "jup_estimated_cents": 80.5,
+                "volume_usd": 500.0,
+                "thin": False,
+            },
+            tangga,
+        )
+        self.assertEqual(
+            baru["climb"],
+            {
+                "from_line": 236.5,
+                "to_line": 248.5,
+                "rungs": 6,
+                "reason": "harga_minimum+banjir",
+            },
+        )
+
+    def test_kaki_naik_garis_tolak_garis_tidak_lebih_tinggi(self):
+        kaki = buat_kaki(LAGA[0], "insurance", 240.5, 0.98, 0.90, 82.0)
+        self.assertIsNone(
+            ticket_composer._kaki_naik_garis(kaki, {"line": 240.5}, _tangga_banjir([]))
+        )
+        self.assertIsNone(
+            ticket_composer._kaki_naik_garis(kaki, {"line": 238.5}, _tangga_banjir([]))
         )
 
 

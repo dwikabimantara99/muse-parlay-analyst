@@ -1455,6 +1455,7 @@ class _Laporan:
         for kunci, label in (
             ("banjir_3p", "banjir tripoin"),
             ("banjir_ft", "banjir lemparan bebas"),
+            ("setan", "deviasi maksimal (setan tripoin)"),
             ("konservatif", "konservatif (selaras garis market)"),
         ):
             blok = skenario.get(kunci) if isinstance(skenario, dict) else None
@@ -1495,11 +1496,18 @@ class _Laporan:
             teks = (
                 f"Under {garis} ({nama_kaki}" + (f", {harga}" if harga else "") + "): "
             )
-            teks += (
-                f"normal {normal or '?'}; banjir tripoin {p_3p or '?'}; "
-                f"banjir lemparan bebas {p_ft or '?'}; "
-                f"konservatif {p_kons or '?'}."
-            )
+            # Setan hanya ditampilkan bila ada di artefak (artefak
+            # nba_stress lama tidak membawa kunci "setan").
+            bagian_peluang = [
+                f"normal {normal or '?'}",
+                f"banjir tripoin {p_3p or '?'}",
+                f"banjir lemparan bebas {p_ft or '?'}",
+                f"konservatif {p_kons or '?'}",
+            ]
+            if "setan" in peluang:
+                p_setan = _fmt_persen(peluang.get("setan"))
+                bagian_peluang.append(f"setan {p_setan or '?'}")
+            teks += "; ".join(bagian_peluang) + "."
             baris.append(f"- {teks}")
             if kaki.get("tahan_banjir"):
                 baris.append(
@@ -1510,6 +1518,14 @@ class _Laporan:
                 baris.append(
                     f"  TIDAK tahan banjir (target {target or '?'} tidak "
                     f"tercapai di skenario {label_terburuk})."
+                )
+            if kaki.get("flag_setan"):
+                p_setan_teks = _fmt_persen(peluang.get("setan"))
+                baris.append(
+                    "  FLAG SETAN: kaki ini lolos normal "
+                    f"({normal or '?'}) tapi jebol bila deviasi maksimal "
+                    f"datang (setan {p_setan_teks or '?'}) — rapuh "
+                    "seperti DEN@CHI 23 Nov 2026."
                 )
             tahan = kaki.get("garis_tahan_banjir")
             if isinstance(tahan, dict):
@@ -1532,6 +1548,34 @@ class _Laporan:
             else:
                 alasan = kaki.get("alasan_tidak_tahan_banjir") or "tidak diketahui"
                 baris.append(f"  Tidak ada garis tahan banjir: {alasan}.")
+            # Garis tahan-setan hanya bila kuncinya ada (artefak lama
+            # tidak membawanya — jangan tampilkan "tidak diketahui").
+            if "garis_tahan_setan" in kaki:
+                tahan_setan = kaki.get("garis_tahan_setan")
+                if isinstance(tahan_setan, dict):
+                    garis_tahan_setan = _fmt_poin(tahan_setan.get("line"))
+                    harga_tahan_setan = _fmt_sen(tahan_setan.get("price_cents"))
+                    jup_tahan_setan = _fmt_sen(tahan_setan.get("jup_estimated_cents"))
+                    teks_tahan_setan = f"  Garis tahan setan: {garis_tahan_setan}"
+                    if harga_tahan_setan:
+                        teks_tahan_setan += f" ({harga_tahan_setan}"
+                        if jup_tahan_setan:
+                            teks_tahan_setan += f", jup.ag ~{jup_tahan_setan}"
+                        teks_tahan_setan += ")"
+                    if tahan_setan.get("thin"):
+                        teks_tahan_setan += " — PERHATIAN: volume garis ini tipis"
+                        volume_setan = _fmt_usd(tahan_setan.get("volume_usd"))
+                        teks_tahan_setan += (
+                            f" ({volume_setan})"
+                            if volume_setan
+                            else " (volume tidak tercatat)"
+                        )
+                    baris.append(teks_tahan_setan + ".")
+                else:
+                    alasan_setan = (
+                        kaki.get("alasan_tidak_tahan_setan") or "tidak diketahui"
+                    )
+                    baris.append(f"  Tidak ada garis tahan setan: {alasan_setan}.")
         for cek in data.get("cek_harga") or []:
             if not isinstance(cek, dict):
                 continue
@@ -1552,7 +1596,11 @@ class _Laporan:
             "Catatan: banjir di sini artinya 1 dari 10 laga terpanas "
             "(persentil 90 musim 2026-27); banjir separah DEN@CHI 23 Nov "
             "2026 (di atas persentil 99) tidak tercakup — garis "
-            "tahan-banjir belum tentu tahan banjir seperti itu."
+            "tahan-banjir belum tentu tahan banjir seperti itu. "
+            "Skenario setan menguji deviasi maksimal yang pernah "
+            "teramati (maksimum tripoin/laga musim ini); kaki yang "
+            "lolos normal tapi jebol di setan ditandai FLAG SETAN — "
+            "itu peringatan kerapuhan, bukan larangan pasang."
         )
         self._tambah("Skenario panas", baris)
 

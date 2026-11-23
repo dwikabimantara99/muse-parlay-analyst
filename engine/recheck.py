@@ -40,7 +40,19 @@ ATURAN PUTUSAN (per kaki, prioritas tertinggi dulu):
   4. Kaki awal tidak memenuhi syarat (meets False) -> JANGAN_PASANG.
   5. Garis kaki hilang dari tangga segar -> JANGAN_PASANG.
   6. Gerakan harga >= 3¢ (anomali sharp move, aturan Thunder) ->
-     JANGAN_PASANG.
+     JANGAN_PASANG (lebih keras dari PERHATIAN) + framing "sharp
+     move BUKAN diskon" (keputusan user 2026-11-23 09:47 WIB):
+     label harga ditekan — EV yang akan berlabel DISKON menjadi
+     DISKON_DITEKAN (dicatat di entri anomali ``price_label`` dan
+     di kaki resim bila ada) — dan "Kenapa beda?" wajib
+     (``kenapa_beda_required: True`` pada entri anomali) sampai
+     pergerakannya dijelaskan. "Kenapa beda?" sharp move ini
+     sengaja TIDAK memakai dict ``kenapa_beda`` per kaki (itu
+     mekanisme selisih median-vs-garis market yang menggerakkan
+     aturan condong-ke-market; memakainya untuk sharp move akan
+     salah mengaktifkan aturan itu) — melainkan pola yang sama
+     seperti anomaly.py: flag ``kenapa_beda_required`` pada dict
+     anomali.
   7. Hitung ulang dibutuhkan tapi GAGAL -> DATA_INCOMPLETE untuk
      kaki yang belum diputus keras (sesuatu yang material berubah
      tapi tidak bisa dihitung ulang). Kaki yang sudah JANGAN_PASANG
@@ -800,6 +812,7 @@ def _bangun_kaki_resim(
     fetched_at: str,
     cfg: dict,
     inputs: dict | None = None,
+    sharp_move_per_tiket: dict | None = None,
 ) -> list[dict]:
     """Bangun kaki baru dari sim segar + tangga segar (murni).
 
@@ -824,6 +837,10 @@ def _bangun_kaki_resim(
     total_under). Kaki hasil membawa cushion_points/cushion_reason
     (bantalan adaptif per laga; None + kode alasan bila tidak
     tersedia) seperti kaki analisis.
+    sharp_move_per_tiket: {tiket: True} untuk kaki yang harganya baru
+    bergerak tajam (anomali sharp move) — label DISKON kaki itu
+    ditekan jadi DISKON_DITEKAN (sharp move BUKAN diskon, kasus
+    Thunder). None = tidak ada kaki yang ditekan.
     """
     persen = (simulation.get("score_distribution") or {}).get("total")
     if not isinstance(persen, dict):
@@ -940,7 +957,11 @@ def _bangun_kaki_resim(
         label = None
         if p_final is not None and harga_venue:
             ev_pct = round((p_final * (100.0 / harga_venue) - 1.0) * 100.0, 4)
-            label = price_labels.label_for_ev(ev_pct, cfg)
+            ditekan = (
+                isinstance(sharp_move_per_tiket, dict)
+                and sharp_move_per_tiket.get(tiket) is True
+            )
+            label = price_labels.label_for_ev(ev_pct, cfg, sharp_move=ditekan)
         if garis_baru is not None:
             leg_id = f"{match_id}:total_under_{garis_baru:g}:{tiket}"
         else:
@@ -989,6 +1010,10 @@ def _resim_default(
     tangga total segar kosong, atau garis market tidak diketahui.
     Satu kali simulasi dengan SEMUA garis tangga sebagai lines,
     sehingga p_model tiap garis tersedia tanpa sim kedua.
+    Sharp move per tiket dihitung di sini (via compare_prices) dan
+    diteruskan ke _bangun_kaki_resim: kaki yang harganya baru
+    bergerak tajam tidak boleh berlabel DISKON polos di kaki resim
+    (sharp move BUKAN diskon — labelnya DISKON_DITEKAN).
     """
     if not isinstance(fresh, dict):
         raise ValueError(f"fresh harus dict, didapat {type(fresh).__name__}")
@@ -1023,6 +1048,22 @@ def _resim_default(
             {"ticket": "insurance", "market_type": "total_under"},
             {"ticket": "main", "market_type": "total_under"},
         ]
+    # Sharp move per tiket (aturan Thunder): kaki yang harganya baru
+    # bergerak tajam tidak boleh berlabel DISKON polos di kaki resim.
+    # Tanpa analysis, tidak ada baseline harga lama -> tidak ada yang
+    # ditekan (label dihitung seperti biasa).
+    sharp_move_per_tiket: dict[str, bool] = {}
+    if isinstance(analysis, dict):
+        tiket_per_leg = {
+            leg.get("leg_id"): leg.get("ticket")
+            for leg in (analysis.get("legs") or [])
+            if isinstance(leg, dict)
+        }
+        for gerak_harga in compare_prices(analysis, fresh, cfg=cfg)["moves"]:
+            if isinstance(gerak_harga, dict) and gerak_harga.get("anomaly"):
+                tiket = tiket_per_leg.get(gerak_harga.get("leg_id"))
+                if tiket is not None:
+                    sharp_move_per_tiket[tiket] = True
     legs_baru = _bangun_kaki_resim(
         simulation,
         entri_under,
@@ -1032,6 +1073,7 @@ def _resim_default(
         fresh.get("fetched_at") or _sekarang_iso(),
         cfg,
         inputs=inputs,
+        sharp_move_per_tiket=sharp_move_per_tiket,
     )
     return {"simulation": simulation, "legs": legs_baru}
 
@@ -1253,6 +1295,25 @@ def _probabilitas_market(entri_under: dict | None) -> float | None:
     return round(harga / 100.0, 9)
 
 
+def _label_setelah_sharp_move(p_final, harga_baru_cents, cfg) -> str | None:
+    """Label harga kaki setelah sharp move (DISKON ditekan).
+
+    EV dihitung dari p_final pada harga BARU (harga segar), lalu label
+    via price_labels.label_for_ev dengan sharp_move=True — EV yang
+    akan berlabel DISKON menjadi DISKON_DITEKAN (sharp move BUKAN
+    diskon, kasus Thunder). None bila p_final atau harga tidak bisa
+    dipakai (label tidak bisa dihitung — tidak ditebak).
+    """
+    p = _angka(p_final)
+    harga = _angka(harga_baru_cents)
+    if p is None or harga is None:
+        return None
+    if not 0.0 <= p <= 1.0 or not 0.0 < harga < 100.0:
+        return None
+    ev_pct = round((p * (100.0 / harga) - 1.0) * 100.0, 4)
+    return price_labels.label_for_ev(ev_pct, cfg, sharp_move=True)
+
+
 def decide(
     analysis: dict,
     fresh: dict,
@@ -1463,6 +1524,12 @@ def decide(
     if not isinstance(snapshots, dict):
         snapshots = {}
     anomalies: list[dict] = []
+    label_sharp_per_leg: dict[str, str | None] = {}
+    kaki_analisis_per_id = {
+        leg.get("leg_id"): leg
+        for leg in (analysis.get("legs") or [])
+        if isinstance(leg, dict)
+    }
     for gerak_harga in price_diff["moves"]:
         if not gerak_harga.get("anomaly"):
             continue
@@ -1470,6 +1537,19 @@ def decide(
         first_at = None
         if isinstance(snapshot, dict):
             first_at = snapshot.get("at")
+        # Label harga setelah sharp move: p_final kaki resim bila ada,
+        # else p_final analisis awal; EV pada harga BARU. DISKON polos
+        # dilarang di sini (sharp move BUKAN diskon).
+        leg_lama = kaki_analisis_per_id.get(gerak_harga.get("leg_id")) or {}
+        kaki_baru = kaki_resim.get(leg_lama.get("ticket")) or {}
+        p_final_anomali = _angka(kaki_baru.get("p_final"))
+        if p_final_anomali is None:
+            p_final_anomali = _angka(leg_lama.get("p_final"))
+        label_anomali = _label_setelah_sharp_move(
+            p_final_anomali, gerak_harga.get("new_cents"), cfg
+        )
+        if gerak_harga.get("leg_id") is not None:
+            label_sharp_per_leg[gerak_harga["leg_id"]] = label_anomali
         anomalies.append(
             {
                 "type": "sharp_move",
@@ -1479,6 +1559,16 @@ def decide(
                 "now_cents": gerak_harga.get("new_cents"),
                 "delta_cents": gerak_harga.get("move_cents"),
                 "first_at": first_at,
+                # Framing sharp move BUKAN diskon (kasus Thunder):
+                # label ditekan + "Kenapa beda?" wajib sampai
+                # pergerakannya dijelaskan. price_label None bila EV
+                # tidak bisa dihitung (p_final/harga tidak tersedia).
+                "price_label": label_anomali,
+                "kenapa_beda_required": True,
+                "catatan": (
+                    "harga baru bergerak tajam, selidiki dulu — pasar "
+                    "kemungkinan tahu sesuatu (bukan diskon)"
+                ),
             }
         )
 
@@ -1565,6 +1655,20 @@ def decide(
                 f"harga bergerak {gerak.get('move_cents'):+g}¢ "
                 f"(>= ambang sharp {ambang_sharp:g}¢)"
             )
+            # Framing sharp move BUKAN diskon (kasus Thunder):
+            # JANGAN_PASANG sudah lebih keras dari PERHATIAN; alasan
+            # ini menjelaskan kenapa label DISKON ditekan sampai
+            # "Kenapa beda?" terjawab.
+            if label_sharp_per_leg.get(leg_id) == price_labels.DISKON_DITEKAN:
+                alasan.append(
+                    "label DISKON ditekan jadi DISKON_DITEKAN — harga "
+                    "baru bergerak tajam, selidiki dulu"
+                )
+            else:
+                alasan.append(
+                    "harga baru bergerak tajam, selidiki dulu — pasar "
+                    "kemungkinan tahu sesuatu (bukan diskon)"
+                )
         elif perlu_resim and resim_gagal is not None:
             verdict = "DATA_INCOMPLETE"
             alasan.append(f"hitung ulang gagal: {resim_gagal}")

@@ -1,4 +1,4 @@
-"""Skenario panas (stress) NBA: banjir 3 poin, banjir FT, konservatif.
+"""Skenario panas (stress) NBA: banjir 3 poin, banjir FT, setan, konservatif.
 
 Latar: tiket nyata 23 Nov 2026 — kaki DEN@CHI (Asuransi U252,5 @82¢,
 Utama U250,5 @79¢) jebol karena banjir 3 poin (halftime total 142,
@@ -6,7 +6,12 @@ tripoin 21-41 = 51%, proyeksi live 284), padahal median simulasi
 pra-laga 233. Simulasi normal tidak punya skenario ekor seperti itu.
 Modul ini menjawab, SEBELUM pasang, per kaki Under: "kalau panas,
 garis ini tembus nggak? garis berapa yang tahan banjir, dan berapa
-harganya?"
+harganya?" Skenario "setan" menjawab pertanyaan yang lebih keras:
+"kalau deviasi MAKSIMAL datang (seperti DEN@CHI), kaki ini rapuh
+nggak?" — sebagai DETEKSI kerapuhan, BUKAN gate (koreksi user
+09:52 WIB: gate keras Asuransi tetap banjir p90 + edge + volume +
+min_leg_prob; setan hanya menandai kaki yang lolos normal tapi jebol
+di deviasi maksimal, lewat flag_setan).
 
 CARA KERJA (pergeseran distribusi, BUKAN simulasi ulang): peluang
 Under di tiap skenario dihitung dari CDF total yang SUDAH tersimpan di
@@ -25,6 +30,10 @@ SKENARIO (geser dalam poin, ditambahkan ke total):
 - "normal": geser 0 (CDF apa adanya).
 - "banjir_3p": geser ``stress.banjir_3p_points`` dari config.
 - "banjir_ft": geser ``stress.banjir_ft_points`` dari config.
+- "setan": geser ``stress.setan_points`` dari config — deviasi
+  maksimal tripoin yang pernah teramati (maks musim, BUKAN p99).
+  BUKAN gate: hanya deteksi kerapuhan (flag_setan) + garis
+  tahan-setan sebagai info.
 - "konservatif": distribusi dipusatkan ke garis market — geser =
   ``market.main_total_line`` - median sim (``score_distribution.total.
   median``), sigma sama. Bila garis market atau median tidak ada di
@@ -47,11 +56,37 @@ leaguegamefinder; 0 kredit Odds API):
   Garis tahan-banjir p90 menjawab "tahan banjir 1-dari-10", BUKAN
   "tahan banjir separah DEN@CHI". Bandingkan selalu dengan proyeksi
   insiden bila ada.
+- SETAN (diturunkan 2026-11-23, metode SAMA seperti p90 — hanya
+  ambangnya yang berubah dari p90 ke MAKSIMUM teramati):
+  (maks - rerata 3PM gabungan/laga) x kemiringan OLS total/3PM =
+  (40,00 - 26,79) x 1,37 = 18,07 poin. Laga maks: CHI@NYK
+  2026-10-28 (40 tripoin, total 260). PILIHAN MAKS (bukan p99):
+  user memerintahkan "penyimpangan MAKSIMAL" — p99 (37,00 -> 13,97)
+  masih menyisakan ~1% laga di luarnya. Dataset: HANYA laga
+  SELESAI (WL terisi), n=243. Alasannya: leaguegamefinder JUGA
+  mengembalikan laga yang sedang berjalan (WL kosong) — 4 laga
+  22 Nov belum selesai saat ditarik (IND@NYK baru 31 poin,
+  DEN@CHI 171 poin); laga berjalan BUKAN observasi laga penuh
+  (menarik rerata ke bawah + kemiringan ke atas: kemiringan
+  tercemar 2,12 vs bersih 1,37).
+- TEMUAN KONTAMINASI (dilaporkan ke koordinator, BUKAN diperbaiki
+  diam-diam): nilai banjir p90 di config (13,54/17,54) diturunkan
+  dari snapshot n=247 YANG TERCEMAR 4 laga berjalan itu — terbukti
+  karena tarikan ulang 2026-11-23 mereproduksi persis rerata
+  26,62, kemiringan 2,12, dan geser 13,54/17,54 dari snapshot
+  yang sama. Data bersih memberi p90 3P 8,50 / FT 12,52.
+  Kalibrasi ulang banjir MENUNGGU keputusan user; setan memakai
+  data bersih, banjir tetap memakai nilai config apa adanya
+  sampai diputuskan. Detail + dataset:
+  out/derivasi_setan_2026-11-23.json.
 - KALIBRASI ULANG: tarik lagi game log musim berjalan (leaguegamefinder,
   keyless), hitung ulang rata-rata + p90 + kemiringan OLS, ganti kedua
   kunci config, dan minta persetujuan user (seperti D12 untuk parameter
   fit). Kemiringan OLS bersifat asosiatif, bukan kausal — ia ikut
-  menangkap efek pace/OT di laga-laga tersebut.
+  menangkap efek pace/OT di laga-laga tersebut. KALIBRASI ULANG
+  SETAN: sama, tapi pakai MAKSIMUM teramati + HANYA laga selesai
+  (WL terisi) — dan bila satu laga banjir baru melampaui maks lama,
+  nilai setan NAIK (bukan ditekan ke bawah).
 
 GARIS TAHAN-BANJIR per kaki: garis Under tangga TERKECIL yang
 P(Under) >= target DI SKENARIO BANJIR TERBURUK (geser terbesar dari
@@ -63,6 +98,15 @@ bukan dipaksakan. Garis tipis (thin) TIDAK dikeluarkan dari pencarian
 (pertanyaannya adalah soal garisnya, bukan soal eksekusi), TAPI flag
 thin + volume selalu dilaporkan bersama harganya.
 
+GARIS TAHAN-SETAN + FLAG_SETAN (analogi yang sama, di geser setan):
+garis Under tangga terkecil dengan P(Under) >= target di skenario
+setan (atau None + alasan "tidak ada garis tahan-setan"). flag_setan
+True bila P(normal) >= target TAPI P(setan) < target — itulah pola
+DEN@CHI: lolos di dunia normal, jebol bila deviasi maksimal datang.
+Flag ini DETEKSI, bukan gate: tidak memblokir apa pun dengan
+sendirinya — kaki ber-flag boleh dipasang bila lolos gate banjir,
+asal risikonya TERLIHAT (keputusan user 09:52 WIB).
+
 KETERBATASAN (dicatat jujur, bukan disembunyikan):
 - Banjir hanya menggeser rata-rata; varians dianggap tetap.
 - Geser banjir adalah angka LIGA (bukan per matchup) — dipakai sebagai
@@ -73,6 +117,11 @@ KETERBATASAN (dicatat jujur, bukan disembunyikan):
   untuk semua matchup sampai orde pertama. Per-matchup butuh rata-rata
   3PM/FTM per tim di artefak inputs — belum ada.
 - Kemiringan OLS asosiatif (lihat "DASAR DATA" di atas).
+- Geser setan memakai MAKSIMUM teramati — satu observasi (CHI@NYK
+  28 Okt 2026, 40 tripoin); nilainya naik bila satu laga banjir baru
+  melampaui maks itu, dan laju halftime DEN@CHI (42/laga) tetap di
+  atasnya — setan mencakup banjir terburuk yang pernah SELESAI,
+  bukan banjir yang lebih parah dari semua yang pernah terjadi.
 - CDF tersimpan dibulatkan ke 6 desimal oleh sim; interpolasi di
   antara garis tangga 2 poin menambah galat kecil (di bawah ~0,5 poin
   peluang untuk garis di tengah interval).
@@ -112,6 +161,12 @@ _DASAR_BANJIR_FT = (
     "p90-rerata FTM gabungan/laga (52,00-37,79) x kemiringan total/FTM "
     "(1,23) = 17,54 poin; game log stats.nba.com 2026-27, n=247 laga, "
     "20 Okt-22 Nov 2026"
+)
+_DASAR_SETAN = (
+    "maks-rerata 3PM gabungan/laga (40,00-26,79) x kemiringan total/3PM "
+    "(1,37) = 18,07 poin; game log stats.nba.com 2026-27, HANYA laga "
+    "selesai (WL terisi), n=243 laga, 20 Okt-22 Nov 2026; laga maks "
+    "CHI@NYK 2026-10-28 (40 tripoin, total 260)"
 )
 
 
@@ -335,7 +390,9 @@ def skenario_panas(
 
     Mengembalikan dict format "nba_stress" v1: geser per skenario,
     P(Under) per kaki per skenario, garis tahan-banjir per kaki
-    (atau None + alasan bila tidak ada), dan hasil cek harga.
+    (atau None + alasan bila tidak ada), garis tahan-setan +
+    flag_setan per kaki (deteksi kerapuhan, BUKAN gate), dan hasil
+    cek harga.
     Raise ValueError bila CDF tidak bisa dibangun; ConfigError bila
     kunci config hilang (fail-closed, tanpa default dari kode).
     """
@@ -344,8 +401,9 @@ def skenario_panas(
     cfg = cfg if cfg is not None else config_mod.load_playstyle()
     geser_3p = float(config_mod.get_value(cfg, "stress", "banjir_3p_points"))
     geser_ft = float(config_mod.get_value(cfg, "stress", "banjir_ft_points"))
-    if geser_3p < 0 or geser_ft < 0:
-        raise config_mod.ConfigError("geser banjir harus >= 0")
+    geser_setan = float(config_mod.get_value(cfg, "stress", "setan_points"))
+    if geser_3p < 0 or geser_ft < 0 or geser_setan < 0:
+        raise config_mod.ConfigError("geser banjir/setan harus >= 0")
 
     sim = analysis.get("simulation")
     if not isinstance(sim, dict):
@@ -398,6 +456,7 @@ def skenario_panas(
         "normal": 0.0,
         "banjir_3p": geser_3p,
         "banjir_ft": geser_ft,
+        "setan": geser_setan,
         "konservatif": geser_konservatif,
     }
     hasil_kaki: list[dict] = []
@@ -425,6 +484,40 @@ def skenario_panas(
                 "tidak ada garis tangga yang P(Under) >= target "
                 f"({target:.0%}) di skenario {banjir_terburuk}"
             )
+        # Setan: analogi yang sama di geser maksimal (deteksi, bukan
+        # gate — lihat docstring modul). garis_tahan_banjir() generik:
+        # ia hanya mencari garis terkecil yang lolos di geser tertentu.
+        p_setan = p_under["setan"]
+        tahan_setan = p_setan is not None and p_setan >= target
+        entri_tahan_setan = (
+            garis_tahan_banjir(tangga, cdf, geser_setan, target) if tangga else None
+        )
+        alasan_tidak_tahan_setan: str | None = None
+        if not tangga:
+            alasan_tidak_tahan_setan = "tangga tidak ada di artefak"
+        elif entri_tahan_setan is None:
+            alasan_tidak_tahan_setan = (
+                "tidak ada garis tahan-setan di tangga (P(Under) < target "
+                f"{target:.0%} di skenario setan pada semua garis tangga)"
+            )
+        # FLAG SETAN: lolos di dunia normal tapi jebol bila deviasi
+        # maksimal datang — itulah pola DEN@CHI. Kaki yang sudah gagal
+        # di normal TIDAK di-flag (bukan kerapuhan tersembunyi).
+        p_normal = p_under["normal"]
+        flag_setan = (
+            p_normal is not None
+            and p_setan is not None
+            and p_normal >= target
+            and p_setan < target
+        )
+        alasan_flag_setan: str | None = None
+        if flag_setan:
+            alasan_flag_setan = (
+                f"P normal {p_normal:.1%} >= target {target:.0%} tetapi "
+                f"P setan {p_setan:.1%} < target "
+                f"(selisih {p_setan - p_normal:+.1%}) — kaki lolos normal "
+                "tapi jebol bila deviasi maksimal datang"
+            )
         hasil_kaki.append(
             {
                 "line": garis,
@@ -436,6 +529,11 @@ def skenario_panas(
                 "tahan_banjir": tahan,
                 "garis_tahan_banjir": _ringkas_entri_tangga(entri_tahan),
                 "alasan_tidak_tahan_banjir": alasan_tidak_tahan,
+                "tahan_setan": tahan_setan,
+                "garis_tahan_setan": _ringkas_entri_tangga(entri_tahan_setan),
+                "alasan_tidak_tahan_setan": alasan_tidak_tahan_setan,
+                "flag_setan": flag_setan,
+                "alasan_flag_setan": alasan_flag_setan,
             }
         )
 
@@ -492,6 +590,14 @@ def skenario_panas(
                 "penjelasan": (
                     "Banjir lemparan bebas p90 (1 dari 10 laga banyak "
                     "pelanggaran/lemparan bebas). Dasar: " + _DASAR_BANJIR_FT + "."
+                ),
+            },
+            "setan": {
+                "geser_points": round(geser_setan, 2),
+                "penjelasan": (
+                    "Deviasi MAKSIMAL tripoin (maksimum teramati musim "
+                    "ini, bukan p90) — DETEKSI kerapuhan, BUKAN gate. "
+                    "Dasar: " + _DASAR_SETAN + "."
                 ),
             },
             "konservatif": {

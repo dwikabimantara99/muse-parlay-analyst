@@ -248,13 +248,13 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_14(self):
-        # Versi 14: fondasi harga & pengali (keputusan user
-        # 2026-11-23 08:19 WIB) — Asuransi 2,0–2,5x, target lunak
-        # Utama 3,5, gate edge Asuransi 3,5% (PROPOSAL, insiden DEN)
-        # — di atas versi 13 (perbaikan racik analis adaptif).
+    def test_meta_versi_15(self):
+        # Versi 15: skenario setan (deviasi maksimal 3PM, deteksi
+        # kerapuhan — BUKAN gate; koreksi user 2026-11-23 09:52 WIB)
+        # — di atas versi 14 (fondasi harga & pengali + gate edge
+        # Asuransi 3,5% PROPOSAL, insiden DEN).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 14)
+        self.assertEqual(meta["version"], 15)
         self.assertEqual(meta["last_reviewed"], "2026-11-23")
 
     def test_analis_section(self):

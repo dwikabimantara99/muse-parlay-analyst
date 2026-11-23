@@ -8,9 +8,11 @@ dipakai adalah playstyle.yaml repo (v14): min_leg_prob Asuransi
 """
 
 import copy
+import math
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -470,6 +472,134 @@ class TestAuditKaki(unittest.TestCase):
         self.assertIn("simulasi mesin", teks)
 
 
+class TestSharpMoveBukanDiskon(unittest.TestCase):
+    """Sharp move BUKAN diskon di audit (keputusan user 2026-11-23).
+
+    Harga tiket vs harga saat analisis untuk garis yang sama;
+    |selisih| >= 3¢ -> PERHATIAN (lunak) + DISKON_DITEKAN +
+    "Kenapa beda?" wajib. Pola Thunder: 75¢ -> 71¢.
+    """
+
+    def _artefak_thunder(self, harga_analisis=75.0, p_model=0.78, sumber="snapshot"):
+        art = _artefak(
+            "OKC@DEN_2026-11-15",
+            median=224.0,
+            main_line=225.5,
+            markets={"total_under_227.5": p_model},
+            totals=[_tangga(227.5, 75.0, volume_usd=8000.0, thin=False)],
+        )
+        if sumber == "snapshot":
+            art["price_snapshots"] = {
+                "total_under_227.5": {
+                    "cents": harga_analisis,
+                    "at": "2026-11-15T10:00:00+00:00",
+                }
+            }
+        elif sumber == "kaki":
+            art["legs"] = [
+                {
+                    "leg_id": "OKC@DEN_2026-11-15:total_under_227.5:main",
+                    "market_type": "total_under",
+                    "line": 227.5,
+                    "ticket": "main",
+                    "price_cents": harga_analisis,
+                    "jup_estimated_cents": harga_analisis,
+                }
+            ]
+        return art
+
+    def _audit(self, art, harga_tiket, tipe="main"):
+        tiket = _tiket(tipe, [_kaki("OKC@DEN_2026-11-15", 227.5, harga_tiket)])
+        hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
+        return hasil["tickets"][0]["legs"][0]
+
+    def _gate(self, kaki, nama):
+        return next(g for g in kaki["gates"] if g["gate"] == nama)
+
+    def test_thunder_literal_diskon_ditekan(self):
+        # Pola Thunder persis: analisis 75¢, tiket 71¢ (gerak -4¢).
+        # Label TIDAK BOLEH DISKON polos meski EV +9,9%.
+        kaki = self._audit(self._artefak_thunder(), 71.0)
+        self.assertTrue(kaki["sharp_move"])
+        self.assertEqual(kaki["harga_analisis_cents"], 75.0)
+        self.assertEqual(kaki["gerak_harga_cents"], -4.0)
+        self.assertEqual(kaki["price_label"], "DISKON_DITEKAN")
+        self.assertNotEqual(kaki["price_label"], "DISKON")
+        self.assertIn("SHARP_MOVE", kaki["flags"])
+        self.assertTrue(kaki["kenapa_beda_required"])
+        self.assertTrue(
+            any("harga bergerak tajam sejak analisis" in a for a in kaki["alasan"]),
+            kaki["alasan"],
+        )
+        self.assertFalse(self._gate(kaki, "sharp_move")["lolos"])
+        # Verdict JANGAN_PASANG di sini berasal dari gate lantai harga
+        # yang sudah ada (71¢ < lantai 75¢) — BUKAN dari sharp move;
+        # kontribusi sharp move sendiri lunak (lihat tes murni di bawah).
+        self.assertEqual(kaki["verdict"], "JANGAN_PASANG")
+        self.assertTrue(
+            any("di bawah lantai" in a for a in kaki["alasan"]), kaki["alasan"]
+        )
+
+    def test_sharp_move_murni_perhatian(self):
+        # Isolasi: satu-satunya alasan lunak adalah sharp move
+        # (80¢ -> 76¢, gerak -4¢; harga di atas lantai, edge +6%
+        # di atas ambang edge tipis, volume tidak tipis).
+        kaki = self._audit(
+            self._artefak_thunder(harga_analisis=80.0, p_model=0.82), 76.0
+        )
+        self.assertEqual(kaki["verdict"], "PERHATIAN")
+        self.assertEqual(kaki["price_label"], "DISKON_DITEKAN")
+        self.assertTrue(kaki["kenapa_beda_required"])
+        self.assertEqual(len(kaki["alasan"]), 1)
+        self.assertTrue(
+            kaki["alasan"][0].startswith("harga bergerak tajam sejak analisis")
+        )
+
+    def test_harga_analisis_dari_kaki(self):
+        # Tanpa snapshot: harga analisis dari kaki analisis (prioritas
+        # kedua, sama seperti recheck).
+        kaki = self._audit(self._artefak_thunder(sumber="kaki"), 71.0)
+        self.assertTrue(kaki["sharp_move"])
+        self.assertEqual(kaki["harga_analisis_cents"], 75.0)
+        self.assertEqual(kaki["price_label"], "DISKON_DITEKAN")
+
+    def test_tanpa_harga_analisis_tidak_ditekan(self):
+        # Keterbatasan data (jujur): tanpa snapshot maupun harga kaki,
+        # gerak tidak bisa dinilai — label TIDAK ditekan dan gate
+        # mencatat tidak bisa dinilai (bukan bukti tidak ada gerak).
+        kaki = self._audit(self._artefak_thunder(sumber=None), 71.0)
+        self.assertFalse(kaki["sharp_move"])
+        self.assertIsNone(kaki["harga_analisis_cents"])
+        self.assertIsNone(kaki["gerak_harga_cents"])
+        self.assertEqual(kaki["price_label"], "DISKON")
+        self.assertFalse(kaki["kenapa_beda_required"])
+        gate = self._gate(kaki, "sharp_move")
+        self.assertIn("tidak bisa dinilai", gate["detail"])
+
+    def test_gerak_kecil_tidak_ditekan(self):
+        # Gerak 1¢ (75¢ -> 74¢) di bawah ambang sharp: bukan anomali,
+        # DISKON polos boleh.
+        kaki = self._audit(self._artefak_thunder(), 74.0)
+        self.assertFalse(kaki["sharp_move"])
+        self.assertEqual(kaki["gerak_harga_cents"], -1.0)
+        self.assertEqual(kaki["price_label"], "DISKON")
+        self.assertTrue(self._gate(kaki, "sharp_move")["lolos"])
+
+    def test_tepat_ambang_sharp_ditekan(self):
+        # Tepat 3¢ (75¢ -> 72¢) = sharp (>= 3¢, D9).
+        kaki = self._audit(self._artefak_thunder(), 72.0)
+        self.assertTrue(kaki["sharp_move"])
+        self.assertEqual(kaki["price_label"], "DISKON_DITEKAN")
+
+    def test_render_teks_penanda_sharp_move(self):
+        art = self._artefak_thunder(harga_analisis=80.0, p_model=0.82)
+        tiket = _tiket("main", [_kaki("OKC@DEN_2026-11-15", 227.5, 76.0)])
+        hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
+        teks = ticket_audit.render_audit_text(hasil)
+        self.assertIn("[harga bergerak tajam]", teks)
+        self.assertIn("harga bergerak tajam sejak analisis", teks)
+
+
 class TestAmbangEdgeTipisDariConfig(unittest.TestCase):
     """Ambang edge tipis audit dibaca dari playstyle.yaml (koordinator).
 
@@ -508,6 +638,146 @@ class TestAmbangEdgeTipisDariConfig(unittest.TestCase):
         kaki = hasil["tickets"][0]["legs"][0]
         self.assertEqual(kaki["verdict"], "PERHATIAN")
         self.assertTrue(any("edge tipis" in a for a in kaki["alasan"]))
+
+
+def _cdf_normal(median, sigma, garis_min, garis_max, langkah=2.0):
+    """CDF total normal (median, sigma) sebagai sim markets.
+
+    Garis-garis tangga tiap ``langkah`` poin; peluang dibulatkan
+    6 desimal seperti output sim. (Duplikat kecil dari
+    tests/test_ticket_composer.py — kedua file tes independen.)
+    """
+    markets = {}
+    n = int(round((garis_max - garis_min) / langkah)) + 1
+    for i in range(n):
+        garis = garis_min + i * langkah
+        z = (garis - median) / sigma
+        p = 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+        markets[f"total_under_{garis:g}"] = round(p, 6)
+    return markets
+
+
+def _artefak_den_stress():
+    """Artefak DEN@CHI sintetis (median 233, sigma 19,2).
+
+    Jangkar P normal U252,5 = 84,5%, P banjir FT ~54,1%,
+    P setan ~53,0% — mirip artefak nyata
+    out/stress_den_chi_2026-11-22.json. Tangga: 252,5 tidak thin
+    (supaya verdict tidak terkunci JANGAN_PASANG oleh volume).
+    """
+    return _artefak(
+        "DEN@CHI_2026-11-22",
+        median=233.0,
+        main_line=236.5,
+        markets=_cdf_normal(233.0, 19.2, 202.5, 278.5),
+        totals=[
+            _tangga(250.5, 79.0, volume_usd=500.0, thin=False),
+            _tangga(252.5, 81.0, volume_usd=500.0, thin=False),
+            _tangga(264.5, 94.0, volume_usd=None, thin=True),
+        ],
+    )
+
+
+class TestAuditSkenarioPanas(unittest.TestCase):
+    """P banjir + P setan per kaki di output audit (tampilan saja).
+
+    BUKAN gate: angka-angka ini tidak memengaruhi verdict — tes
+    menegaskan verdict tetap seperti tanpa tampilan stress.
+    """
+
+    def test_p_banjir_dan_p_setan_tampil_json(self):
+        art = _artefak_den_stress()
+        tiket = _tiket("insurance", [_kaki("DEN@CHI_2026-11-22", 252.5, 82.0)])
+        hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
+        kaki = hasil["tickets"][0]["legs"][0]
+        self.assertAlmostEqual(kaki["p_banjir"], 0.541, delta=0.01)
+        self.assertAlmostEqual(kaki["p_setan"], 0.530, delta=0.01)
+        self.assertIsNone(kaki["stress_alasan"])
+        # Verdict tidak berubah karena tampilan stress: edge +2,5%
+        # tipis -> PERHATIAN (bukan JANGAN_PASANG).
+        self.assertEqual(kaki["verdict"], "PERHATIAN")
+
+    def test_p_banjir_dan_p_setan_tampil_teks(self):
+        art = _artefak_den_stress()
+        tiket = _tiket("insurance", [_kaki("DEN@CHI_2026-11-22", 252.5, 82.0)])
+        hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
+        teks = ticket_audit.render_audit_text(hasil)
+        self.assertIn("banjir terburuk 54,1%", teks)
+        self.assertIn("skenario setan 53,0%", teks)
+
+    def test_kaki_utama_juga_menampilkan_p_banjir_p_setan(self):
+        # Kaki Utama TIDAK kena gate banjir, tapi P banjir + P setan
+        # tetap WAJIB tampil di audit.
+        art = _artefak_den_stress()
+        tiket = _tiket("main", [_kaki("DEN@CHI_2026-11-22", 250.5, 79.0)])
+        hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
+        kaki = hasil["tickets"][0]["legs"][0]
+        self.assertAlmostEqual(kaki["p_banjir"], 0.499, delta=0.01)
+        self.assertAlmostEqual(kaki["p_setan"], 0.488, delta=0.01)
+        teks = ticket_audit.render_audit_text(hasil)
+        self.assertIn("banjir terburuk 49,9%", teks)
+        self.assertIn("skenario setan 48,8%", teks)
+
+    def test_garis_tiket_di_luar_kaki_analisis_tetap_dihitung(self):
+        # Tiket luar (Gemini): garis 252,5 tidak ada di kaki
+        # analisis (hanya kaki Utama 250,5) -> dihitung eksplisit.
+        art = _artefak_den_stress()
+        art["legs"] = [
+            {
+                "leg_id": "DEN@CHI_2026-11-22:total_under_250.5:main",
+                "market_type": "total_under",
+                "line": 250.5,
+                "ticket": "main",
+            }
+        ]
+        tiket = _tiket("insurance", [_kaki("DEN@CHI_2026-11-22", 252.5, 82.0)])
+        hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
+        kaki = hasil["tickets"][0]["legs"][0]
+        self.assertAlmostEqual(kaki["p_banjir"], 0.541, delta=0.01)
+        self.assertAlmostEqual(kaki["p_setan"], 0.530, delta=0.01)
+
+    def test_setan_belum_ada_tidak_crash(self):
+        # Output stress tanpa kunci "setan" (sebelum Worker A
+        # selesai): banjir tetap tampil, setan "belum tersedia".
+        art = _artefak_den_stress()
+        tiket = _tiket("insurance", [_kaki("DEN@CHI_2026-11-22", 252.5, 82.0)])
+        nyata = ticket_audit.stress_mod.skenario_panas
+
+        def tanpa_setan(*args, **kwargs):
+            hasil = nyata(*args, **kwargs)
+            for entri in hasil.get("kaki") or []:
+                (entri.get("p_under") or {}).pop("setan", None)
+            return hasil
+
+        with mock.patch.object(
+            ticket_audit.stress_mod, "skenario_panas", side_effect=tanpa_setan
+        ):
+            hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
+        kaki = hasil["tickets"][0]["legs"][0]
+        self.assertAlmostEqual(kaki["p_banjir"], 0.541, delta=0.01)
+        self.assertIsNone(kaki["p_setan"])
+        teks = ticket_audit.render_audit_text(hasil)
+        self.assertIn("banjir terburuk 54,1%", teks)
+        self.assertIn("skenario setan belum tersedia", teks)
+
+    def test_skenario_gagal_tidak_menggagalkan_audit(self):
+        # skenario_panas melempar -> p None + alasan, audit tetap
+        # jalan dan verdict tetap dihitung.
+        art = _artefak_den_stress()
+        tiket = _tiket("insurance", [_kaki("DEN@CHI_2026-11-22", 252.5, 82.0)])
+        with mock.patch.object(
+            ticket_audit.stress_mod,
+            "skenario_panas",
+            side_effect=ValueError("CDF rusak"),
+        ):
+            hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
+        kaki = hasil["tickets"][0]["legs"][0]
+        self.assertIsNone(kaki["p_banjir"])
+        self.assertIsNone(kaki["p_setan"])
+        self.assertIn("CDF rusak", kaki["stress_alasan"])
+        self.assertEqual(kaki["verdict"], "PERHATIAN")
+        teks = ticket_audit.render_audit_text(hasil)
+        self.assertIn("Skenario panas tidak bisa dihitung", teks)
 
 
 if __name__ == "__main__":

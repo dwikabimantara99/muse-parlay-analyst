@@ -761,6 +761,72 @@ class TestFixtureThunder(unittest.TestCase):
         self.assertEqual(leg["probability_used"], "model")
         validasi_skema(laporan)
 
+    def test_thunder_sharp_move_bukan_diskon(self):
+        """Pola Thunder (75¢ -> 71¢): TIDAK BOLEH berlabel DISKON polos.
+
+        Kaki harus JANGAN_PASANG (lebih keras dari PERHATIAN) +
+        label DISKON_DITEKAN + "Kenapa beda?" dipicu
+        (kenapa_beda_required) + alasan framing peringatan.
+        """
+        analisis = muat_fixture("thunder_analysis.json")
+        fresh = muat_fixture("thunder_fresh.json")
+
+        def _resim(fresh):
+            leg = dict(
+                analisis["legs"][0],
+                fetched_at="2026-11-15T12:00:00+00:00",
+            )
+            return {
+                "simulation": {
+                    "match_id": "OKC@DEN_2026-11-15",
+                    "score_distribution": {
+                        "total": {"median": 219.0, "p74": 231.0, "p75": 232.0}
+                    },
+                },
+                "legs": [leg],
+            }
+
+        laporan = recheck.decide(
+            analisis,
+            fresh,
+            resim_fn=_resim,
+            sekarang="2026-11-15T12:30:00+00:00",
+        )
+        leg = laporan["legs"][0]
+        self.assertEqual(leg["verdict"], "JANGAN_PASANG")
+        self.assertEqual(leg["price_move_cents"], -4.0)
+        # Label: DISKON_DITEKAN, bukan DISKON polos.
+        self.assertEqual(len(laporan["anomalies"]), 1)
+        anomali = laporan["anomalies"][0]
+        self.assertEqual(anomali["type"], "sharp_move")
+        self.assertEqual(anomali["price_label"], "DISKON_DITEKAN")
+        self.assertNotEqual(anomali["price_label"], "DISKON")
+        # "Kenapa beda?" dipicu sampai pergerakannya dijelaskan.
+        self.assertTrue(anomali["kenapa_beda_required"])
+        self.assertIn("harga baru bergerak tajam, selidiki dulu", anomali["catatan"])
+        # Alasan kaki membawa framing peringatan, bukan diskon.
+        self.assertTrue(
+            any("DISKON_DITEKAN" in r for r in leg["reasons"]),
+            leg["reasons"],
+        )
+        self.assertTrue(
+            any(
+                "harga baru bergerak tajam, selidiki dulu" in r for r in leg["reasons"]
+            ),
+            leg["reasons"],
+        )
+        validasi_skema(laporan)
+
+    def test_tanpa_sharp_move_tanpa_penkanan(self):
+        # Harga stabil: tidak ada anomali, tidak ada penekanan label.
+        laporan = recheck.decide(analisis_minimal(), fresh_minimal(), sekarang=SEKARANG)
+        self.assertEqual(laporan["anomalies"], [])
+        for leg in laporan["legs"]:
+            self.assertFalse(
+                any("DISKON_DITEKAN" in r for r in leg["reasons"]),
+                leg["reasons"],
+            )
+
     def test_thunder_tanpa_resim_fn_resim_default_gagal_aman(self):
         # Inputs fixture minimal (tanpa stats) -> _resim_default gagal
         # (sim butuh stats_season); kaki tetap JANGAN_PASANG karena
@@ -1096,6 +1162,47 @@ class TestResimDefault(unittest.TestCase):
             self.assertIsNotNone(leg["p_final"])
             self.assertIsNotNone(leg["price_label"])
             self.assertEqual(leg["cushion_points"], 8.0)
+
+    def test_sharp_move_menekan_label_kaki_resim(self):
+        # Pola Thunder lewat _resim_default: snapshot 75¢, tangga segar
+        # 71¢ -> sharp move 4¢ untuk kedua tiket (garis sama 233.5).
+        # Tes ini property-style (tidak bergantung hasil sim): kaki
+        # resim TIDAK BOLEH berlabel DISKON polos, dan bila EV-nya
+        # memenuhi ambang DISKON, labelnya harus DISKON_DITEKAN.
+        cfg = self._cfg_kecil()
+        ladders = self._tangga_lebar()
+        for entri in ladders["totals"]:
+            if entri["line"] == 233.5 and entri["side"] == "under":
+                entri["price_cents"] = 71.0
+                entri["jup_estimated_cents"] = 71.0
+        fresh = {
+            "inputs": self._inputs_minimal(),
+            "ladders": ladders,
+            "fetched_at": "2026-11-22T12:00:00+00:00",
+            "errors": {},
+        }
+        analisis = analisis_minimal(
+            legs=[
+                kaki(tiket="insurance", harga=75.0, jup=75.0),
+                kaki(tiket="main", harga=75.0, jup=75.0),
+            ]
+        )
+        analisis["price_snapshots"] = {
+            "total_under_233.5": {
+                "cents": 75.0,
+                "at": "2026-11-22T10:00:00+00:00",
+            }
+        }
+        with (
+            stub_cushion(CushionStub()),
+            stub_analis({"cushion_points": 8.0, "alasan": "stub"}),
+        ):
+            hasil = recheck._resim_default(fresh, cfg=cfg, analysis=analisis)
+        self.assertEqual(len(hasil["legs"]), 2)
+        for leg in hasil["legs"]:
+            self.assertNotEqual(leg["price_label"], "DISKON")
+            if leg["ev_pct"] is not None and leg["ev_pct"] >= 2.0:
+                self.assertEqual(leg["price_label"], "DISKON_DITEKAN")
 
     def test_fallback_inputs_lama(self):
         cfg = self._cfg_kecil()
@@ -1465,6 +1572,74 @@ class TestBangunKakiSignatureBaru(unittest.TestCase):
         self.assertEqual(panggilan["stats_laga"]["ortg_liga_rata"], 112.0)
         self.assertEqual(panggilan["distribusi_sim"]["median"], 219.0)
         self.assertEqual(panggilan["distribusi_sim"]["std"], 19.0)
+
+
+class TestResimSharpMoveBukanDiskon(unittest.TestCase):
+    """Kaki resim: sharp move menekan label DISKON (kasus Thunder).
+
+    EV deterministik: p_model 0,70 + p_market 0,66 (kaki lama) ->
+    p_final 0,672; di harga 64¢ EV = +5,0% -> DISKON tanpa penekanan.
+    """
+
+    def _sim_dan_tangga(self):
+        simulation = {
+            "match_id": "DET@ATL_2026-11-22",
+            "score_distribution": {
+                "total": {
+                    "median": 219.0,
+                    "std": 19.0,
+                    "p74": 231.0,
+                    "p75": 232.0,
+                }
+            },
+            "markets": {
+                f"total_under_{garis:g}": 0.70
+                for garis in (229.5, 231.5, 233.5, 235.5, 237.5, 239.5, 241.5)
+            },
+        }
+        entri = [
+            entri_tangga(garis, "under", 60.0 + i, 1000.0)
+            for i, garis in enumerate((229.5, 231.5, 233.5, 235.5, 237.5, 239.5, 241.5))
+        ]
+        return simulation, entri
+
+    def _bangun(self, simulation, entri, legs, sharp=None):
+        with (
+            stub_cushion(CushionStub(garis_main=237.5)),
+            stub_analis({"cushion_points": 12.0, "alasan": "stub"}),
+        ):
+            return recheck._bangun_kaki_resim(
+                simulation,
+                entri,
+                225.5,
+                legs,
+                "DET@ATL_2026-11-22",
+                "2026-11-22T12:00:00+00:00",
+                config.load_playstyle(),
+                inputs=inputs_minimal_bantalan(),
+                sharp_move_per_tiket=sharp,
+            )
+
+    def test_label_ditekan_bila_sharp_move(self):
+        simulation, entri = self._sim_dan_tangga()
+        legs = self._bangun(
+            simulation, entri, [kaki(tiket="main")], sharp={"main": True}
+        )
+        self.assertEqual(legs[0]["ev_pct"], 5.0)
+        self.assertEqual(legs[0]["price_label"], "DISKON_DITEKAN")
+
+    def test_label_diskon_bila_tanpa_sharp_move(self):
+        simulation, entri = self._sim_dan_tangga()
+        legs = self._bangun(simulation, entri, [kaki(tiket="main")])
+        self.assertEqual(legs[0]["price_label"], "DISKON")
+
+    def test_sharp_move_tiket_lain_tidak_menekan(self):
+        # Sharp move di tiket insurance tidak menekan label kaki main.
+        simulation, entri = self._sim_dan_tangga()
+        legs = self._bangun(
+            simulation, entri, [kaki(tiket="main")], sharp={"insurance": True}
+        )
+        self.assertEqual(legs[0]["price_label"], "DISKON")
 
 
 class TestIstirahatMendadak(unittest.TestCase):

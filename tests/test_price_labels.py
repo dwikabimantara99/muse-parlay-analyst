@@ -48,5 +48,40 @@ class TestLabelForEv(unittest.TestCase):
             price_labels.label_for_ev(0.0, cfg)
 
 
+class TestLabelSharpMoveBukanDiskon(unittest.TestCase):
+    """Sharp move BUKAN diskon (keputusan user 2026-11-23, kasus Thunder).
+
+    Bila harga baru bergerak tajam, DISKON polos dilarang: EV yang
+    akan berlabel DISKON dikembalikan sebagai DISKON_DITEKAN.
+    Definisi EV dan ambang label tidak berubah.
+    """
+
+    def test_sharp_move_menekan_diskon(self):
+        # EV +5,63% (pola Thunder: p_final 0,75 di harga 71¢).
+        self.assertEqual(
+            price_labels.label_for_ev(5.63, sharp_move=True), "DISKON_DITEKAN"
+        )
+        # Tepat di ambang DISKON (+2%) juga ditekan.
+        self.assertEqual(
+            price_labels.label_for_ev(2.0, sharp_move=True), "DISKON_DITEKAN"
+        )
+
+    def test_sharp_move_tidak_mengubah_wajar_mahal(self):
+        self.assertEqual(price_labels.label_for_ev(0.0, sharp_move=True), "WAJAR")
+        self.assertEqual(price_labels.label_for_ev(1.99, sharp_move=True), "WAJAR")
+        self.assertEqual(price_labels.label_for_ev(-2.0, sharp_move=True), "WAJAR")
+        self.assertEqual(price_labels.label_for_ev(-5.0, sharp_move=True), "MAHAL")
+
+    def test_tanpa_sharp_move_tetap_diskon(self):
+        # Kompatibel mundur: pemanggil lama tanpa parameter tidak
+        # berubah perilakunya.
+        self.assertEqual(price_labels.label_for_ev(5.63), "DISKON")
+        self.assertEqual(price_labels.label_for_ev(5.63, sharp_move=False), "DISKON")
+        self.assertEqual(price_labels.label_for_ev(2.0), "DISKON")
+
+    def test_konstanta_diskon_ditekan(self):
+        self.assertEqual(price_labels.DISKON_DITEKAN, "DISKON_DITEKAN")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 14
+  version: 15
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22 + perbaikan racik analis adaptif (bantalan adaptif, nilai wajar, Asuransi >2,5x, section analis), 2026-11-23 + fondasi harga & pengali (Asuransi x2+, Utama x3+, tanpa price cap) + gate edge Asuransi, 2026-11-23"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22 + perbaikan racik analis adaptif (bantalan adaptif, nilai wajar, Asuransi >2,5x, section analis), 2026-11-23 + fondasi harga & pengali (Asuransi x2+, Utama x3+, tanpa price cap) + gate edge Asuransi, 2026-11-23 + skenario setan (deviasi maksimal 3PM, deteksi kerapuhan — BUKAN gate), 2026-11-23"
   last_reviewed: "2026-11-23"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -46,6 +46,26 @@ tickets:
     # ambang antar-definisi ini pendekatan yang menunggu validasi
     # atas data PAPER + persetujuan user.
     min_edge_pct: 3.5           # persen (3,5 = 3,5 poin = 0,035 desimal)
+    # Gate skenario banjir Asuransi (insiden DEN@CHI 2026-11-23,
+    # keputusan user R1 09:47 WIB + koreksi 09:52 WIB): kaki
+    # Asuransi lolos hanya bila P(Under) di skenario yang disebut
+    # kunci ini >= min_leg_prob (0,74). Garis yang gagal NAIK ke
+    # garis tahan skenario itu dari tangga (climb, alasan "banjir");
+    # bila tidak ada garis tangga yang tahan, laga di-SKIP untuk
+    # Asuransi (alasan tercatat, tidak pernah dipaksakan). Garis
+    # tahan yang thin TIDAK dipakai (aturan thin Asuransi yang
+    # sudah ada: thin = hard gate) -> SKIP; keputusan ini menunggu
+    # keberatan user/reviewer.
+    # Nilai "banjir_terburuk" = KRITERIA PRODUKSI: P di skenario
+    # banjir terburuk (worst of banjir_3p/banjir_ft p90,
+    # engine/stress.py) — sesuai koreksi user 09:52 WIB bahwa gate
+    # keras Asuransi adalah banjir p90, BUKAN setan. Nilai "setan"
+    # didukung kode (gate berparameter skenario) tapi BUKAN
+    # kriteria produksi: skenario setan hanya deteksi kerapuhan —
+    # jangan ubah nilai ini ke "setan" tanpa persetujuan user.
+    # Kunci hilang / nilai tak dikenal -> ConfigError (fail-closed,
+    # tanpa default dari kode).
+    stress_gate_scenario: banjir_terburuk
     # Syarat wajib §6a: pengali x modal Asuransi >= total modal kedua tiket.
     must_cover_total_stake: true
   main:
@@ -230,9 +250,32 @@ stress:
   #   insiden separah itu. Garis tahan-banjir p90 menjawab "tahan
   #   banjir 1-dari-10", BUKAN "tahan banjir separah DEN@CHI".
   # - KALIBRASI ULANG: tarik lagi game log musim berjalan, hitung ulang
-  #   rerata + p90 + kemiringan OLS, ganti kedua kunci ini, minta
+  #   rerata + p90 + kemiringan OLS, ganti kunci-kunci ini, minta
   #   persetujuan user (seperti D12 untuk parameter fit). Kemiringan
   #   OLS bersifat asosiatif, bukan kausal (ikut menangkap pace/OT).
+  # - setan: (MAKS - rerata 3PM gabungan/laga) x kemiringan OLS
+  #   total/3PM = (40,00 - 26,79) x 1,37 = 18,07. Deviasi MAKSIMAL
+  #   yang pernah teramati (bukan p99): mengikuti kata user
+  #   "penyimpangan MAKSIMAL" (09:47 WIB) — p99 (37,00 -> 13,97)
+  #   masih menyisakan ~1% laga di luarnya. Laga maks: CHI@NYK
+  #   2026-10-28 (40 tripoin, total 260). Dataset: HANYA laga
+  #   SELESAI (WL terisi), n=243 — BUKAN n=247: leaguegamefinder
+  #   JUGA mengembalikan laga yang sedang berjalan (WL kosong); 4
+  #   laga 22 Nov belum selesai saat ditarik (IND@NYK baru 31 poin,
+  #   DEN@CHI 171 poin) dan menarik rerata ke bawah + kemiringan ke
+  #   atas (kemiringan tercemar 2,12 vs bersih 1,37). CATATAN: nilai
+  #   banjir p90 di atas (13,54/17,54) diturunkan dari snapshot
+  #   n=247 yang tercemar itu — kalibrasi ulang banjir (data
+  #   bersih: p90 3P 8,50 / FT 12,52) MENUNGGU keputusan user;
+  #   angka di sini TIDAK diubah diam-diam. Detail + dataset:
+  #   out/derivasi_setan_2026-11-23.json.
+  # - PERAN SETAN (koreksi user 09:52 WIB): setan BUKAN gate keras —
+  #   gate Asuransi tetap banjir p90 + edge + volume + min_leg_prob.
+  #   Setan adalah DETEKSI kerapuhan: kaki dengan P normal >= target
+  #   tapi P setan < target ditandai flag_setan (pola DEN@CHI).
+  #   Jangkar insiden: laju halftime DEN 42 tripoin/laga MASIH di
+  #   atas maks musim (40) — skenario setan mencakup banjir terburuk
+  #   yang pernah SELESAI, bukan laju halftime separah itu.
   # - Skenario konservatif tidak butuh kunci di sini: gesernya =
   #   main_total_line - median sim, dihitung per laga (sigma sama).
   # - Target P(Under) garis tahan-banjir dibaca dari kunci yang sudah
@@ -240,6 +283,7 @@ stress:
   #   min_leg_prob (0,65) — tidak diduplikasi di sini.
   banjir_3p_points: 13.54
   banjir_ft_points: 17.54
+  setan_points: 18.07
 
 # ── Audit tiket sebelum pasang (engine/ticket_audit.py) ────────────────────
 audit:
