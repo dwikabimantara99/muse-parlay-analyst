@@ -248,13 +248,13 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_15(self):
-        # Versi 15: skenario setan (deviasi maksimal 3PM, deteksi
-        # kerapuhan — BUKAN gate; koreksi user 2026-11-23 09:52 WIB)
-        # — di atas versi 14 (fondasi harga & pengali + gate edge
-        # Asuransi 3,5% PROPOSAL, insiden DEN).
+    def test_meta_versi_16(self):
+        # Versi 16: penyempurnaan mesin (equilibrium, skip dari awal,
+        # news, ekor 3P, OT di seleksi — keputusan user 2026-11-23
+        # 10:41 WIB) — di atas versi 15 (skenario setan, deteksi
+        # kerapuhan — BUKAN gate; koreksi user 2026-11-23 09:52 WIB).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 15)
+        self.assertEqual(meta["version"], 16)
         self.assertEqual(meta["last_reviewed"], "2026-11-23")
 
     def test_analis_section(self):
@@ -273,6 +273,29 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(bantalan["max_points"], 20.0)
         self.assertGreater(bantalan["max_points"], bantalan["min_points"])
         self.assertEqual(analis["wajar"]["selisih_minimum_poin"], 0.0)
+
+    def test_equilibrium_section(self):
+        # Section equilibrium (build penyempurnaan 2026-11-23):
+        # titik manis per kaki = max expected return di antara garis
+        # yang lolos semua gate; butuh jangkar pasar Kalshi (P2).
+        eq = self.cfg["equilibrium"]
+        self.assertTrue(eq["enabled"])
+        self.assertTrue(eq["butuh_anchor_pasar"])
+
+    def test_skip_awal_section(self):
+        # Section skip_awal (build penyempurnaan 2026-11-23): ambang
+        # edge kecil pola Denver 3,5% — INITIAL (cermin proposal
+        # D12), rencana kalibrasi di komentar yaml.
+        skip = self.cfg["skip_awal"]
+        self.assertTrue(skip["enabled"])
+        self.assertEqual(skip["pola_denver"]["edge_kecil_pct"], 3.5)
+
+    def test_ot_seleksi_section(self):
+        # Section ot_seleksi (build penyempurnaan 2026-11-23): ambang
+        # skip OT 0,028 — INITIAL (≈ plafon teoretis peluang seri
+        # laga imbang 0,0277), rencana kalibrasi di komentar yaml.
+        ot = self.cfg["ot_seleksi"]
+        self.assertEqual(ot["skip_ot_prob"], 0.028)
 
     def test_soccer_section(self):
         # Wiring otak bola (Langkah 5): section soccer + jendela hasil.

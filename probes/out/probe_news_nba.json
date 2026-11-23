@@ -1,0 +1,39 @@
+{
+  "source": "NBA resmi (nba.com)",
+  "tier": 1,
+  "probed_at": "2026-11-23T03:47:54.537378+00:00",
+  "accessible_from_vm": true,
+  "format": "HTML (bukan API)",
+  "rate_limit": "UNKNOWN (tidak ada header rate limit yang terlihat)",
+  "data_available": [
+    "halaman /news: HTML 320468 karakter (Next.js, data tertanam di __NEXT_DATA__)"
+  ],
+  "risk_notes": [
+    "Tidak ada endpoint JSON/RSS berita resmi yang ditemukan — satu-satunya jalan adalah mengupas HTML halaman, yang rapuh (struktur berubah sewaktu-waktu) dan bukan API.",
+    "Alasan JANGAN: tidak ada API berita terstruktur gratis; mengupas HTML Next.js di luar pola repo (semua fetcher memakai JSON API) dan rapuh. ESPN JSON sudah cukup sebagai sumber utama."
+  ],
+  "requests": [
+    {
+      "url": "https://www.nba.com/news",
+      "status": 200,
+      "from_cache": false,
+      "elapsed_seconds": 0.87,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html><html lang=\"en\" data-version=\"5.7.6\" data-client=\"NBA\" data-theme=\"light\"><head><meta charSet=\"utf-8\" data-next-head=\"\"/><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no\" data-next-head=\"\"/><link rel=\"manifest\" href=\"/site-manifest.json\" data-next-head=\"\"/><title data-next-head=\"\">NBA News - Latest team, player and league news | NBA.com</title><meta name=\"description\" content=\"NBA News: Your source of the most updat"
+    },
+    {
+      "url": "https://www.nba.com/rss/nba.xml",
+      "status": 404,
+      "from_cache": false,
+      "elapsed_seconds": 0.74,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<!DOCTYPE html>\n                <html lang=\"en\">\n                <head>\n                    <meta charset=\"UTF-8\">\n                    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n                    <title>Content Unavailable</title>\n                    <link href=\"https://fonts.googleapis.com/css2?family=Roboto&display=swap\" rel=\"stylesheet\">\n                </head>\n                <body>\n                    <div class=\"header\">\n                        <svg height=\"60"
+    }
+  ],
+  "verdict": "JANGAN",
+  "unknown": [
+    "RSS diduga (nba.com/rss/nba.xml): status 404 — tidak ada feed RSS di alamat itu"
+  ]
+}

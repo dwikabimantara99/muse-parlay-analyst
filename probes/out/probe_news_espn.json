@@ -1,0 +1,53 @@
+{
+  "source": "ESPN NBA news (site.api.espn.com)",
+  "tier": 2,
+  "probed_at": "2026-11-23T03:47:49.659228+00:00",
+  "accessible_from_vm": true,
+  "format": "JSON REST",
+  "rate_limit": "UNKNOWN (tidak ada header rate limit yang terlihat)",
+  "data_available": [
+    "news liga: 5 artikel (limit=5)",
+    "contoh: Indiana Pacers vs. New York Knicks: Game Highlights",
+    "kategori artikel: athlete, editorialindicator, event, league, team, topic",
+    "tim di kategori contoh: New York Knicks, Indiana Pacers",
+    "news liga limit=50: 50 artikel, terbit 2026-11-21 s.d. 2026-11-23",
+    "jenis artikel limit=50: HeadlineNews 11, Media 18, Recap 18, Story 3"
+  ],
+  "risk_notes": [
+    "Artikel tipe 'Media' adalah sorotan video (judul tetap informatif, tapi bukan teks berita).",
+    "Bahasa Inggris — laporan menampilkan judul asli + penjelasan Indonesia (tidak diterjemahkan mesin)."
+  ],
+  "requests": [
+    {
+      "url": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/news?limit=5",
+      "status": 200,
+      "from_cache": false,
+      "elapsed_seconds": 0.73,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"header\":\"NBA News\",\"link\":{\"language\":\"en\",\"rel\":[\"index\",\"desktop\",\"league\"],\"href\":\"https://www.espn.com/nba/\",\"text\":\"All NBA News\",\"shortText\":\"All News\",\"isExternal\":false,\"isPremium\":false},\"articles\":[{\"id\":50569439,\"nowId\":\"1-50569439\",\"contentKey\":\"50569439-1-293-1\",\"dataSourceIdentifier\":\"fd851113055e6\",\"type\":\"Media\",\"headline\":\"Indiana Pacers vs. New York Knicks: Game Highlights\",\"description\":\"Indiana Pacers vs. New York Knicks: Game Highlights\",\"lastModified\":\"2026-11-23T03:47:16"
+    },
+    {
+      "url": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/25/news?limit=3",
+      "status": 200,
+      "from_cache": false,
+      "elapsed_seconds": 0.66,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{}"
+    },
+    {
+      "url": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/news?limit=50",
+      "status": 200,
+      "from_cache": false,
+      "elapsed_seconds": 0.79,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "{\"header\":\"NBA News\",\"link\":{\"language\":\"en\",\"rel\":[\"index\",\"desktop\",\"league\"],\"href\":\"https://www.espn.com/nba/\",\"text\":\"All NBA News\",\"shortText\":\"All News\",\"isExternal\":false,\"isPremium\":false},\"articles\":[{\"id\":50569206,\"nowId\":\"1-50569206\",\"contentKey\":\"50569206-1-21-1\",\"dataSourceIdentifier\":\"d479bc70ac9b7\",\"type\":\"Recap\",\"headline\":\"Jokic's triple-double, Murray's 45 points lead Nuggets to 151-145 overtime win over Bulls\",\"description\":\"— Nikola Jokic had 37 points, 18 rebounds and 11 as"
+    }
+  ],
+  "verdict": "PAKAI",
+  "unknown": [
+    "endpoint per-tim mengembalikan status 200 tanpa daftar artikel (body kosong di probe ini) — filter per-tim harus dilakukan di sisi klien dari feed liga"
+  ]
+}

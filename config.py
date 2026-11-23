@@ -45,6 +45,9 @@ REQUIRED_PLAYSTYLE_SECTIONS = (
     "calibration",
     "learning",
     "stress",
+    "equilibrium",
+    "skip_awal",
+    "ot_seleksi",
 )
 
 REQUIRED_SOURCES_KEYS = ("meta", "sources", "rules")

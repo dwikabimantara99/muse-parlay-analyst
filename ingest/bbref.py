@@ -559,16 +559,36 @@ def _parse_totals_team_once(html: str) -> list[dict]:
             # singkatan live — baris dilewati, bukan ditebak.
             continue
         games = _to_number(row.get("g", ""))
+        fg3 = _to_number(row.get("fg3", ""))
         fg3a = _to_number(row.get("fg3a", ""))
         fta = _to_number(row.get("fta", ""))
+        fg3_per_game = None
         fg3a_per_game = None
+        fg3_pct = None
         fta_per_game = None
+        if (
+            isinstance(games, (int, float))
+            and games > 0
+            and isinstance(fg3, (int, float))
+        ):
+            fg3_per_game = fg3 / games
         if (
             isinstance(games, (int, float))
             and games > 0
             and isinstance(fg3a, (int, float))
         ):
             fg3a_per_game = fg3a / games
+        if (
+            isinstance(fg3, (int, float))
+            and isinstance(fg3a, (int, float))
+            and fg3a > 0
+        ):
+            # 3P% dihitung dari total mentah (fg3/fg3a), bukan dari
+            # kolom fg3_pct tabel (pembulatan tampilan). Kolom "fg3"
+            # TIDAK wajib (bukan anggota TOTALS_TEAM_REQUIRED_STATS):
+            # bila BBRef menghilangkannya, fg3_pct/fg3_per_game None
+            # tapi fg3a_per_game tetap mengalir.
+            fg3_pct = fg3 / fg3a
         if (
             isinstance(games, (int, float))
             and games > 0
@@ -580,7 +600,9 @@ def _parse_totals_team_once(html: str) -> list[dict]:
                 "tricode": tricode,
                 "team": team_name,
                 "games": games,
+                "fg3_per_game": fg3_per_game,
                 "fg3a_per_game": fg3a_per_game,
+                "fg3_pct": fg3_pct,
                 "fta_per_game": fta_per_game,
             }
         )
@@ -592,14 +614,18 @@ def parse_team_shooting_totals(html: str) -> list[dict]:
 
     Setiap tim: tricode (singkatan stats.nba.com — BRK/CHO/PHO
     dipetakan ke BKN/CHA/PHX), team (nama lengkap, "*" playoff
-    dibuang), games (jumlah laga musim ini, kolom "g"), fg3a_per_game
-    (total fg3a / games), fta_per_game (total fta / games).
-    fg3a_per_game / fta_per_game None bila games tidak ada/0 atau
-    totalnya tidak ada. Baris "League Average" dan baris tanpa href
-    tim dilewati. ValueError ("bbref_format_changed") bila tabel
-    id="totals-team" tidak ada atau kolom wajib (g/fg3a/fta) hilang
-    — termasuk setelah mencoba membuka komentar HTML (tabel ini
-    DIBUNGKUS komentar pada 2026-11-22, terverifikasi dari HTML asli).
+    dibuang), games (jumlah laga musim ini, kolom "g"),
+    fg3_per_game (total fg3 / games), fg3a_per_game (total fg3a /
+    games), fg3_pct (fg3 / fg3a dari total mentah), fta_per_game
+    (total fta / games). fg3_per_game / fg3a_per_game /
+    fta_per_game None bila games tidak ada/0 atau totalnya tidak
+    ada; fg3_pct None bila fg3/fg3a tidak ada atau fg3a 0 (kolom
+    "fg3" tidak wajib — lihat _parse_totals_team_once). Baris
+    "League Average" dan baris tanpa href tim dilewati. ValueError
+    ("bbref_format_changed") bila tabel id="totals-team" tidak ada
+    atau kolom wajib (g/fg3a/fta) hilang — termasuk setelah mencoba
+    membuka komentar HTML (tabel ini DIBUNGKUS komentar pada
+    2026-11-22, terverifikasi dari HTML asli).
     """
     try:
         return _parse_totals_team_once(html)
@@ -613,7 +639,7 @@ def parse_team_shooting_totals(html: str) -> list[dict]:
 def fetch_team_shooting_baselines(
     season: int = 2027, client: HttpClient | None = None
 ) -> FetchResult:
-    """Ambil baseline tembakan tim NBA (3PA & FTA per laga) satu musim.
+    """Ambil baseline tembakan tim NBA (3P & 3PA & FTA per laga) satu musim.
 
     KOREKSI SUMBER (terverifikasi dari HTML asli 2026-11-22): halaman
     totals (leagues/NBA_YYYY_totals.html) TIDAK memuat tabel tim sama

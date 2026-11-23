@@ -774,6 +774,37 @@ class TestLaporanLengkap(unittest.TestCase):
         self.assertIn("berbeda 9,2 poin (model 77,2%, pasar 68,0%)", self.teks)
 
 
+class TestBagianBerita(unittest.TestCase):
+    """Penyisipan bagian Berita ke laporan (integrasi koordinator)."""
+
+    def test_berita_tampil_bila_blok_news_ada(self):
+        art = _artefak()
+        art["news"] = {
+            "status": "ok",
+            "items": [
+                {
+                    "headline": "Bulls G Norman Powell sidelined",
+                    "description": "Hamstring injury.",
+                    "source": "ESPN",
+                    "published": "2026-11-23T03:15:00Z",
+                    "url": "https://www.espn.com/contoh",
+                    "type": "HeadlineNews",
+                }
+            ],
+        }
+        teks = nba_report_mod.render_nba_report(art)
+        self.assertIn("Berita", teks)
+        self.assertIn("Bulls G Norman Powell sidelined", teks)
+        self.assertIn("bukan angka", teks)
+
+    def test_tanpa_blok_news_judul_tetap_hadir_dengan_penjelasan(self):
+        # Artefak lama (tanpa kunci news): bagian tetap hadir, jujur
+        # bahwa berita tidak tersedia di artefak itu.
+        teks = nba_report_mod.render_nba_report(_artefak())
+        self.assertIn("Berita", teks)
+        self.assertIn("sebelum modul berita ada", teks)
+
+
 class TestKenapaBeda(unittest.TestCase):
     def test_terpicu_selisih_9_poin_kesimpulan_tidak_ada_alasan(self):
         teks = nba_report_mod.render_nba_report(_artefak())
@@ -1255,6 +1286,116 @@ class TestSkenarioPanas(unittest.TestCase):
             "peluang Under 92,0%.",
             teks,
         )
+
+
+class TestEquilibriumSkip(unittest.TestCase):
+    """Bagian baru 'Titik equilibrium dan skip dari awal'.
+
+    SEMUA laga dilaporkan, termasuk yang di-skip beserta alasannya
+    (keputusan user 2026-11-23 10:41 WIB).
+    """
+
+    def test_bagian_hadir_dan_skip_pola_denver(self):
+        # Fixture _artefak() (tangga terpotong di 241,5, semua garis
+        # alt thin, tanpa garis tahan banjir, edge acuan +2,3%) ->
+        # pola Denver COCOK -> laga DI-SKIP; equilibrium Utama ADA
+        # (U237,5 @76¢), Asuransi tidak ada (banjir mengikat).
+        teks = nba_report_mod.render_nba_report(_artefak())
+        self.assertIn("Titik equilibrium dan skip dari awal", teks)
+        self.assertIn(
+            "Laga ini DI-SKIP dari kedua tiket — tidak masuk Asuransi " "maupun Utama.",
+            teks,
+        )
+        self.assertIn("Alasan: pola Denver:", teks)
+        self.assertIn("Tidak ada titik equilibrium Asuransi:", teks)
+        self.assertIn("tidak_ada_garis_tahan_banjir", teks)
+        self.assertIn(
+            "Titik equilibrium Utama: Under 237,5, harga 76¢, "
+            "peluang akhir 77,7%, nilai harapan 1,02 per $1.",
+            teks,
+        )
+        self.assertIn(
+            "Peluang overtime menurut sim: 2,74% (ambang skip 2,8%) "
+            "— di bawah ambang.",
+            teks,
+        )
+        self.assertIn("Pola Denver: COCOK", teks)
+
+    def test_spanduk_skip_di_ringkasan(self):
+        # Spanduk skip muncul di Ringkasan (bukan hanya di bagian
+        # baru) supaya pembaca langsung tahu laga ini tidak masuk
+        # tiket mana pun.
+        teks = nba_report_mod.render_nba_report(_artefak())
+        ringkasan = teks.split("## Garis bandar")[0]
+        self.assertIn("LAGA INI DI-SKIP dari kedua tiket:", ringkasan)
+        self.assertIn("pola Denver", ringkasan)
+
+    def test_varian_tidak_di_skip(self):
+        # Tangga diperpanjang dengan garis tahan banjir TIDAK tipis
+        # (249,5 @92¢, 251,5 @94¢) -> syarat pola (2) mati -> laga
+        # tidak di-skip; equilibrium Asuransi tetap tidak ada, kini
+        # karena edge (bukan banjir).
+        artefak = copy.deepcopy(_artefak())
+        artefak["market"]["totals"].extend(
+            [
+                _total(249.5, "under", 92.0, 500.0),
+                _total(251.5, "under", 94.0, 500.0),
+            ]
+        )
+        teks = nba_report_mod.render_nba_report(artefak)
+        self.assertIn("Laga ini tidak di-skip dari awal.", teks)
+        self.assertNotIn("LAGA INI DI-SKIP", teks)
+        self.assertNotIn("Pola Denver: COCOK", teks)
+        self.assertIn("edge_kecil", teks)
+
+    def test_json_memuat_bagian_equilibrium_skip(self):
+        data = nba_report_mod.render_nba_report_json(_artefak())
+        judul = [b["heading"] for b in data["sections"]]
+        self.assertIn("Titik equilibrium dan skip dari awal", judul)
+        bagian = next(
+            b
+            for b in data["sections"]
+            if b["heading"] == "Titik equilibrium dan skip dari awal"
+        )
+        isi = " ".join(bagian["lines"])
+        self.assertIn("DI-SKIP", isi)
+        self.assertIn("pola Denver", isi)
+
+    def test_minimal_tidak_crash(self):
+        # Artefak DATA_INCOMPLETE tanpa simulation/market/legs ->
+        # bagian tetap dirender dengan "tidak bisa dinilai", bukan
+        # crash dan bukan tebak.
+        minimal = {
+            "format": "nba_analysis",
+            "format_version": 1,
+            "match_id": MATCH_ID,
+            "home_tricode": HOME,
+            "away_tricode": AWAY,
+            "game_date": TANGGAL,
+            "start_time": None,
+            "generated_at": JAM,
+            "status": "DATA_INCOMPLETE",
+            "missing": ["inputs_gagal: semua_sumber_gagal"],
+            "sources": [],
+            "inputs": None,
+            "simulation": None,
+            "market": None,
+            "legs": [],
+            "injuries": {
+                "sources": [],
+                "n_sources": 0,
+                "confirmed_both": [],
+                "entries": [],
+                "conflicts": [],
+                "fetched_at": None,
+            },
+            "anomalies": [],
+            "price_snapshots": {},
+        }
+        teks = nba_report_mod.render_nba_report(minimal)
+        self.assertIn("Titik equilibrium dan skip dari awal", teks)
+        self.assertIn("tidak bisa dinilai", teks)
+        self.assertNotIn("LAGA INI DI-SKIP", teks)
 
 
 if __name__ == "__main__":

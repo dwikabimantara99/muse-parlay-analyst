@@ -1,0 +1,31 @@
+{
+  "source": "Google News RSS",
+  "tier": 3,
+  "probed_at": "2026-11-23T03:47:57.361693+00:00",
+  "accessible_from_vm": true,
+  "format": "RSS XML",
+  "rate_limit": "UNKNOWN (tidak ada header rate limit yang terlihat)",
+  "data_available": [
+    "RSS kueri Thunder: 100 item",
+    "contoh: Heat 123-113 Thunder (Nov 22, 2026) Game Recap - ESPN (ESPN)",
+    "penerbit terwakili: 30 (mis. Athlon Sports, BasketNews.com, Bleacher Report, ESPN, FanDuel)"
+  ],
+  "risk_notes": [
+    "Agregator (bukan sumber primer): judul + penerbit + tanggal saja; ringkasan berupa cuplikan HTML, bukan teks bersih.",
+    "Kueri per tim = 1 request per tim per laga (2 request per laga); feed liga ESPN hanya 1 request untuk semua laga.",
+    "Tidak dipakai sekarang — hanya dicatat sebagai cadangan bila ESPN gagal di masa depan."
+  ],
+  "requests": [
+    {
+      "url": "https://news.google.com/rss/search?q=Oklahoma%20City%20Thunder%20NBA&hl=en-US&gl=US&ceid=US:en",
+      "status": 200,
+      "from_cache": false,
+      "elapsed_seconds": 1.26,
+      "rate_limit_headers": {},
+      "error": null,
+      "body_sample": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><rss version=\"2.0\" xmlns:media=\"http://search.yahoo.com/mrss/\"><channel><generator>NFE/5.0</generator><title>\"Oklahoma City Thunder NBA\" - Google News</title><link>https://news.google.com/search?q=Oklahoma+City+Thunder+NBA&amp;hl=en-US&amp;gl=US&amp;ceid=US:en</link><language>en-US</language><webMaster>news-webmaster@google.com</webMaster><copyright>Copyright © 2026 Google. All rights reserved. This XML feed is made available solely for the "
+    }
+  ],
+  "verdict": "CADANGAN",
+  "unknown": []
+}

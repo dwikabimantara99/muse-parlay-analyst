@@ -23,6 +23,20 @@ Blok tim:
    "road_record": {sama},
    "rest_days": int | None, "back_to_back": bool | None,
    "altitude_home": bool,
+   "tembakan_3p": {"fg3a_per_game", "fg3_per_game", "fg3_pct", "games",
+                   "source", "tier", "fetched_at"} | None,
+     # Laju tripoin musim berjalan dari BBRef totals-team (tier 2,
+     # fetcher yang sama dengan baseline live — ingest.bbref.
+     # fetch_team_shooting_baselines; halaman liga yang sama dengan
+     # fetch_team_advanced, cache 6 jam). Nilai MENTAH musim
+     # berjalan (tanpa shrinkage — laju mentah + jumlah laga adalah
+     # datum jujurnya; awal musim (games kecil) lajunya noisy dan
+     # itu terlihat dari "games"). None bila fetch gagal atau tim
+     # tidak ada di data + dicatat di "missing"
+     # ("<prefix>.tembakan_3p") — sim memakai sigma global bila
+     # data ini tidak ada (fail-closed, lihat engine/nba_sim.py
+     # ekor_3p). Enrichment: tidak memengaruhi ok (seperti
+     # players_musim_lalu).
    "players": [{"player", "bpm", "mp_per_game", "team_tricode",
               "bpm_raw", "mp_raw", "games_played", "bpm_musim_lalu",
               "mp_musim_lalu", "shrinkage_w", "shrinkage"}...],
@@ -130,7 +144,11 @@ from datetime import date
 
 import config as config_mod
 from ingest import matching
-from ingest.bbref import fetch_player_advanced, fetch_team_advanced
+from ingest.bbref import (
+    fetch_player_advanced,
+    fetch_team_advanced,
+    fetch_team_shooting_baselines,
+)
 from ingest.common import FetchResult, HttpClient, now_iso
 from ingest.espn import fetch_injuries_nba
 from ingest.nba_injury_pdf import fetch_report
@@ -739,6 +757,32 @@ def _susutkan_pemain(
     return hasil, []
 
 
+def _peta_tembakan_3p(result: FetchResult) -> dict[str, dict]:
+    """Peta tricode -> blok tembakan 3P dari FetchResult shooting BBRef.
+
+    Tiap blok: fg3a_per_game, fg3_per_game, fg3_pct, games (nilai
+    mentah musim berjalan) + source/tier/fetched_at dari FetchResult
+    (jejak audit). Baris tanpa tricode dilewati.
+    """
+    peta: dict[str, dict] = {}
+    for row in result.data or []:
+        if not isinstance(row, dict):
+            continue
+        tri = row.get("tricode")
+        if not isinstance(tri, str) or not tri:
+            continue
+        peta[tri] = {
+            "fg3a_per_game": _to_float(row.get("fg3a_per_game")),
+            "fg3_per_game": _to_float(row.get("fg3_per_game")),
+            "fg3_pct": _to_float(row.get("fg3_pct")),
+            "games": _jumlah_laga(row.get("games")),
+            "source": result.source,
+            "tier": result.tier,
+            "fetched_at": result.fetched_at,
+        }
+    return peta
+
+
 def _build_team_block(
     tricode: str,
     prefix: str,
@@ -752,6 +796,7 @@ def _build_team_block(
     missing: list,
     musim_lalu_per_nama: dict | None = None,
     k_shrinkage: float = DEFAULT_SHRINKAGE_K_GAMES,
+    tembakan_3p: dict | None = None,
 ) -> dict:
     """Rakit satu blok tim (lihat docstring modul untuk kontraknya).
 
@@ -763,6 +808,9 @@ def _build_team_block(
     tidak tersedia (fetch gagal) -> pemain memakai nilai musim
     berjalan dengan penanda shrinkage "tanpa_data_musim_lalu".
     k_shrinkage: konstanta K shrinkage (w = n/(n+K)).
+    tembakan_3p: blok laju tripoin tim ini (dari _peta_tembakan_3p)
+    atau None bila fetch shooting gagal / tim tidak ada di data ->
+    field None + dicatat di `missing` ("<prefix>.tembakan_3p").
     """
     block: dict = {
         "tricode": tricode,
@@ -775,6 +823,7 @@ def _build_team_block(
         "rest_days": None,
         "back_to_back": None,
         "altitude_home": tricode in ALTITUDE_TRICODES,
+        "tembakan_3p": tembakan_3p,
         "players": [],
         "injuries": [],
     }
@@ -784,6 +833,8 @@ def _build_team_block(
         missing.append(f"{prefix}.stats_season")
     if stats_last10 is None:
         missing.append(f"{prefix}.stats_last10")
+    if tembakan_3p is None:
+        missing.append(f"{prefix}.tembakan_3p")
     if games_before is None:
         missing.append(f"{prefix}.form5")
         missing.append(f"{prefix}.home_record")
@@ -1129,6 +1180,24 @@ def fetch_match_inputs(
             fetch_errors["player_advanced_musim_lalu"] = prior_result.error or "gagal"
             missing.append("players_musim_lalu")
 
+    # 4c. Laju tripoin tim (BBRef totals-team, tier 2) — bahan ekor
+    # 3P di sim (config ekor_3p) + analisis "siapa yang sering cetak
+    # 3 poin". Fetcher yang SAMA dengan baseline live
+    # (fetch_team_shooting_baselines; halaman liga yang sama dengan
+    # fetch_team_advanced, cache 6 jam — dalam satu run, tarikan
+    # kedua atas halaman yang sama biasanya gratis dari cache).
+    # Enrichment: gagal -> blok tembakan_3p None + dicatat di
+    # "missing", tidak memengaruhi ok (seperti players_musim_lalu).
+    tembakan_per_tim: dict[str, dict] | None = None
+    shooting_result = _safe_fetch(
+        fetch_team_shooting_baselines, season=bbref_season, client=client
+    )
+    if shooting_result.ok:
+        sources.append(_source_entry("nba_team_shooting_3p", shooting_result))
+        tembakan_per_tim = _peta_tembakan_3p(shooting_result)
+    else:
+        fetch_errors["team_shooting_3p"] = shooting_result.error or "gagal"
+
     # 5+6. Cedera: PDF resmi (tier 1) + ESPN (tier 2).
     pdf_result = _safe_fetch(fetch_report, date=game_date, client=client)
     if pdf_result.ok:
@@ -1164,6 +1233,7 @@ def fetch_match_inputs(
         missing,
         musim_lalu_per_nama,
         k_shrinkage,
+        tembakan_per_tim.get(home) if tembakan_per_tim is not None else None,
     )
     away_block = _build_team_block(
         away,
@@ -1178,6 +1248,7 @@ def fetch_match_inputs(
         missing,
         musim_lalu_per_nama,
         k_shrinkage,
+        tembakan_per_tim.get(away) if tembakan_per_tim is not None else None,
     )
 
     # 7. Partisipasi 10 laga terakhir untuk pemain OUT (patch 1b,

@@ -551,15 +551,22 @@ class TestFetchFresh(unittest.TestCase):
                 "fetched_at": "2026-11-22T12:00:00+00:00",
             }
 
+        def _news(analysis, client=None):
+            from ingest.common import FetchResult
+
+            return FetchResult("ESPN", 2, "2026-11-22T12:00:00+00:00", True, data=[])
+
         hasil = recheck.fetch_fresh(
             analisis_minimal(),
             fetch_inputs=_inputs,
             fetch_ladder=_ladder,
             fetch_jup_ml=_ml,
+            fetch_news=_news,
         )
         self.assertEqual(hasil["inputs"], {})
         self.assertEqual(hasil["ladders"], {"slug": "x", "totals": []})
         self.assertEqual(hasil["moneyline_jup"]["home_cents"], 60.0)
+        self.assertEqual(hasil["news"], [])
         self.assertEqual(hasil["errors"], {})
 
     def test_fetch_gagal_jadi_errors_bukan_exception(self):
@@ -1801,6 +1808,210 @@ class TestIstirahatMendadak(unittest.TestCase):
         # Cade ~5,67 poin; toleransi longgar untuk noise sim).
         median_baru = hasil["simulation"]["score_distribution"]["total"]["median"]
         self.assertLess(median_baru, 224.0 - 3.0)
+
+
+class TestCompareNews(unittest.TestCase):
+    """compare_news: definisi mendadak + relevan (modul news)."""
+
+    def _item(self, artikel_id, headline, published):
+        return {"id": artikel_id, "headline": headline, "published": published}
+
+    def test_berita_setelah_analisis_dan_baru_ditandai(self):
+        lama = {
+            "status": "ok",
+            "items": [],
+            "sources": ["ESPN"],
+            "fetched_at": None,
+            "error": None,
+        }
+        baru = [self._item("1", "Cade cedera pergelangan", "2026-11-22T11:00:00+00:00")]
+        hasil = recheck.compare_news(lama, baru, "2026-11-22T10:00:00+00:00")
+        self.assertEqual(hasil["n_baru"], 1)
+        self.assertEqual(hasil["baru"][0]["headline"], "Cade cedera pergelangan")
+        self.assertEqual(hasil["n_dibandingkan"], 1)
+
+    def test_berita_sebelum_analisis_bukan_mendadak(self):
+        baru = [self._item("1", "Berita pagi", "2026-11-22T09:00:00+00:00")]
+        hasil = recheck.compare_news(None, baru, "2026-11-22T10:00:00+00:00")
+        self.assertEqual(hasil["n_baru"], 0)
+
+    def test_berita_tepat_di_jam_analisis_bukan_mendadak(self):
+        baru = [self._item("1", "Tepat jam", "2026-11-22T10:00:00+00:00")]
+        hasil = recheck.compare_news(None, baru, "2026-11-22T10:00:00+00:00")
+        self.assertEqual(hasil["n_baru"], 0)
+
+    def test_berita_sudah_ada_di_analisis_dedup(self):
+        lama = {
+            "status": "ok",
+            "items": [self._item("1", "Cade cedera", "2026-11-22T11:00:00+00:00")],
+            "sources": ["ESPN"],
+            "fetched_at": None,
+            "error": None,
+        }
+        baru = [self._item("1", "Cade cedera", "2026-11-22T11:00:00+00:00")]
+        hasil = recheck.compare_news(lama, baru, "2026-11-22T10:00:00+00:00")
+        self.assertEqual(hasil["n_baru"], 0)
+
+    def test_dedup_lewat_url_bila_tanpa_id(self):
+        lama = {
+            "status": "ok",
+            "items": [
+                {
+                    "url": "https://x/1",
+                    "headline": "Sama",
+                    "published": "2026-11-22T11:00:00+00:00",
+                }
+            ],
+            "sources": ["ESPN"],
+            "fetched_at": None,
+            "error": None,
+        }
+        baru = [
+            {
+                "url": "https://x/1",
+                "headline": "Sama",
+                "published": "2026-11-22T11:00:00+00:00",
+            }
+        ]
+        hasil = recheck.compare_news(lama, baru, "2026-11-22T10:00:00+00:00")
+        self.assertEqual(hasil["n_baru"], 0)
+
+    def test_tanpa_jam_terbit_tidak_pernah_mendadak(self):
+        baru = [self._item("1", "Tanpa jam", None)]
+        hasil = recheck.compare_news(None, baru, "2026-11-22T10:00:00+00:00")
+        self.assertEqual(hasil["n_baru"], 0)
+
+    def test_baseline_tidak_bisa_diparse_tidak_ada_yang_mendadak(self):
+        baru = [self._item("1", "Berita", "2026-11-22T11:00:00+00:00")]
+        hasil = recheck.compare_news(None, baru, "bukan-jam")
+        self.assertEqual(hasil["n_baru"], 0)
+        hasil = recheck.compare_news(None, baru, None)
+        self.assertEqual(hasil["n_baru"], 0)
+
+    def test_new_items_none_kosong(self):
+        hasil = recheck.compare_news(None, None, "2026-11-22T10:00:00+00:00")
+        self.assertEqual(hasil, {"baru": [], "n_baru": 0, "n_dibandingkan": 0})
+
+
+class TestDecideNews(unittest.TestCase):
+    """decide() dengan berita baru: PERHATIAN, tetap GO, tanpa resim."""
+
+    def _berita_baru(self):
+        return [
+            {
+                "id": "9",
+                "headline": "Cade Cunningham diragukan tampil",
+                "published": "2026-11-22T11:30:00+00:00",
+                "source": "ESPN",
+            }
+        ]
+
+    def test_berita_baru_perhatian_tetap_go_tanpa_resim(self):
+        analisis = analisis_minimal()
+        analisis["news"] = {
+            "status": "kosong",
+            "items": [],
+            "sources": ["ESPN"],
+            "fetched_at": "2026-11-22T10:00:00+00:00",
+            "error": None,
+        }
+        fresh = fresh_minimal(news=self._berita_baru())
+        laporan = recheck.decide(analisis, fresh, sekarang=SEKARANG)
+        self.assertEqual(laporan["verdict"], "GO")
+        self.assertFalse(laporan["resimulated"])
+        self.assertEqual(laporan["legs"][0]["verdict"], "PERHATIAN")
+        self.assertTrue(
+            any("berita baru" in alasan for alasan in laporan["legs"][0]["reasons"])
+        )
+        kinds = [c["kind"] for c in laporan["changes"]]
+        self.assertIn("news", kinds)
+        detail = next(c["detail"] for c in laporan["changes"] if c["kind"] == "news")
+        self.assertIn("Cade Cunningham diragukan tampil", detail)
+        self.assertTrue(any("berita baru" in a for a in laporan["attention"]))
+        self.assertEqual(
+            laporan["action_required"],
+            "baca daftar perhatian di laporan sebelum submit",
+        )
+        validasi_skema(laporan)
+
+    def test_berita_baru_lebih_dari_satu_dihitung(self):
+        analisis = analisis_minimal()
+        fresh = fresh_minimal(
+            news=self._berita_baru()
+            + [
+                {
+                    "id": "10",
+                    "headline": "Trae Young kembali latihan",
+                    "published": "2026-11-22T11:45:00+00:00",
+                    "source": "ESPN",
+                }
+            ]
+        )
+        laporan = recheck.decide(analisis, fresh, sekarang=SEKARANG)
+        detail = next(c["detail"] for c in laporan["changes"] if c["kind"] == "news")
+        self.assertIn("+1 berita lain", detail)
+
+    def test_berita_lama_tidak_memengaruhi_putusan(self):
+        analisis = analisis_minimal()
+        fresh = fresh_minimal(
+            news=[
+                {
+                    "id": "8",
+                    "headline": "Berita pagi tadi",
+                    "published": "2026-11-22T09:00:00+00:00",
+                    "source": "ESPN",
+                }
+            ]
+        )
+        laporan = recheck.decide(analisis, fresh, sekarang=SEKARANG)
+        self.assertEqual(laporan["legs"][0]["verdict"], "TETAP_OK")
+        self.assertNotIn("news", [c["kind"] for c in laporan["changes"]])
+
+    def test_fetch_berita_gagal_masuk_missing_tanpa_mengubah_putusan(self):
+        analisis = analisis_minimal()
+        fresh = fresh_minimal(errors={"news": "http_500: espn gagal"})
+        laporan = recheck.decide(analisis, fresh, sekarang=SEKARANG)
+        self.assertEqual(laporan["verdict"], "GO")
+        self.assertEqual(laporan["legs"][0]["verdict"], "TETAP_OK")
+        self.assertIn("news", laporan["missing"])
+        validasi_skema(laporan)
+
+
+class TestFetchFreshNews(unittest.TestCase):
+    """fetch_fresh: fetcher berita (stub list + FetchResult gagal)."""
+
+    def test_fetch_news_list_mentah(self):
+        items = [{"id": "1", "headline": "X", "published": "2026-11-22T11:00:00+00:00"}]
+        hasil = recheck.fetch_fresh(
+            analisis_minimal(),
+            fetch_inputs=lambda a, c=None: {},
+            fetch_ladder=lambda a, c=None: {"slug": "x", "totals": []},
+            fetch_jup_ml=lambda a, c=None: {
+                "home_cents": 60.0,
+                "away_cents": 40.0,
+                "fetched_at": "2026-11-22T12:00:00+00:00",
+            },
+            fetch_news=lambda a, c=None: items,
+        )
+        self.assertEqual(hasil["news"], items)
+        self.assertEqual(hasil["errors"], {})
+
+    def test_fetch_news_gagal_jadi_errors(self):
+        def _gagal(analysis, client=None):
+            from ingest.common import FetchResult
+
+            return FetchResult(
+                "ESPN", 2, "2026-11-22T12:00:00+00:00", False, error="http_500"
+            )
+
+        hasil = recheck.fetch_fresh(
+            analisis_minimal(),
+            fetch_inputs=lambda a, c=None: {},
+            fetch_ladder=lambda a, c=None: {"slug": "x", "totals": []},
+            fetch_news=_gagal,
+        )
+        self.assertIsNone(hasil["news"])
+        self.assertEqual(hasil["errors"]["news"], "http_500")
 
 
 if __name__ == "__main__":

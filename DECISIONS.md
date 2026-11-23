@@ -734,3 +734,126 @@ Kendala matematika: dengan sedikit laga (mis. 5 laga), semua kaki di
 80¢+ tidak bisa mencapai x2/x3 — komposer menyeimbangkan harga vs
 target pengali dengan memilih subset kaki-kaki yang lolos gate hingga
 mencapai target.
+
+## Prinsip skip dari awal (keputusan user 2026-11-23 10:22 WIB)
+
+Lebih baik MENGHINDARI laga seperti Denver daripada mencari garis
+yang tahan. Bila sebuah laga dari awal sudah tidak masuk akal
+(perhitungannya anomali / tidak normal) atau punya potensi masuk
+overtime, lebih baik SKIP laga itu dari kedua tiket — bukan dipaksakan
+dengan garis yang lebih tinggi. Pertahanan utama terhadap laga
+anomali adalah SELEKSI, bukan harga/garis (bukti: total akhir
+DEN@CHI 296 menjebol bahkan garis tahan-banjir 264,5 @94¢).
+
+Analisis mendalam yang dibutuhkan untuk menilai ini: pemain cedera
+(siapa tampil, siapa absen), siapa yang full squad, siapa yang sering
+cetak 3 poin, dan indikator-indikator lain per laga. Mesin sudah punya
+sebagian besar input ini (cedera 2 sumber, skenario skuad, baseline
+3 poin per tim); yang masih harus dibangun: aturan skip dari awal +
+potensi OT sebagai input seleksi.
+
+## Titik equilibrium, bukan saringan ketat vs bolong (keputusan user 2026-11-23 10:31 WIB)
+
+Jawaban atas pertanyaan gate (a)–(e): **TETAP KETAT.**
+
+Reframing dari user: ini bukan soal saringan ketat vs saringan bolong
+— mesin harus menghitung **TITIK EQUILIBRIUM per kaki**: titik di mana
+distribusi normal bilang kaki itu paling oke. Anomali ekstrem boleh
+menggeret harga Asuransi sampai 94¢, tapi mesin mencari di mana
+distribusi normalnya duduk — di situlah titik pasang (contoh
+ilustratif user: Asuransi 85¢, Utama 75–78¢). Anomali di luar titik
+itu adalah di luar kendali — bukan kesalahan hitung mesin. Laga tanpa
+equilibrium (seperti Denver) di-skip dari awal (lihat prinsip skip
+10:22 WIB).
+
+Catatan kejujuran (diperiksa dari kode 10:31 WIB): mesin BELUM
+menghitung titik equilibrium — komposer sekarang ambil garis termurah
+yang lolos saringan (aturan ambang), bukan titik manis. Yang juga
+BELUM dihitung mesin: NEWS (tidak ada modul berita NBA), tripoin per
+tim/pemain di dalam simulasi, dan bentuk ekor per laga (sigma_total
+satu angka global untuk semua laga). Peluang OT dihitung tapi belum
+dipakai untuk seleksi.
+
+## Penyempurnaan mesin: tambal semua kebolongan (keputusan user 2026-11-23 10:41 WIB)
+
+- **Definisi equilibrium DIKONFIRMASI:** cari titik paling manis per
+  kaki; tumpuk kaki-kaki yang benar-benar kuat hingga Asuransi x2 dan
+  Utama x3+.
+- **Bangun sekaligus semua yang bolong** (agar bisa segera berdiskusi
+  tiket besok): (1) titik equilibrium per kaki, (2) aturan skip dari
+  awal, (3) modul news, (4) ekor 3 poin per laga di simulasi,
+  (5) peluang OT dipakai di seleksi.
+- **Fungsi news:** berguna saat mau pasang — ada berita apa (cedera,
+  berita tim, apa pun) yang menguatkan argumen untuk pasang dan
+  yakin; berita jelek jadi bahan bacaan user + analisis mesin. News
+  tidak terlalu signifikan sebagai angka, tapi agen yang bisa baca
+  news (sosial maupun bandar/bursa) membuat mesin lebih sempurna.
+  News adalah KONTEKS, bukan angka (aturan: tidak ada angka yang
+  dikarang).
+- **Semua laga dilaporkan**, termasuk yang di-skip, beserta alasannya
+  — supaya user bisa membaca dan tahu kenapa sebuah laga di-skip.
+- **Ketinggian Denver/Utah** (pertanyaan user 10:41 WIB): ada di mesin
+  karena blueprint memasukkannya — tim tamu lebih cepat lelah di
+  ketinggian (Denver ~1600 m, Salt Lake City ~1300 m), yang bisa
+  memengaruhi skor. Efek yang TERUKUR hampir nol (−0,0105; fit ulang
+  rolling −0,399 dengan SE 1,14 = noise, tidak diadopsi) — jadi
+  praktis tidak mengubah angka. Disampaikan ke user apa adanya.
+
+## Penyempurnaan mesin — catatan implementasi (commit feat, 2026-11-23)
+
+Implementasi atas keputusan user 10:41 WIB (config v16). Laporan
+lengkap: LAPORAN-PENYEMPURNAAN-MESIN.md (+ laporan per item:
+LAPORAN-EQUILIBRIUM-SKIP-AWAL.md, LAPORAN-EKOR-3P.md,
+probes/HASIL-PROBE-NEWS.md).
+
+- **Equilibrium = garis dengan expected return tertinggi**
+  (ER = p_final × (100/harga venue)) di antara garis yang lolos SEMUA
+  gate tiket itu. Target pengali (x2/x3+) bukan kendala per kaki —
+  komposer menumpuk kaki equilibrium sampai target tercapai. Tidak ada
+  lantai ER > 1 (titik manis boleh EV negatif, dilaporkan transparan).
+  Tidak ada logika prefer-harga-tinggi. p_final per garis via geser
+  pasar tersirat (asumsi: pasar vs model hanya berbeda geser lokasi —
+  sama seperti stress.py); validasi: di garis jangkar OKC verif,
+  p_final hasil geser mereproduksi p_final artefak persis (0,908341).
+- **Equilibrium MENGGANTIKAN mekanisme climb banjir.** Kaki dibangun
+  ulang dengan p_final/EV/label dihitung ulang DI GARIS BARU — ini
+  memperbaiki interaksi banjir × edge (LAPORAN-ATURAN-KERAS §5) di
+  mana kaki naik garis memakai p_final basi. Equilibrium BOLEH
+  melompati garis tahan-banjir yang thin ke garis tebal di atasnya —
+  keputusan lama "gate tidak melompat" (aturan keras §7.1) DIGANTIKAN
+  (hanya masuk akal di dalam mekanisme climb).
+- **Skip dari awal, 3 pemicu eksplisit:** (a) tidak ada equilibrium di
+  KEDUA tiket; (b) pola Denver — konjungsi flag setan di garis acuan
+  + tidak ada garis tidak-tipis yang tahan banjir + garis acuan thin
+  + edge kecil (< 3,5% INITIAL, cermin D12); (c) OT tinggi — ot_prob
+  ≥ 0,028 INITIAL (≈ plafon teoretis peluang seri laga imbang 0,0277,
+  dalam SKALA SIM; rencana kalibrasi di komentar config). Keputusan:
+  SKIP, bukan bantalan lebih besar. Tanpa data → "tidak dievaluasi",
+  bukan skip. Semua laga tetap dilaporkan beserta alasan skip.
+- **News: ESPN JSON PAKAI** (feed liga, 50 artikel ≈ 2 hari, kategori
+  tim per artikel); Google News RSS CADANGAN; NBA resmi JANGAN (tidak
+  ada API/RSS). News konteks, bukan angka — tidak pernah masuk sim;
+  recheck: berita mendadak (terbit setelah analisis awal + relevan)
+  → PERHATIAN, tidak mengubah GO→NO-GO, tidak memicu resim.
+- **Ekor 3P: HASIL NOL.** Regresi varians n=2.466 laga (rolling,
+  tanpa look-ahead): slope −0,3364, SE 1,9697, t=−0,17, R²=0,0000 —
+  laju 3PA tidak memengaruhi ekor total. `slope_aktif` FIT jadi 0,0
+  (preseden altitude); DEN@CHI lama-vs-baru identik persis. Banjir
+  Denver adalah lonjakan DALAM laga (90 percobaan vs ~72 normal +
+  akurasi 46,7%), bukan sesuatu yang bisa diprediksi laju musim.
+  Pertahanan tetap gate banjir/edge/volume + seleksi. Rencana
+  kalibrasi: ulang tiap akhir musim; bila |t| ≥ 2,0 ajukan slope fit
+  ke user (D12); bila tetap nol pada n ≥ 5.000, tutup hipotesis.
+  Efek MEAN (resid_total ~ 3PA, b=−0,2087, t=−2,91) ditemukan tapi
+  TIDAK diimplementasikan (di luar lingkup, soal kalibrasi mean).
+- **Hasil ukur slate nyata (10 baris):** equilibrium Asuransi 0/10,
+  Utama 10/10; di-skip 6/10 (5 pola Denver + 1 OT); TIDAK ADA tiket
+  terbentuk — sama seperti aturan lama. Ketegangan banjir+edge §5
+  BERTAHAN di bawah equilibrium. Bukan untuk dilonggarkan diam-diam —
+  keputusan user.
+- **Integrasi koordinator:** bagian Berita disisipkan ke laporan
+  (sesudah Cedera, sebelum Market); config v16; section `news:` dan
+  `ekor_3p:` TIDAK masuk REQUIRED_PLAYSTYLE_SECTIONS (fail-closed
+  per pemakaian: news gagal → status gagal tercatat; ekor hilang →
+  sigma global + catatan) — berbeda dengan equilibrium/skip_awal/
+  ot_seleksi yang wajib ada.

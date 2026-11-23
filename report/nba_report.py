@@ -16,7 +16,10 @@ kaki), 5 laga terakhir, 5 pertemuan terakhir, kandang vs tandang,
 simulasi 100.000 pertandingan (+ skenario skuad), skenario panas
 (banjir 3 poin / banjir lemparan bebas / konservatif + garis
 tahan-banjir per kaki — dihitung dari artefak bila belum ada di
-artefak, tanpa fetch dan tanpa simulasi ulang), anomali, "Kenapa
+artefak, tanpa fetch dan tanpa simulasi ulang), titik equilibrium
+dan skip dari awal (titik pasang terbaik per tiket + apakah laga ini
+di-skip dari kedua tiket beserta alasannya — SEMUA laga dilaporkan,
+termasuk yang di-skip, keputusan user 2026-11-23 10:41 WIB), anomali, "Kenapa
 beda?" (bila |model - pasar| > 8 poin — ambang dari playstyle.yaml
 lewat engine/anomaly.py — atau artefak menandai kenapa_beda_required),
 cek ulang (bila recheck diberikan), sumber data, dan daftar yang
@@ -67,6 +70,7 @@ import math
 from datetime import datetime
 
 from engine import anomaly as anomaly_mod
+from engine import skip_awal as skip_awal_mod
 from engine import stress as stress_mod
 
 FORMAT = "nba_report"
@@ -116,6 +120,7 @@ _JENIS_PERUBAHAN = {
     "injury": "cedera",
     "price": "harga",
     "market_line": "garis market",
+    "news": "berita baru",
     "stale": "data basi",
     "fetch_error": "gagal ambil data",
 }
@@ -272,6 +277,10 @@ class _Laporan:
         self.legs = legs if isinstance(legs, list) else []
         injuries = analysis.get("injuries")
         self.injuries = injuries if isinstance(injuries, dict) else {}
+        # Cache evaluasi skip-dari-awal (dihitung malas, sekali saja —
+        # dipakai ringkasan + bagian equilibrium/skip).
+        self._skip_cache = "belum"
+        self._skip_galat: str | None = None
 
     # -- utilitas -----------------------------------------------------
 
@@ -365,6 +374,23 @@ class _Laporan:
         ringkasan = self.sim.get("inputs_summary")
         return ringkasan if isinstance(ringkasan, dict) else {}
 
+    def _skip_awal(self) -> dict | None:
+        """Hasil evaluasi skip-dari-awal laga ini (cache, dihitung sekali).
+
+        None bila tidak bisa dihitung (galat disimpan di
+        ``self._skip_galat`` untuk ditampilkan bagian equilibrium).
+        Tidak pernah raise — laporan tidak boleh crash karena modul
+        seleksi gagal (pola yang sama dengan skenario panas).
+        """
+        if self._skip_cache != "belum":
+            return self._skip_cache
+        try:
+            self._skip_cache = skip_awal_mod.evaluasi_skip_awal(self.a)
+        except Exception as exc:  # Alasan tampil di laporan, bukan crash.
+            self._skip_cache = None
+            self._skip_galat = str(exc)
+        return self._skip_cache
+
     # -- perakitan ----------------------------------------------------
 
     def bangun(self) -> dict:
@@ -376,6 +402,7 @@ class _Laporan:
         self._bagian_pemain_kunci()
         self._bagian_proyeksi()
         self._bagian_cedera()
+        self._bagian_berita()
         self._bagian_market()
         self._bagian_kaki()
         self._bagian_form5()
@@ -383,6 +410,7 @@ class _Laporan:
         self._bagian_kandang_tandang()
         self._bagian_simulasi()
         self._bagian_skenario_panas()
+        self._bagian_equilibrium_skip()
         self._bagian_anomali()
         self._bagian_kenapa_beda()
         if self.r is not None:
@@ -511,6 +539,16 @@ class _Laporan:
         if not self.legs:
             baris.append("Tidak ada kaki Asuransi/Utama di artefak.")
             self._celah("Kaki Asuransi/Utama: tidak ada di artefak.")
+        # Spanduk skip-dari-awal: laga yang di-skip tetap dilaporkan
+        # di sini (keputusan user 2026-11-23 10:41 WIB) — user harus
+        # tahu sejak ringkasan bahwa laga ini tidak masuk tiket.
+        info_skip = self._skip_awal()
+        if info_skip is not None and info_skip.get("skip"):
+            baris.append("")
+            baris.append(
+                "LAGA INI DI-SKIP dari kedua tiket: "
+                f"{info_skip.get('alasan') or 'tanpa alasan tercatat'}"
+            )
         if self.r is not None:
             putusan = _VERDIK_TIKET.get(self.r.get("verdict"), self.r.get("verdict"))
             baris.append(f"Cek ulang sebelum pasang: {putusan}.")
@@ -840,6 +878,17 @@ class _Laporan:
                 "Keduanya ditampilkan, mesin tidak memilih diam-diam."
             )
         self._tambah("Kabar pemain (cedera & ketersediaan)", baris)
+
+    def _bagian_berita(self) -> None:
+        """Berita terbaru kedua tim (konteks, bukan angka)."""
+        from report.news_section import bagian_berita
+
+        judul, baris = bagian_berita(
+            self.a.get("news"),
+            self._nama_tim("home"),
+            self._nama_tim("away"),
+        )
+        self._tambah(judul, baris)
 
     def _bagian_market(self) -> None:
         """Bursa: garis total utama, spread, moneyline, tangga Under."""
@@ -1603,6 +1652,152 @@ class _Laporan:
             "itu peringatan kerapuhan, bukan larangan pasang."
         )
         self._tambah("Skenario panas", baris)
+
+    def _bagian_equilibrium_skip(self) -> None:
+        """Titik equilibrium + skip dari awal (dihitung dari artefak).
+
+        SEMUA laga dilaporkan, termasuk yang di-skip, beserta
+        alasannya (keputusan user 2026-11-23 10:41 WIB). Titik
+        equilibrium = garis Under yang nilai harapannya paling tinggi
+        di antara garis yang lolos semua gate tiket itu (lihat
+        engine/equilibrium.py). Skip dari awal = laga ini tidak masuk
+        tiket mana pun karena tidak ada equilibrium, pola Denver,
+        atau potensi overtime tinggi (lihat engine/skip_awal.py).
+        Bila tidak bisa dihitung, ditulis alasannya (bukan ditebak).
+        """
+        baris: list[str] = []
+        info = self._skip_awal()
+        if info is None:
+            baris.append(
+                "Titik equilibrium dan skip dari awal: tidak bisa "
+                f"dihitung ({self._skip_galat or 'tanpa alasan'})."
+            )
+            self._celah(
+                "Titik equilibrium dan skip dari awal: tidak bisa "
+                f"dihitung ({self._skip_galat or 'tanpa alasan'})."
+            )
+            self._tambah("Titik equilibrium dan skip dari awal", baris)
+            return
+        if info.get("skip"):
+            baris.append(
+                "Laga ini DI-SKIP dari kedua tiket — tidak masuk "
+                "Asuransi maupun Utama."
+            )
+            baris.append(f"Alasan: {info.get('alasan') or 'tidak tercatat.'}")
+        elif info.get("dievaluasi"):
+            baris.append("Laga ini tidak di-skip dari awal.")
+        else:
+            baris.append(
+                "Skip dari awal tidak bisa dinilai: "
+                f"{info.get('alasan_tidak_dievaluasi') or 'tanpa alasan'}."
+            )
+            self._celah(
+                "Skip dari awal: "
+                f"{info.get('alasan_tidak_dievaluasi') or 'tidak bisa dinilai'}."
+            )
+        for tiket in ("insurance", "main"):
+            nama = _TIKET.get(tiket, tiket)
+            eq = (info.get("equilibrium") or {}).get(tiket) or {}
+            if eq.get("ada"):
+                garis = _fmt_poin(eq.get("garis"))
+                harga = _fmt_sen(eq.get("harga_venue_cents"))
+                peluang = _fmt_persen(eq.get("p_final"))
+                er = _angka(eq.get("expected_return"))
+                teks = f"Titik equilibrium {nama}: Under {garis}"
+                if harga:
+                    teks += f", harga {harga}"
+                if peluang:
+                    teks += f", peluang akhir {peluang}"
+                if er is not None:
+                    teks += f", nilai harapan {er:.2f} per $1".replace(".", ",")
+                    if er < 1.0:
+                        teks += (
+                            " (di bawah impas — titik manisnya pun "
+                            "masih merugi sendiri)"
+                        )
+                baris.append(f"- {teks}.")
+            elif eq.get("dihitung"):
+                alasan_eq = eq.get("alasan_tidak_ada") or (
+                    "tidak ada garis yang lolos."
+                )
+                # Alasan modul diawali "tidak ada equilibrium
+                # Asuransi/Utama: ..." — awalan itu sudah terucap di
+                # kalimat laporan ini, jadi dibuang supaya tidak ganda.
+                for awalan in (
+                    "tidak ada equilibrium Asuransi: ",
+                    "tidak ada equilibrium Utama: ",
+                ):
+                    if alasan_eq.startswith(awalan):
+                        alasan_eq = alasan_eq[len(awalan) :]
+                        break
+                if alasan_eq:
+                    alasan_eq = alasan_eq[0].upper() + alasan_eq[1:]
+                baris.append(f"- Tidak ada titik equilibrium {nama}: {alasan_eq}")
+            else:
+                baris.append(
+                    f"- Titik equilibrium {nama} tidak bisa dihitung: "
+                    f"{eq.get('alasan_tidak_dihitung') or 'tanpa alasan'}."
+                )
+                self._celah(
+                    f"Titik equilibrium {nama}: "
+                    f"{eq.get('alasan_tidak_dihitung') or 'tidak bisa dihitung'}."
+                )
+        ot = info.get("ot") or {}
+        ot_prob = _angka(ot.get("ot_probability"))
+        ambang_ot = _angka(ot.get("ambang"))
+        if ot_prob is not None and ambang_ot is not None:
+            teks_ot = (
+                f"Peluang overtime menurut sim: "
+                f"{ot_prob * 100:.2f}% (ambang skip "
+                f"{ambang_ot * 100:.1f}%)".replace(".", ",")
+            )
+            if ot.get("tinggi"):
+                teks_ot += " — TINGGI, laga di-skip."
+            else:
+                teks_ot += " — di bawah ambang."
+            baris.append(f"- {teks_ot}")
+        else:
+            baris.append("- Peluang overtime: tidak tercatat di artefak.")
+            self._celah("Peluang overtime: tidak tercatat di artefak.")
+        pola = info.get("pola_denver") or {}
+        if pola.get("dievaluasi"):
+            syarat = pola.get("syarat") or {}
+            acuan = pola.get("garis_acuan") or {}
+            if pola.get("cocok"):
+                baris.append("- Pola Denver: COCOK (lihat alasan skip di atas).")
+            else:
+                gagal = []
+                if syarat.get("flag_setan") is False:
+                    p_setan = _fmt_persen(acuan.get("p_setan"))
+                    gagal.append(
+                        "tidak rapuh-setan"
+                        + (f" (P setan {p_setan})" if p_setan else "")
+                    )
+                if syarat.get("tidak_ada_tahan_banjir_nonthin") is False:
+                    tahan = acuan.get("garis_tahan_banjir") or {}
+                    garis_tahan = _fmt_poin(tahan.get("line"))
+                    gagal.append(
+                        "ada garis tidak-tipis yang tahan banjir"
+                        + (f" (U{garis_tahan})" if garis_tahan else "")
+                    )
+                if syarat.get("garis_acuan_thin") is False:
+                    gagal.append("garis acuan tidak tipis")
+                if syarat.get("edge_kecil") is False:
+                    edge = _angka(acuan.get("edge"))
+                    gagal.append(
+                        "edge garis acuan tidak kecil"
+                        + (
+                            f" ({edge * 100:+.1f}%)".replace(".", ",")
+                            if edge is not None
+                            else ""
+                        )
+                    )
+                baris.append(
+                    "- Pola Denver: tidak cocok"
+                    + (" — " + "; ".join(gagal) if gagal else "")
+                    + "."
+                )
+        self._tambah("Titik equilibrium dan skip dari awal", baris)
 
     # -- bagian: anomali + "Kenapa beda?" + recheck + sumber ------------
 

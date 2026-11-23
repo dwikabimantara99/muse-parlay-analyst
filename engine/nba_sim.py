@@ -67,6 +67,32 @@ SEBARAN (per iterasi, sebelum OT):
   (floor(x + 0,5)) dan dijepit ke >= 0.
   Noise yang sama dipakai untuk semua skenario (common random numbers):
   perbedaan antar skenario murni dari skenarionya, bukan dari noise.
+  sigma_total yang dipakai di sini adalah sigma_total PER LAGA (lihat
+  "EKOR 3P" di bawah); bila ekor 3P tidak aktif, nilainya sama dengan
+  sigma_total global dari config.
+
+EKOR 3P (sigma_total per laga, config ekor_3p):
+     sigma_total_laga^2 = sigma_total_global^2
+                          + slope_aktif x (3PA_gabung - pusat)
+     dijepit ke [min_faktor, max_faktor] x sigma_total_global.
+  3PA_gabung = fg3a_per_game kandang + tandang dari blok tim
+  ("tembakan_3p", diisi ingest.nba_brain dari BBRef totals-team).
+  Model varians-linear ini DIFIT dari data (scripts/fit_ekor_3p.py,
+  n=2466 laga): slope fit -0,34 +/- 1,97 per 3PA gabungan (t=-0,17)
+  — TIDAK SIGNIFIKAN, jadi slope AKTIF di config = 0 dan sim memakai
+  sigma global untuk semua laga sampai kalibrasi ulang menemukan efek
+  yang terukur (mengikuti preseden altitude: nilai fit dalam noise
+  tidak diadopsi). Mesinnya sudah terpasang: slope bukan nol di
+  config langsung mengaktifkan penskalaan per laga (teruji).
+  FAIL-CLOSED: bila data 3PA salah satu tim tidak ada, atau section
+  ekor_3p tidak ada di config, sim memakai sigma global + mencatat
+  alasannya di inputs_summary.notes dan di inputs_summary.ekor_3p
+  (tidak pernah diam-diam). Nilai ekor_3p yang ada tapi tidak valid
+  (bukan angka hingga, faktor <= 0, min > max, slope != 0 tanpa
+  pusat) -> ValueError. inputs_summary["sigma_total_points"] adalah
+  sigma EFEKTIF yang dipakai sim (per laga bila aktif, global bila
+  tidak); nilai global config selalu tercatat terpisah di
+  "sigma_total_global_points".
 
 OVERTIME: bila seri setelah 48 menit, mainkan periode 5 menit
 (overtime_minutes dari config): poin OT tiap tim =
@@ -115,7 +141,7 @@ from datetime import UTC, datetime
 import config as config_mod
 from engine import markets
 
-ENGINE_VERSION = "1.1.0"
+ENGINE_VERSION = "1.2.0"
 
 # Tim yang kandangnya di ketinggian (Denver ~1600 m, Salt Lake City
 # ~1300 m). Dipakai hanya bila flag altitude_home tidak ada di input.
@@ -195,6 +221,101 @@ def _param_numerik(cfg: dict, *kunci: str) -> float:
         raise config_mod.ConfigError(
             f"parameter bukan angka: {'.'.join(kunci)} = {nilai!r}"
         )
+    return float(nilai)
+
+
+def _baca_ekor_3p(cfg: dict) -> tuple[float, float | None, float, float, bool]:
+    """Baca section ekor_3p dari config (pola cushion._baca_param_baru).
+
+    Mengembalikan (slope_aktif, pusat_3pa_gabung, sigma_min_faktor,
+    sigma_max_faktor, dikonfigurasi). Section tidak ada / bukan dict
+    -> default slope 0.0 (sigma global) + dikonfigurasi False.
+    Kunci yang ada di section tapi tidak valid -> ValueError (gagal
+    keras, bukan default diam-diam): slope harus angka hingga (tanda
+    apa pun — fit masa depan bisa negatif); pusat harus angka hingga
+    > 0 bila ada, dan WAJIB ada bila slope != 0 (tanpa pemusat, rumus
+    tidak terdefinisi); faktor jepit harus angka hingga > 0 dan
+    min <= max. Default faktor (0,5 / 2,0) = pagar keamanan desain
+    yang sama dengan nilai di playstyle.yaml.
+    """
+    section = cfg.get("ekor_3p")
+    if not isinstance(section, dict):
+        return 0.0, None, 0.5, 2.0, False
+
+    def _angka(kunci: str, default: float | None) -> float | None:
+        if kunci not in section:
+            return default
+        nilai = section[kunci]
+        if (
+            isinstance(nilai, bool)
+            or not isinstance(nilai, (int, float))
+            or not math.isfinite(nilai)
+        ):
+            raise ValueError(
+                f"ekor_3p.{kunci} tidak valid: {nilai!r} " "(harus angka hingga)"
+            )
+        return float(nilai)
+
+    slope = _angka("slope_aktif", 0.0)
+    pusat = _angka("tiga_pa_gabungan_rata_liga", None)
+    min_faktor = _angka("sigma_min_faktor", 0.5)
+    max_faktor = _angka("sigma_max_faktor", 2.0)
+    if pusat is not None and pusat <= 0:
+        raise ValueError(
+            f"ekor_3p.tiga_pa_gabungan_rata_liga tidak valid: {pusat!r} " "(harus > 0)"
+        )
+    if slope != 0.0 and pusat is None:
+        raise ValueError(
+            "ekor_3p.slope_aktif != 0 tapi tiga_pa_gabungan_rata_liga "
+            "tidak ada — pemusat wajib ada bila slope bukan nol"
+        )
+    if min_faktor <= 0 or max_faktor <= 0 or min_faktor > max_faktor:
+        raise ValueError(
+            "ekor_3p.sigma_min_faktor/sigma_max_faktor tidak valid: "
+            f"{min_faktor!r}/{max_faktor!r} (harus > 0 dan min <= max)"
+        )
+    return slope, pusat, min_faktor, max_faktor, True
+
+
+def _sigma_total_per_laga(
+    sigma_global: float,
+    slope: float,
+    pusat: float,
+    min_faktor: float,
+    max_faktor: float,
+    pa3_gabung: float,
+) -> float:
+    """Sigma total per laga dari laju 3PA gabungan (model varians-linear).
+
+    var = sigma_global^2 + slope x (pa3_gabung - pusat), dijepit ke
+    [(min_faktor x sigma_global)^2, (max_faktor x sigma_global)^2].
+    Jepit menjamin hasil selalu terdefinisi (akar varians negatif
+    mustahil) walau slope negatif besar atau laju ekstrem.
+    """
+    varians = sigma_global * sigma_global + slope * (pa3_gabung - pusat)
+    bawah = (min_faktor * sigma_global) ** 2
+    atas = (max_faktor * sigma_global) ** 2
+    return math.sqrt(min(max(varians, bawah), atas))
+
+
+def _laju_3pa(blok: dict) -> float | None:
+    """Laju 3PA/laga satu tim dari blok["tembakan_3p"].
+
+    None bila blok tembakan_3p tidak ada/bukan dict, atau
+    fg3a_per_game bukan angka hingga > 0 (data tidak bisa dipakai —
+    pemanggil memakai fallback sigma global + mencatatnya).
+    """
+    tembakan = blok.get("tembakan_3p")
+    if not isinstance(tembakan, dict):
+        return None
+    nilai = tembakan.get("fg3a_per_game")
+    if (
+        isinstance(nilai, bool)
+        or not isinstance(nilai, (int, float))
+        or not math.isfinite(nilai)
+        or nilai <= 0
+    ):
+        return None
     return float(nilai)
 
 
@@ -493,6 +614,13 @@ def simulate(
     w_musim = _param_numerik(cfg, "simulation", "nba", "recency", "season")
     w_terakhir = _param_numerik(cfg, "simulation", "nba", "recency", "last10")
     daftar_skenario = config_mod.get_value(cfg, "simulation", "nba", "squad_scenarios")
+    (
+        slope_ekor,
+        pusat_ekor,
+        min_faktor_ekor,
+        max_faktor_ekor,
+        ekor_dikonfigurasi,
+    ) = _baca_ekor_3p(cfg)
     if sigma_margin <= 0 or sigma_total <= 0:
         raise config_mod.ConfigError("sigma_margin/total harus > 0")
     if nu <= 2:
@@ -678,12 +806,73 @@ def simulate(
                     )
             daftar.append((nama, sorted(absen_h), sorted(absen_a)))
 
+    # Sigma total per laga (ekor 3P; lihat docstring modul). sigma_total
+    # di atas adalah nilai GLOBAL dari config; yang dipakai noise di
+    # bawah adalah sigma_total_laga (sama dengan global bila ekor
+    # tidak aktif / data 3PA tidak ada — fail-closed + dicatat).
+    pa3_kandang = _laju_3pa(blok_kandang)
+    pa3_tandang = _laju_3pa(blok_tandang)
+    pa3_gabung = (
+        pa3_kandang + pa3_tandang
+        if pa3_kandang is not None and pa3_tandang is not None
+        else None
+    )
+    if not ekor_dikonfigurasi:
+        sigma_total_laga = sigma_total
+        sumber_sigma = "global_tanpa_config"
+        catatan.append("ekor_3p tidak dikonfigurasi — sigma_total global dipakai")
+    elif slope_ekor == 0.0:
+        sigma_total_laga = sigma_total
+        sumber_sigma = "global_slope_nol"
+        catatan.append(
+            "ekor_3p: slope_aktif 0 (fit tidak signifikan) — "
+            "sigma_total global dipakai"
+        )
+    elif pa3_gabung is None:
+        sigma_total_laga = sigma_total
+        sumber_sigma = "global_tanpa_data_3pa"
+        tim_tanpa_data = []
+        if pa3_kandang is None:
+            tim_tanpa_data.append(tricode_kandang)
+        if pa3_tandang is None:
+            tim_tanpa_data.append(tricode_tandang)
+        catatan.append(
+            "ekor_3p: laju 3PA "
+            + "/".join(tim_tanpa_data)
+            + " tidak tersedia — sigma_total global dipakai (fallback)"
+        )
+    else:
+        sigma_total_laga = _sigma_total_per_laga(
+            sigma_total,
+            slope_ekor,
+            pusat_ekor,  # type: ignore[arg-type] — dijamin ada bila slope != 0
+            min_faktor_ekor,
+            max_faktor_ekor,
+            pa3_gabung,
+        )
+        sumber_sigma = "per_laga"
+        catatan.append(
+            f"ekor_3p: sigma_total per laga {sigma_total_laga:.2f} "
+            f"(3PA gabungan {pa3_gabung:.1f}, slope {slope_ekor})"
+        )
+    info_ekor = {
+        "dikonfigurasi": ekor_dikonfigurasi,
+        "slope_aktif": slope_ekor,
+        "pusat_3pa_gabung": pusat_ekor,
+        "tiga_pa_kandang": pa3_kandang,
+        "tiga_pa_tandang": pa3_tandang,
+        "tiga_pa_gabung": pa3_gabung,
+        "sigma_total_global": sigma_total,
+        "sigma_total_laga": round(sigma_total_laga, 4),
+        "sumber_sigma": sumber_sigma,
+    }
+
     # Sebaran: komponen umum + idiosinkratik (lihat docstring modul).
     sigma_tim = sigma_margin / math.sqrt(2.0)
-    var_umum = (sigma_total * sigma_total - sigma_margin * sigma_margin) / 4.0
+    var_umum = (sigma_total_laga * sigma_total_laga - sigma_margin * sigma_margin) / 4.0
     if var_umum < 0:
         catatan.append(
-            "sigma_total < sigma_margin — komponen umum diset 0 "
+            "sigma_total per laga < sigma_margin — komponen umum diset 0 "
             "(varians total tidak bisa di bawah varians margin)"
         )
         sigma_umum = 0.0
@@ -810,7 +999,9 @@ def simulate(
             "tournament": turnamen,
             "tournament_adjustment_points": tourney_adj if turnamen else 0.0,
             "sigma_margin_points": sigma_margin,
-            "sigma_total_points": sigma_total,
+            "sigma_total_points": round(sigma_total_laga, 4),
+            "sigma_total_global_points": sigma_total,
+            "ekor_3p": info_ekor,
             "t_nu": nu,
             "bpm_scale": bpm_scale,
             "bpm_replacement": bpm_replacement,

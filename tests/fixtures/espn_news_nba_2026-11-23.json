@@ -1,0 +1,123 @@
+{
+  "header": "NBA News",
+  "articles": [
+    {
+      "id": 50569206,
+      "type": "Recap",
+      "headline": "Jokic's triple-double, Murray's 45 points lead Nuggets to 151-145 overtime win over Bulls",
+      "description": "— Nikola Jokic had 37 points, 18 rebounds and 11 assists for the 202nd triple double of his career, Jamal Murray scored eight of his season-high 45 points in overtime, and the Denver Nuggets held off the Chicago Bulls 151-145 on Sunday night.",
+      "lastModified": "2026-11-23T03:15:33Z",
+      "published": "2026-11-23T03:15:33Z",
+      "categories": [
+        {
+          "type": "league",
+          "description": "NBA"
+        },
+        {
+          "type": "team",
+          "description": "Chicago Bulls",
+          "team": {
+            "id": 4
+          }
+        },
+        {
+          "type": "team",
+          "description": "Denver Nuggets",
+          "team": {
+            "id": 7
+          }
+        },
+        {
+          "type": "event",
+          "description": "Denver Nuggets @ Chicago Bulls"
+        }
+      ],
+      "links": {
+        "web": {
+          "href": "http://www.espn.com/nba/recap?gameId=401910032"
+        }
+      },
+      "premium": false
+    },
+    {
+      "id": 50569015,
+      "type": "Recap",
+      "headline": "Cooper Flagg saves Mavericks with late free throws to hold off Jazz comeback in 116-114 win",
+      "description": "— Cooper Flagg scored 28 points and made the game-winning free throws with 3.7 seconds left to lift the Dallas Mavericks over the Utah Jazz 116-114 after they squandered an 18-point lead in the fourth quarter on Sunday night.",
+      "lastModified": "2026-11-23T02:57:32Z",
+      "published": "2026-11-23T02:57:32Z",
+      "categories": [
+        {
+          "type": "league",
+          "description": "NBA"
+        },
+        {
+          "type": "team",
+          "description": "Utah Jazz",
+          "team": {
+            "id": 26
+          }
+        },
+        {
+          "type": "team",
+          "description": "Dallas Mavericks",
+          "team": {
+            "id": 6
+          }
+        },
+        {
+          "type": "event",
+          "description": "Dallas Mavericks @ Utah Jazz"
+        }
+      ],
+      "links": {
+        "web": {
+          "href": "http://www.espn.com/nba/recap?gameId=401910033"
+        }
+      },
+      "premium": false
+    },
+    {
+      "id": 50568964,
+      "type": "Media",
+      "headline": "Denver Nuggets vs. Chicago Bulls: Game Highlights",
+      "description": "Denver Nuggets vs. Chicago Bulls: Game Highlights",
+      "lastModified": "2026-11-23T02:59:56Z",
+      "published": "2026-11-23T02:59:56Z",
+      "categories": [
+        {
+          "type": "team",
+          "description": "Denver Nuggets",
+          "team": {
+            "id": 7
+          }
+        },
+        {
+          "type": "team",
+          "description": "Chicago Bulls",
+          "team": {
+            "id": 4
+          }
+        },
+        {
+          "type": "league",
+          "description": "NBA"
+        },
+        {
+          "type": "league",
+          "description": "Fantasy NBA"
+        },
+        {
+          "type": "event",
+          "description": "Denver Nuggets @ Chicago Bulls"
+        }
+      ],
+      "links": {
+        "web": {
+          "href": "https://www.espn.com/video/clip/_/id/50568964/game-highlights"
+        }
+      },
+      "premium": false
+    }
+  ]
+}

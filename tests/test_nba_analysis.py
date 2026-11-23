@@ -1,7 +1,7 @@
 """Tes engine/nba_analysis + penyambungan cli.py analyze — SEMUA offline.
 
-fetch_match_inputs, fetch_event_by_slug, dan fetch_total_markets
-di-stub (unittest.mock); parse_event_ladders, nba_sim.simulate
+fetch_match_inputs, fetch_event_by_slug, fetch_total_markets, dan
+fetch_news_nba di-stub (unittest.mock); parse_event_ladders, nba_sim.simulate
 (kecuali tes yang men-stub-nya secara eksplisit), analis, cushion,
 devig, price_labels, dan anomaly dipakai ASLI. Config dibaca dari
 playstyle.yaml asli (nilai parameter TIDAK di-hardcode di sini —
@@ -354,11 +354,12 @@ def _skema_nba_analysis():
 class _BasisTes(unittest.TestCase):
     """Helper patch fetch untuk builder."""
 
-    def _patch_fetch(self, inputs=None, event=None, kalshi=None, sim=None):
-        """Patch ketiga fetcher (+ sim bila diberikan); kembalikan patcher list.
+    def _patch_fetch(self, inputs=None, event=None, kalshi=None, sim=None, news=None):
+        """Patch keempat fetcher (+ sim bila diberikan); kembalikan patcher list.
 
         Default: inputs 2 sumber cedera, event tangga penuh, Kalshi
-        tanpa garis cocok (MODEL_ONLY), sim ASLI (iterations kecil).
+        tanpa garis cocok (MODEL_ONLY), berita kosong (ok, tanpa item),
+        sim ASLI (iterations kecil).
         """
         patchers = []
         hasil_inputs = (
@@ -388,6 +389,14 @@ class _BasisTes(unittest.TestCase):
         )
         patchers.append(
             mock.patch("ingest.kalshi.fetch_total_markets", return_value=hasil_kalshi)
+        )
+        hasil_news = (
+            news
+            if isinstance(news, FetchResult)
+            else _ok("ESPN", 2, news if news is not None else [])
+        )
+        patchers.append(
+            mock.patch("ingest.news_nba.fetch_news_nba", return_value=hasil_news)
         )
         if sim is not None:
             patchers.append(mock.patch("engine.nba_sim.simulate", return_value=sim))
@@ -1329,6 +1338,73 @@ class TestCliAnalyzeNba(unittest.TestCase):
             code = cli.main(["analyze", "--input", str(path), "--out", str(out)])
         self.assertEqual(code, 0)
         self.assertEqual(panggilan, [False, False])
+
+
+class TestNews(_BasisTes):
+    """Blok news artefak (modul news): ok/kosong/gagal + skema."""
+
+    def _berita(self):
+        return [
+            {
+                "id": "1",
+                "headline": "Cade cetak 30 poin",
+                "description": "Ringkasan.",
+                "published": "2026-11-22T08:00:00+00:00",
+                "url": "https://www.espn.com/nba/story/_/id/1",
+                "type": "Recap",
+                "source": "ESPN",
+                "tier": 2,
+                "time": "2026-11-22T10:00:00+00:00",
+            }
+        ]
+
+    def test_berita_ada_status_ok_dan_masuk_sources(self):
+        self._patch_fetch(news=self._berita())
+        artefak = self._bangun()
+        jsonschema.validate(instance=artefak, schema=_skema_nba_analysis())
+        self.assertEqual(artefak["news"]["status"], "ok")
+        self.assertEqual(len(artefak["news"]["items"]), 1)
+        self.assertEqual(artefak["news"]["items"][0]["headline"], "Cade cetak 30 poin")
+        self.assertEqual(artefak["news"]["sources"], ["ESPN"])
+        self.assertIsNone(artefak["news"]["error"])
+        kinds = {s["kind"] for s in artefak["sources"]}
+        self.assertIn("nba_news", kinds)
+        self.assertEqual(artefak["status"], "OK")
+
+    def test_tidak_ada_berita_status_kosong_bukan_gagal(self):
+        self._patch_fetch(news=[])
+        artefak = self._bangun()
+        self.assertEqual(artefak["news"]["status"], "kosong")
+        self.assertEqual(artefak["news"]["items"], [])
+        self.assertIsNone(artefak["news"]["error"])
+        self.assertEqual(artefak["status"], "OK")
+        self.assertFalse([m for m in artefak["missing"] if m.startswith("news_gagal")])
+
+    def test_fetch_berita_gagal_status_gagal_status_artefak_tetap_ok(self):
+        gagal = FetchResult("ESPN", 2, now_iso(), False, error="http_500")
+        self._patch_fetch(news=gagal)
+        artefak = self._bangun()
+        jsonschema.validate(instance=artefak, schema=_skema_nba_analysis())
+        self.assertEqual(artefak["news"]["status"], "gagal")
+        self.assertEqual(artefak["news"]["error"], "http_500")
+        self.assertEqual(artefak["news"]["items"], [])
+        self.assertIn("news_gagal: http_500", artefak["missing"])
+        # Berita gagal TIDAK mengubah status artefak (konteks, bukan angka).
+        self.assertEqual(artefak["status"], "OK")
+
+    def test_artefak_minimal_membawa_blok_news(self):
+        artefak = nba_analysis_mod.minimal_nba_analysis(
+            "DET@ATL_2026-11-22", "ATL", "DET", "2026-11-22", ["inputs_gagal"]
+        )
+        jsonschema.validate(instance=artefak, schema=_skema_nba_analysis())
+        self.assertEqual(artefak["news"]["status"], "gagal")
+        self.assertEqual(artefak["news"]["error"], "tidak_diambil")
+
+    def test_artefak_lama_tanpa_news_tetap_valid(self):
+        self._patch_fetch(news=self._berita())
+        artefak = self._bangun()
+        del artefak["news"]
+        jsonschema.validate(instance=artefak, schema=_skema_nba_analysis())
 
 
 if __name__ == "__main__":

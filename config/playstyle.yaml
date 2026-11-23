@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 15
+  version: 16
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22 + perbaikan racik analis adaptif (bantalan adaptif, nilai wajar, Asuransi >2,5x, section analis), 2026-11-23 + fondasi harga & pengali (Asuransi x2+, Utama x3+, tanpa price cap) + gate edge Asuransi, 2026-11-23 + skenario setan (deviasi maksimal 3PM, deteksi kerapuhan — BUKAN gate), 2026-11-23"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22 + perbaikan racik analis adaptif (bantalan adaptif, nilai wajar, Asuransi >2,5x, section analis), 2026-11-23 + fondasi harga & pengali (Asuransi x2+, Utama x3+, tanpa price cap) + gate edge Asuransi, 2026-11-23 + skenario setan (deviasi maksimal 3PM, deteksi kerapuhan — BUKAN gate), 2026-11-23 + penyempurnaan mesin (equilibrium, skip dari awal, news, ekor 3P, OT di seleksi), 2026-11-23"
   last_reviewed: "2026-11-23"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -285,6 +285,50 @@ stress:
   banjir_ft_points: 17.54
   setan_points: 18.07
 
+# ── Ekor 3 poin per laga di simulasi (engine/nba_sim.py) ─────────────────────
+ekor_3p:
+  # Model: sigma_total PER LAGA dari laju 3PA gabungan kedua tim
+  # (scripts/fit_ekor_3p.py; bukti out/fit_ekor_3p.json):
+  #   sigma_total_laga^2 = sigma_total_global^2
+  #                        + slope_aktif x (3PA_gabung - rata_liga)
+  #   dijepit ke [sigma_min_faktor, sigma_max_faktor] x sigma global.
+  # 3PA_gabung = fg3a_per_game kandang + tandang (musim berjalan,
+  # dari ingest.nba_brain blok tim "tembakan_3p", sumber BBRef
+  # totals-team tier 2). Bila data 3PA salah satu tim tidak ada, sim
+  # memakai sigma global + mencatatnya di artefak (fail-closed).
+  # HASIL FIT (n=2466 laga, residual rolling point-in-time, laju 3PA
+  # point-in-time, 2024-25 s.d. 2026-27): slope varians -0,34 +/- 1,97
+  # per 3PA gabungan (t=-0,17) — TIDAK SIGNIFIKAN. Uji yang sama pada
+  # varians margin (t=-0,07), |residual| (t=0,16), 3P% (t=-0,24),
+  # volatilitas 3PM per tim (t=0,76), share 3PA (t=-0,69), dan
+  # varians binomial tersirat (t=-0,22) semuanya juga nol. Kuantil
+  # atas residual total di kuartil 3PA tertinggi justru sedikit LEBIH
+  # TIPIS (p95 31,2 vs 36,4 di kuartil terendah). Artinya: data TIDAK
+  # mendukung klaim "laga dua tim penembak tripoin ekornya lebih
+  # gemuk" — efeknya, bila ada, di bawah daya deteksi 2.466 laga
+  # (CI 95% slope [-4,20, +3,53] masih mencakup slope binomial
+  # teoritis +2,07). Mengikuti preseden altitude (nilai fit dalam
+  # noise -> tidak diadopsi), slope AKTIF = 0: sim memakai sigma
+  # global untuk semua laga sampai kalibrasi ulang menemukan efek
+  # yang terukur. Mesin + datanya sudah terpasang dan teruji; yang
+  # berubah saat kalibrasi ulang hanyalah slope_aktif (butuh
+  # persetujuan user seperti D12). DEN@CHI 22 Nov 2026: 3PA gabungan
+  # pra-laga 71,6 (persentil 29 — DEN tim penembak 3P RENDAH, 30,9
+  # per laga) — model laju-3PA APA PUN tidak akan menandai laga itu
+  # berisiko; banjirnya adalah lonjakan percobaan (90 vs ~72) +
+  # akurasi (46,7% vs ~33%) DI DALAM laga, bukan laju pra-laga.
+  # RENCANA KALIBRASI: jalankan ulang scripts/fit_ekor_3p.py tiap
+  # akhir musim (n bertambah ~1.230 laga/musim) + saat ada cukup
+  # laga musim berjalan; bila |t| >= 2, ajukan slope fit ke user.
+  # Tiga_pa_gabungan_rata_liga = pemusat HASIL FIT (mean 3PA
+  # gabungan sampel fit, n=2466). Faktor jepit adalah PILIHAN DESAIN
+  # (pagar keamanan, bukan hasil fit): sigma per laga tidak boleh
+  # kurang dari setengah atau lebih dari dua kali sigma global.
+  slope_aktif: 0.0
+  tiga_pa_gabungan_rata_liga: 74.54
+  sigma_min_faktor: 0.5
+  sigma_max_faktor: 2.0
+
 # ── Audit tiket sebelum pasang (engine/ticket_audit.py) ────────────────────
 audit:
   # Edge di bawah ini (tapi >= 0) dianggap "tipis" -> kaki PERHATIAN
@@ -502,6 +546,23 @@ recheck:
   # basi: data.stale_hours_injury_lineup (3 jam). Jendela recheck:
   # data.recheck_window_minutes ([30, 60]).
 
+# ── Modul berita NBA (konteks, bukan angka) ──────────────────────────────
+news:
+  # Jumlah artikel yang ditarik dari feed liga ESPN per panggilan
+  # (TERUKUR probe 2026-11-23: limit=50 mengembalikan 50 artikel,
+  # terbit 21-23 Nov 2026 = jendela ±2 hari).
+  max_items_fetch: 50
+  # Umur maksimum berita yang dipakai (jam, dihitung dari jam ambil).
+  # NILAI AWAL: 72 jam selaras dengan jendela ±2 hari feed limit=50;
+  # berita lebih tua dari ini dianggap basi sebagai konteks laga malam ini.
+  max_age_hours: 72
+  # Jumlah maksimum berita per laga di artefak/laporan. NILAI AWAL
+  # (operasional — supaya bagian Berita tetap bisa dibaca).
+  max_items_per_match: 5
+  # TTL cache + jeda antar request (sama seperti modul ESPN lain).
+  cache_ttl_seconds: 600
+  rate_gap_seconds: 1.0
+
 # ── Pantauan live (Tahap 3 Langkah 4) ─────────────────────────────────────
 live:
   # NILAI AWAL — BELUM DIKALIBRASI. Ambang status kaki Under dari
@@ -523,6 +584,109 @@ live:
   anomaly_fg3_rate_multiplier: 1.5
   anomaly_ft_rate_multiplier: 1.5
   anomaly_scoring_rate_multiplier: 1.15
+
+# ── Titik equilibrium per kaki (keputusan user 2026-11-23 10:31 + 10:41 WIB) ─
+equilibrium:
+  # DEFINISI (engine/equilibrium.py — "titik paling manis" per kaki):
+  # dari distribusi sim 100.000x (CDF total) + tangga Polymarket, untuk
+  # tiap tiket, di antara garis Under yang lolos SEMUA gate tiket itu
+  # (min_leg_prob, banjir [Asuransi], edge [Asuransi], volume, lantai
+  # harga 75¢ — ambang-ambang yang SUDAH ADA, tidak diduplikasi di sini),
+  # pilih garis yang memaksimalkan expected return
+  # ER = p_final(garis) x (100 / harga_venue(garis)).
+  # Seri (selisih ER < 1e-9): p_final lebih besar, lalu garis lebih kecil.
+  # p_final(garis) memakai jangkar pasar: geser pasar δ dari kaki artefak
+  # (δ = garis_jangkar − CDF⁻¹(p_market_jangkar)); p_market(garis) =
+  # CDF(garis − δ) — asumsi geser-lokasi yang SAMA dengan stress.py
+  # (pasar dan model berbeda hanya oleh geseran lokasi). Sumber pembanding
+  # tetap Kalshi (jangkar); harga Polymarket hanya dipakai sebagai HARGA,
+  # bukan sebagai p_market (aturan P2 dihormati).
+  # MENGGANTIKAN aturan lama "garis termurah yang lolos" (cushion +
+  # climb banjir): komposer memakai garis equilibrium bila terhitung.
+  # Gate banjir komposer tetap berjalan sebagai pertahanan lapis kedua
+  # (lolos by construction). Equilibrium BOLEH melompati garis
+  # tahan-banjir yang thin ke garis tebal di atasnya (keputusan lama
+  # "tidak melompat" digantikan — lihat
+  # LAPORAN-EQUILIBRIUM-SKIP-AWAL.md §2).
+  # TIDAK ADA floor ER > 1: equilibrium adalah max-ER — titik manisnya
+  # pun bisa ber-EV negatif (dilaporkan transparan, bukan disembunyikan);
+  # kelayakan TIKET dinilai di tingkat tiket (EV tiket + peringatan).
+  # Tanpa CDF / tanpa tangga / tanpa jangkar pasar -> equilibrium TIDAK
+  # DIHITUNG (bukan "tidak ada") -> komposer memakai kaki artefak apa
+  # adanya (fallback). Kunci ini (false) mematikan equilibrium +
+  # mengembalikan perilaku lama persis (untuk pengukuran A/B + rollback).
+  enabled: true
+  # Bila true (produksi): tanpa kaki artefak bergaris + p_market,
+  # equilibrium tidak dihitung — p_final per garis tidak bisa dihitung
+  # jujur tanpa jangkar pasar. Jangan ubah ke false tanpa persetujuan
+  # user (false berarti memakai p_model sebagai p_final — MODE
+  # MODEL_ONLY per garis, yang belum dirancang aturannya).
+  butuh_anchor_pasar: true
+
+# ── Skip dari awal (keputusan user 2026-11-23 10:22 + 10:41 WIB) ──────────
+skip_awal:
+  # Laga yang tidak masuk akal dari awal di-SKIP dari KEDUA tiket.
+  # Tiga pemicu (engine/skip_awal.py); SATU pemicu positif cukup:
+  # (a) tidak_ada_equilibrium — equilibrium TIDAK ADA di KEDUA tiket
+  #     (dihitung, bukan gagal hitung). Satu tiket punya equilibrium
+  #     -> tidak skip via (a).
+  # (b) pola_denver — KONJUNGSI 4 syarat (semua harus benar):
+  #     (1) flag_setan pada garis acuan (garis tangga termurah dengan
+  #         P normal >= target Asuransi): P normal >= 0,74 tapi
+  #         P setan < 0,74;
+  #     (2) tidak ada garis TIDAK-TIPIS yang tahan banjir pada target
+  #         Asuransi ("rapuh banjir di semua garis wajar" — garis
+  #         wajar = garis yang bisa dibeli, yaitu tidak thin);
+  #     (3) garis acuan thin ("volume tipis" pada garis wajar laga itu);
+  #     (4) edge kecil pada garis acuan (edge implied p_final − harga
+  #         venue < pola_denver.edge_kecil_pct).
+  #     "Volume tipis" juga terkandung di (2): garis tahan-banjir yang
+  #     ada semuanya thin berarti garis yang selamat tidak bisa dibeli.
+  # (c) ot_tinggi — potensi OT tinggi (ambang di section ot_seleksi).
+  # Tanpa data yang cukup -> "tidak dievaluasi", BUKAN skip: skip
+  # adalah klaim positif soal laga, bukan default saat data hilang
+  # (gate per kaki tetap fail-closed seperti sebelumnya).
+  # Kunci ini (false) mematikan skip_awal (perilaku lama persis).
+  enabled: true
+  pola_denver:
+    # NILAI AWAL (INITIAL) — BELUM DIKALIBRASI. Cermin proposal D12
+    # (gate edge Asuransi 3,5%): kaki DEN yang jebol punya edge
+    # +2,5% (P_model) / +1,5% (p_final, artefak live); kaki selamat
+    # terendah +4,4%. Ambang 3,5% di tengah-tengah — sama seperti
+    # D12, menunggu validasi atas data PAPER + persetujuan user.
+    # KALIBRASI: kumpulkan laga dengan hasil settled; ukur distribusi
+    # edge garis acuan pada laga yang banjir vs tidak; geser ambang
+    # hanya atas persetujuan user.
+    edge_kecil_pct: 3.5
+
+# ── Peluang OT dipakai di seleksi (keputusan user 2026-11-23 10:22 WIB) ───
+ot_seleksi:
+  # Sim sudah menghitung ot_probability (simulation.score_distribution)
+  # tapi selama ini hanya dipakai Q&A. Sekarang dipakai di seleksi:
+  # potensi OT tinggi -> SKIP kaki Under dari kedua tiket (bukan
+  # bantalan lebih besar — OT menambah loncatan diskret ~20+ poin yang
+  # SUDAH dimodelkan sim dalam distribusi total; risiko sisa adalah
+  # model MEREMEHKAN OT, yang tidak bisa diperbaiki bantalan dari
+  # model yang sama. Lihat LAPORAN-EQUILIBRIUM-SKIP-AWAL.md §3).
+  # NILAI AWAL (INITIAL) — BELUM DIKALIBRASI.
+  # Dasar (bukan tebakan): peluang seri laga imbang di bawah
+  # sigma_margin hasil fit = 1 / (14,4307 x √(2π)) ≈ 0,0277
+  # (densitas normal di 0); nilai sim teramati di 10 baris slate
+  # 22 Nov: 1,7–2,9% (median 2,4%). Ambang 0,028 = praktis plafon
+  # sim — hanya laga yang praktis imbang (estimasi OT model sudah di
+  # plafonnya) yang kena skip. CATATAN SKALA: sim MEREMEHKAN OT —
+  # nilai sim 1,7–2,9% vs laju OT historis NBA ~5–6% — jadi ambang
+  # ini dalam SKALA SIM, bukan skala historis; ambang 5% dalam skala
+  # sim tidak akan pernah terpicu. DEN@CHI (yang benar-benar OT)
+  # punya ot_prob sim hanya 2,36%/2,13% — TIDAK kena aturan ini;
+  # Denver ditangkap pola_denver, bukan aturan OT (kejujuran: aturan
+  # OT bukan penangkap Denver).
+  # KALIBRASI: (1) kumpulkan ot_prob sim + hasil OT aktual selama
+  # satu musim slate; (2) ukur kalibrasi (apakah OT terjadi lebih
+  # sering dari kata sim, dan seberapa besar selisihnya menurut
+  # ot_prob sim?); (3) fit ulang ambang ke anggaran skip yang
+  # dipilih user; (4) berlaku hanya atas persetujuan user.
+  skip_ot_prob: 0.028
 
 # ── §9. Ledger & kalibrasi ──────────────────────────────────────────────────
 calibration:

@@ -18,6 +18,7 @@ Masukan:
 
 Keluaran: ``{"insurance": tiket|None, "insurance_reason": str|None,
 "main": tiket|None, "main_reason": str|None, "warnings": [...],
+"skipped_matches": [{"match_id", "pemicu", "alasan"}],
 "summary": "..."}``. Tiket valid terhadap ``schemas/ticket.schema.json``
 (divalidasi di sini; tiket yang gagal validasi menjadi None + alasan).
 ``summary`` ringkasan Bahasa Indonesia sehari-hari.
@@ -76,6 +77,35 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   blend di garis baru — menunggu keputusan reviewer). Kaki bola
   dan total_over tidak kena gate ini (tidak ada model stress
   untuk keduanya).
+- Titik equilibrium per kaki (keputusan user 2026-11-23 10:31 +
+  10:41 WIB; engine/equilibrium.py): garis kaki NBA total_under
+  DIPILIH ULANG dari tangga + CDF sim — garis yang memaksimalkan
+  expected return p_final x (100/harga) di antara garis yang lolos
+  SEMUA gate tiket itu. MENGGANTIKAN aturan lama "garis termurah
+  yang lolos" (seleksi cushion + climb banjir): kaki equilibrium
+  dibangun ulang dengan p_model/p_market/p_final/EV/label dihitung
+  di garis baru (leg_id tidak berubah — recheck matching), climb
+  dicatat alasan "equilibrium" bila garis berubah. Bila equilibrium
+  TIDAK ADA (dihitung, tidak ada garis lolos) -> kaki ditolak dengan
+  alasan diagnostik. Bila equilibrium TIDAK DIHITUNG (tanpa CDF /
+  tanpa tangga / tanpa jangkar pasar) -> kaki artefak dipakai apa
+  adanya (fallback, bukan penolakan). Gate banjir di bawah tetap
+  berjalan sebagai pertahanan lapis kedua (lolos by construction
+  pada kaki equilibrium). Equilibrium BOLEH melompati garis
+  tahan-banjir yang thin ke garis tebal di atasnya (keputusan lama
+  "tidak melompat" digantikan). Kaki BOLA tidak kena equilibrium
+  (tidak ada model CDF/tangga yang sama).
+- Skip dari awal (keputusan user 2026-11-23 10:22 + 10:41 WIB;
+  engine/skip_awal.py): laga NBA yang (a) tidak punya equilibrium di
+  KEDUA tiket, atau (b) cocok pola Denver (flag setan + tidak ada
+  garis tidak-tipis yang tahan banjir + garis acuan thin + edge
+  kecil), atau (c) potensi OT tinggi -> di-SKIP dari KEDUA tiket
+  sebelum kaki apa pun dinilai; alasan tercatat per tiket + daftar
+  laga yang di-skip ada di hasil["skipped_matches"] + ringkasan.
+  Tanpa data yang cukup -> tidak dievaluasi, BUKAN skip (skip adalah
+  klaim positif). Flag config equilibrium.enabled / skip_awal.enabled
+  (false) mengembalikan perilaku lama persis (untuk pengukuran A/B +
+  rollback).
 - Lantai harga (filosofi user 2026-11-23): kaki NBA dengan harga
   venue (jup_estimated_cents, fallback price_cents) di bawah
   analis.harga_min_utama_cents (Utama) / analis.harga_min_asuransi_cents
@@ -158,6 +188,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import config as config_mod
+from engine import equilibrium as equilibrium_mod
+from engine import skip_awal as skip_awal_mod
 from engine import stress as stress_mod
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -368,8 +400,29 @@ def _label_skenario(hasil_stress: dict, skenario: str) -> str:
     return skenario
 
 
+def _flag_enabled(cfg: dict, section: str) -> bool:
+    """Baca flag ``<section>.enabled`` dari config (default True).
+
+    Kunci/section hilang -> True (nilai produksi; config yang dikirim
+    selalu membawa kunci ini — REQUIRED di config.py). Nilai bukan
+    bool -> ConfigError (config rusak, bukan default).
+    """
+    try:
+        nilai = config_mod.get_value(cfg, section, "enabled")
+    except config_mod.ConfigError:
+        return True
+    if not isinstance(nilai, bool):
+        raise config_mod.ConfigError(
+            f"playstyle.yaml {section}.enabled harus bool, dapat: {nilai!r}"
+        )
+    return nilai
+
+
 def _stress_laga(
-    analisis: dict, cfg: dict, cache: dict[str, tuple[dict | None, str | None]]
+    analisis: dict,
+    cfg: dict,
+    cache: dict[str, tuple[dict | None, str | None]],
+    kaki_tambahan: list[dict] | None = None,
 ) -> tuple[dict | None, str | None]:
     """Hasil skenario_panas satu laga (cache per match_id).
 
@@ -379,7 +432,10 @@ def _stress_laga(
     crash. Kaki yang dihitung: kaki total_under bergaris dari artefak
     (tiket dikenali lewat ``_tiket_kaki``, termasuk turunan leg_id) —
     kaki tanpa tiket/garis tidak ikut, supaya satu kaki aneh tidak
-    menggagalkan seluruh laga.
+    menggagalkan seluruh laga. ``kaki_tambahan``: kaki equilibrium
+    ({"line", "ticket"}) yang garisnya belum ada di artefak — supaya
+    gate banjir bisa menemukan entri stress kaki equilibrium
+    (tanpa ini kaki equilibrium selalu ditolak fail-closed).
     """
     match_id = analisis.get("match_id")
     if isinstance(match_id, str) and match_id in cache:
@@ -395,6 +451,17 @@ def _stress_laga(
         if tiket is None or garis is None:
             continue
         kaki.append({"line": garis, "ticket": tiket})
+    for tambahan in kaki_tambahan or []:
+        if not isinstance(tambahan, dict):
+            continue
+        tiket = tambahan.get("ticket")
+        garis = _angka(tambahan.get("line"))
+        if tiket not in ("insurance", "main") or garis is None:
+            continue
+        if not any(
+            k["ticket"] == tiket and abs(k["line"] - garis) < 1e-9 for k in kaki
+        ):
+            kaki.append({"line": garis, "ticket": tiket})
     try:
         hasil = stress_mod.skenario_panas(analisis, kaki=kaki, cfg=cfg)
         pasangan: tuple[dict | None, str | None] = (hasil, None)
@@ -809,6 +876,7 @@ def _kumpulkan_kandidat(
     cfg: dict,
     lantai: dict[str, float] | None = None,
     edge_min_ins: float | None = None,
+    skipped: list | None = None,
 ) -> tuple[dict[str, list[dict]], dict[str, list[str]]]:
     """Saring kaki-kaki artefak menjadi kandidat per tiket.
 
@@ -823,7 +891,11 @@ def _kumpulkan_kandidat(
     ``lantai``: lantai harga per tiket (None = baca dari config di
     sini via ``_lantai_harga``). ``edge_min_ins``: edge minimum kaki
     Asuransi dalam desimal (None = baca dari config di sini via
-    ``_ambang_edge_asuransi``).
+    ``_ambang_edge_asuransi``). ``skipped``: bila list diberikan,
+    diisi dict laga yang di-skip dari awal ({"match_id", "pemicu",
+    "alasan"}) — dipakai ``compose_tickets`` untuk hasil
+    ["skipped_matches"]; pemanggil lama tanpa argumen ini tidak
+    terpengaruh.
     """
     ambang_gap = _ambang(cfg, "market_line_check", "total_gap_points")
     min_prob = {
@@ -838,6 +910,8 @@ def _kumpulkan_kandidat(
     # skenario panas per laga (dihitung sekali per match_id, bukan
     # per kaki — lihat _stress_laga).
     skenario_gate = _skenario_gate_asuransi(cfg)
+    equilibrium_aktif = _flag_enabled(cfg, "equilibrium")
+    skip_aktif = _flag_enabled(cfg, "skip_awal")
     stress_per_laga: dict[str, tuple[dict | None, str | None]] = {}
     tolak_mahal_ins = bool(
         config_mod.get_value(cfg, "optimizer", "exclude_mahal_from_insurance")
@@ -867,6 +941,73 @@ def _kumpulkan_kandidat(
         median = _median_total(analisis)
         garis_market = _garis_market(analisis)
         pasar_sim = _pasar_sim(analisis)
+        # --- Equilibrium + skip dari awal (NBA saja; bola tidak punya
+        # model CDF/tangga/stress yang sama). Dihitung sekali per laga,
+        # SEBELUM kaki apa pun dinilai: laga yang di-skip tidak
+        # menyumbang kaki ke tiket mana pun; kaki yang tidak di-skip
+        # diganti garisnya ke titik equilibrium (bila terhitung).
+        eq_per_tiket: dict[str, dict | None] = {
+            "insurance": None,
+            "main": None,
+        }
+        kaki_tambahan_stress: list[dict] = []
+        if analisis.get("format") != "soccer_analysis" and (
+            equilibrium_aktif or skip_aktif
+        ):
+            ktx_ins = equilibrium_mod.siapkan_konteks(analisis, "insurance", cfg)
+            ktx_main = equilibrium_mod.siapkan_konteks(analisis, "main", cfg)
+            if equilibrium_aktif:
+                for tiket_eq, ktx_eq in (
+                    ("insurance", ktx_ins),
+                    ("main", ktx_main),
+                ):
+                    hasil_eq = equilibrium_mod.cari_equilibrium(
+                        analisis, tiket_eq, cfg, ktx=ktx_eq
+                    )
+                    eq_per_tiket[tiket_eq] = hasil_eq
+                    if hasil_eq.get("ada"):
+                        kaki_tambahan_stress.append(
+                            {
+                                "line": hasil_eq["garis"],
+                                "ticket": tiket_eq,
+                            }
+                        )
+            if skip_aktif:
+                # Equilibrium nonaktif -> stub "tidak dihitung" supaya
+                # pemicu (a) tidak bisa terpicu (tanpa equilibrium,
+                # tidak ada klaim "tidak ada equilibrium").
+                eq_ins_skip = eq_per_tiket["insurance"] or {
+                    "dihitung": False,
+                    "ada": False,
+                    "alasan_tidak_dihitung": "equilibrium nonaktif di config",
+                }
+                eq_main_skip = eq_per_tiket["main"] or {
+                    "dihitung": False,
+                    "ada": False,
+                    "alasan_tidak_dihitung": "equilibrium nonaktif di config",
+                }
+                info_skip = skip_awal_mod.evaluasi_skip_awal(
+                    analisis,
+                    cfg,
+                    eq_ins=eq_ins_skip,
+                    eq_main=eq_main_skip,
+                    ktx=ktx_ins,
+                )
+                if info_skip.get("skip"):
+                    for tiket_skip in ("insurance", "main"):
+                        coret[tiket_skip].append(
+                            f"{match_id}: SKIP dari awal — "
+                            f"{info_skip.get('alasan') or 'tanpa alasan'}"
+                        )
+                    if skipped is not None:
+                        skipped.append(
+                            {
+                                "match_id": match_id,
+                                "pemicu": list(info_skip.get("pemicu") or []),
+                                "alasan": info_skip.get("alasan"),
+                            }
+                        )
+                    continue
         for kaki in analisis.get("legs") or []:
             if not isinstance(kaki, dict):
                 continue
@@ -876,11 +1017,42 @@ def _kumpulkan_kandidat(
             leg_id = kaki.get("leg_id") or "?"
             garis = _angka(kaki.get("line"))
             label_kaki = _seleksi_kaki(kaki, analisis)
+            market_type = kaki.get("market_type")
+            # --- Titik equilibrium (MENGGANTIKAN seleksi garis lama).
+            # Berjalan SEBELUM cek meets: equilibrium memilih ulang
+            # dari tangga + CDF, jadi kaki meets=false karena seleksi
+            # garis lama (mis. tidak ada garis lolos di cushion) bisa
+            # hidup kembali bila equilibrium menemukan garis yang
+            # lolos semua gate komposer. Bila equilibrium TIDAK ADA
+            # (dihitung, tidak ada garis lolos) -> kaki ditolak dengan
+            # alasan diagnostiknya. Bila TIDAK DIHITUNG (tanpa CDF /
+            # tangga / jangkar) -> kaki artefak dipakai apa adanya
+            # (fallback, lanjut ke logika lama di bawah).
+            if (
+                equilibrium_aktif
+                and analisis.get("format") != "soccer_analysis"
+                and market_type == "total_under"
+                and eq_per_tiket.get(tiket) is not None
+            ):
+                hasil_eq = eq_per_tiket[tiket]
+                if hasil_eq.get("dihitung"):
+                    if not hasil_eq.get("ada"):
+                        coret[tiket].append(
+                            f"{match_id} ({label_kaki}): "
+                            f"{hasil_eq.get('alasan_tidak_ada') or 'tidak ada equilibrium'}"
+                        )
+                        continue
+                    kaki_baru = equilibrium_mod.rakit_kaki_equilibrium(
+                        kaki, hasil_eq, analisis, cfg
+                    )
+                    if kaki_baru is not None:
+                        kaki = kaki_baru
+                        garis = _angka(kaki.get("line"))
+                        label_kaki = _seleksi_kaki(kaki, analisis)
             if not kaki.get("meets"):
                 alasan = kaki.get("reason") or "tidak memenuhi syarat"
                 coret[tiket].append(f"{match_id} ({label_kaki}): {alasan}")
                 continue
-            market_type = kaki.get("market_type")
             if market_type in ("total_over", "total_under") and garis is None:
                 # Kaki total tanpa garis tidak bisa dinilai; kaki 1X2/
                 # BTTS memang tidak punya garis (line null itu sah).
@@ -891,15 +1063,25 @@ def _kumpulkan_kandidat(
             # tidak punya model stress, total_over bukan Under.
             # Berjalan SEBELUM gate lain yang memakai garis/harga,
             # supaya kaki yang naik garis dinilai di garis barunya
-            # (lantai harga, thin, edge). p_final/EV tetap garis lama
-            # (konservatif — lihat _kaki_naik_garis).
+            # (lantai harga, thin, edge). Pada kaki equilibrium, gate
+            # ini lolos by construction (equilibrium sudah memakai
+            # gate banjir yang sama) — ia tetap berjalan sebagai
+            # pertahanan lapis kedua + untuk kaki fallback (tanpa
+            # equilibrium). p_final/EV kaki yang naik garis di sini
+            # tetap garis lama (konservatif — lihat
+            # _kaki_naik_garis); kaki equilibrium TIDAK kena
+            # konservatisme itu karena p_finalnya sudah dihitung
+            # ulang di garis baru oleh engine/equilibrium.py.
             if (
                 tiket == "insurance"
                 and analisis.get("format") != "soccer_analysis"
                 and market_type == "total_under"
             ):
                 hasil_stress, galat_stress = _stress_laga(
-                    analisis, cfg, stress_per_laga
+                    analisis,
+                    cfg,
+                    stress_per_laga,
+                    kaki_tambahan=kaki_tambahan_stress,
                 )
                 if hasil_stress is None:
                     nama_skenario = "setan" if skenario_gate == "setan" else "banjir"
@@ -1620,7 +1802,10 @@ def compose_tickets(
     None = jam UTC saat ini). Parameter ini ada untuk tes.
 
     Mengembalikan ``{"insurance", "insurance_reason", "main",
-    "main_reason", "warnings", "summary"}`` — lihat docstring modul.
+    "main_reason", "warnings", "skipped_matches", "summary"}`` — lihat
+    docstring modul. ``skipped_matches``: daftar laga yang di-skip
+    dari awal ({"match_id", "pemicu", "alasan"}); kosong bila tidak
+    ada laga yang di-skip.
     """
     if stake_total is None:
         raise ValueError(
@@ -1705,6 +1890,7 @@ def compose_tickets(
             "main": None,
             "main_reason": alasan,
             "warnings": [],
+            "skipped_matches": [],
             "summary": (
                 "RACIKAN TIKET\nTidak ada analisis untuk diracik — "
                 "jalankan analyze dulu untuk slate malam ini."
@@ -1716,12 +1902,14 @@ def compose_tickets(
     lantai, sumber_lantai = _lantai_harga(cfg)
     ambang_yakin, sumber_yakin = _ambang_yakin(cfg)
     ambang_edge, sumber_edge = _ambang_edge_asuransi(cfg)
+    skipped_matches: list[dict] = []
     kandidat, coret = _kumpulkan_kandidat(
         analisis_per_laga,
         recheck_per_laga,
         cfg,
         lantai=lantai,
         edge_min_ins=ambang_edge,
+        skipped=skipped_matches,
     )
 
     warnings: list[str] = []
@@ -2005,6 +2193,17 @@ def compose_tickets(
     ]
     if tidak_lolos:
         baris += ["", "KAKI YANG TIDAK LOLOS:"] + [f"  • {c}" for c in tidak_lolos]
+    if skipped_matches:
+        # Semua laga dilaporkan, termasuk yang di-skip, beserta
+        # alasannya (keputusan user 2026-11-23 10:41 WIB).
+        baris += ["", "LAGA YANG DI-SKIP DARI AWAL (tidak masuk tiket mana pun):"]
+        for item in skipped_matches:
+            pemicu = ", ".join(item.get("pemicu") or [])
+            baris.append(
+                f"  • {item.get('match_id')}"
+                + (f" [{pemicu}]" if pemicu else "")
+                + f": {item.get('alasan') or 'tanpa alasan'}"
+            )
     catatan_ringkas = list(catatan_garis)
     if sumber_lantai["insurance"] == "default" or sumber_lantai["main"] == "default":
         catatan_ringkas.append(
@@ -2046,5 +2245,6 @@ def compose_tickets(
         )
     baris += ["", "CATATAN:"] + [f"  • {c}" for c in catatan_ringkas]
     hasil["warnings"] = warnings
+    hasil["skipped_matches"] = skipped_matches
     hasil["summary"] = "\n".join(baris)
     return hasil

@@ -11,12 +11,17 @@ jangan diubah sepihak; lihat schemas/nba_analysis.schema.json):
   format/format_version/match_id/home_tricode/away_tricode/game_date/
   start_time/generated_at/status/missing/sources/inputs/simulation/
   market/legs/injuries/anomalies/price_snapshots + analisis_wajar
-  (Tahap 4, opsional — artefak lama tanpanya tetap valid).
+  (Tahap 4, opsional — artefak lama tanpanya tetap valid) + news
+  (modul news, opsional — artefak lama tanpanya tetap valid).
   match_id SAMA dengan simulation.match_id ("{AWAY}@{HOME}_{YYYY-MM-DD}").
   legs HANYA Asuransi + Utama (kaki moneyline di luar lingkup langkah ini).
   Tiap kaki Tahap 4 membawa cushion_points/cushion_reason (dari analis),
   volume_usd/thin/climb (dari cushion) — semuanya opsional di skema
   supaya artefak lama tetap valid.
+  news adalah KONTEKS, bukan angka: status "ok" (ada berita),
+  "kosong" (fetch berhasil, tidak ada berita relevan), atau "gagal"
+  (fetch gagal, alasan di error). Berita gagal TIDAK mengubah status
+  artefak (seperti Kalshi gagal -> MODEL_ONLY, bukan DATA_INCOMPLETE).
 
 PIPELINE build_nba_analysis:
   1. fetch_match_inputs (input otak) — gagal -> DATA_INCOMPLETE.
@@ -47,6 +52,8 @@ PIPELINE build_nba_analysis:
      PERSIS; Under = komplemen 1 - p_over; tidak ada garis cocok ->
      None/MODEL_ONLY), blend (devig.blend), EV (D7), label
      (price_labels.label_for_ev).
+  5b. Berita (ingest/news_nba.fetch_news_nba) — KONTEKS, bukan angka:
+     gagal -> blok news status "gagal" + missing, artefak tetap jalan.
   6. Anomali (engine/anomaly.py): check_total_line_vs_model,
      check_cushion_vs_market, check_under_safety (yang di dalamnya
      menjalankan dua cek pertama — hasil dideduplikasi), ditambah
@@ -105,6 +112,7 @@ from engine import price_labels as price_labels_mod
 from ingest import kalshi as kalshi_mod
 from ingest import matching as matching_mod
 from ingest import nba_brain as nba_brain_mod
+from ingest import news_nba as news_nba_mod
 from ingest import polymarket as polymarket_mod
 from ingest.common import now_iso
 
@@ -245,6 +253,47 @@ def minimal_nba_analysis(
         },
         "anomalies": [],
         "price_snapshots": {},
+        "news": {
+            "status": "gagal",
+            "items": [],
+            "sources": [],
+            "fetched_at": None,
+            "error": "tidak_diambil",
+        },
+    }
+
+
+def _blok_news(hasil) -> dict:
+    """Rakit blok news artefak dari FetchResult ingest/news_nba.
+
+    ok + ada item -> status 'ok'; ok + kosong -> 'kosong' (fetch
+    berhasil, tidak ada berita relevan — dibedakan dari gagal);
+    gagal -> 'gagal' + error. Bentuk lain (bukan FetchResult) ->
+    'gagal' + error 'hasil_fetch_tidak_dikenal'.
+    """
+    if not hasattr(hasil, "ok"):
+        return {
+            "status": "gagal",
+            "items": [],
+            "sources": [],
+            "fetched_at": None,
+            "error": "hasil_fetch_tidak_dikenal",
+        }
+    if not hasil.ok:
+        return {
+            "status": "gagal",
+            "items": [],
+            "sources": [],
+            "fetched_at": getattr(hasil, "fetched_at", None),
+            "error": str(getattr(hasil, "error", None) or "fetch gagal"),
+        }
+    items = hasil.data if isinstance(hasil.data, list) else []
+    return {
+        "status": "ok" if items else "kosong",
+        "items": items,
+        "sources": [hasil.source] if isinstance(hasil.source, str) else [],
+        "fetched_at": getattr(hasil, "fetched_at", None),
+        "error": None,
     }
 
 
@@ -1071,6 +1120,13 @@ def _build_nba_analysis(
         },
         "anomalies": [],
         "price_snapshots": {},
+        "news": {
+            "status": "gagal",
+            "items": [],
+            "sources": [],
+            "fetched_at": None,
+            "error": "tidak_diambil",
+        },
     }
 
     def _gagal() -> dict:
@@ -1298,8 +1354,40 @@ def _build_nba_analysis(
             )
         else:
             missing.append(
-                "kalshi_total_markets_gagal: "
-                f"{hasil_kalshi.error or 'tidak diketahui'}"
+                f"kalshi_total_markets_gagal: {hasil_kalshi.error or 'tidak diketahui'}"
+            )
+
+    # Tahap 5b: berita (KONTEKS, bukan angka — gagal -> blok news
+    # status "gagal" + missing, artefak tetap jalan seperti Kalshi).
+    try:
+        hasil_news = news_nba_mod.fetch_news_nba(
+            home_tricode=home,
+            away_tricode=away,
+            game_date=tanggal,
+            client=client,
+            cfg=cfg_efektif,
+        )
+    except Exception as exc:  # noqa: BLE001 - berita gagal != analisis gagal
+        artefak["news"] = {
+            "status": "gagal",
+            "items": [],
+            "sources": [],
+            "fetched_at": generated_at,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+        missing.append(f"news_gagal: {type(exc).__name__}: {exc}")
+    else:
+        artefak["news"] = _blok_news(hasil_news)
+        if artefak["news"]["status"] == "gagal":
+            missing.append(f"news_gagal: {artefak['news']['error']}")
+        elif hasil_news.ok:
+            artefak["sources"].append(
+                {
+                    "kind": "nba_news",
+                    "source": news_nba_mod.SOURCE,
+                    "tier": news_nba_mod.TIER,
+                    "time": hasil_news.fetched_at,
+                }
             )
 
     legs = [
@@ -1371,8 +1459,7 @@ def _build_nba_analysis(
     if not _analisis_wajar_sah(analisis_wajar):
         if analis_mod is None:
             penjelasan = (
-                "Modul analis belum tersedia, jadi kewajaran harga "
-                "belum bisa dinilai."
+                "Modul analis belum tersedia, jadi kewajaran harga belum bisa dinilai."
             )
         elif bantalan_dibutuhkan is None:
             penjelasan = (

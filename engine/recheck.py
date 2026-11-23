@@ -7,10 +7,28 @@ submit, dan memberi putusan GO / NO_GO. Modul ini mengonsumsi artefak
 yang membangun artefak itu) dan TIDAK mengubah artefak tersebut.
 
 ALUR: fetch_fresh() mengambil data segar (input otak + tangga
-Polymarket + moneyline jup.ag) -> compare_injuries() /
-compare_prices() membandingkan dengan analisis awal -> needs_resim()
-memutuskan perlu hitung ulang -> decide() memberi putusan per kaki
-dan per tiket.
+Polymarket + moneyline jup.ag + berita NBA) -> compare_injuries() /
+compare_prices() / compare_news() membandingkan dengan analisis awal
+-> needs_resim() memutuskan perlu hitung ulang -> decide() memberi
+putusan per kaki dan per tiket.
+
+BERITA MENDADAK (modul news, kasus Thunder): berita yang terbit
+SETELAH analisis awal DAN relevan dengan laga ini (fetcher sudah
+menyaring per tim) ditandai sebagai berita baru. Definisinya
+eksplisit di compare_news():
+  - MENDADAK: jam terbit artikel > analysis.generated_at (artikel
+    tanpa jam terbit TIDAK PERNAH dihitung mendadak — tidak bisa
+    dibuktikan terbit setelah analisis).
+  - RELEVAN: artikel ada di feed berita laga ini (fetcher
+    news_nba sudah menyaring per tim) DAN belum ada di blok news
+    analisis awal (dedup per id/url/judul).
+  Berita baru TIDAK memicu hitung ulang (news adalah konteks,
+  bukan angka) dan TIDAK mengubah GO menjadi NO_GO — tapi membuat
+  semua kaki laga itu PERHATIAN (user wajib membaca daftar
+  perhatian) + satu entri changes kind "news". Alasannya: kasus
+  Thunder (harga 75¢ -> 71¢ satu jam sebelum tip-off karena news
+  yang tidak diketahui user) — recheck yang menemukan berita baru
+  harus menandainya sebelum user submit.
 
 AMBANG — SEMUA dari config/playstyle.yaml, dibaca lewat
 config.get_value (fail-closed: kunci hilang -> ConfigError, tidak
@@ -69,7 +87,8 @@ ATURAN PUTUSAN (per kaki, prioritas tertinggi dulu):
       hitung ulang selesai tapi garis tetap; konflik cedera baru
       yang tidak mengubah status OUT; perubahan status ringan;
       pemain kembali dari cedera; probabilitas market dipakai
-      (aturan condong-ke-market, lolos ambang).
+      (aturan condong-ke-market, lolos ambang); berita baru yang
+      mendadak + relevan dengan laga ini (modul news).
   12. Selain itu -> TETAP_OK.
 
 PUTUSAN TIKET: NO_GO bila ada kaki JANGAN_PASANG atau
@@ -428,6 +447,18 @@ def _fetch_ladder_default(analysis: dict, client=None):
     return polymarket.fetch_event_by_slug(slug or "", client=client)
 
 
+def _fetch_news_default(analysis: dict, client=None):
+    """Fetcher berita default: ingest.news_nba.fetch_news_nba."""
+    from ingest import news_nba
+
+    return news_nba.fetch_news_nba(
+        (analysis.get("home_tricode") or ""),
+        (analysis.get("away_tricode") or ""),
+        (analysis.get("game_date") or ""),
+        client=client,
+    )
+
+
 def fetch_fresh(
     analysis: dict,
     cfg: dict | None = None,
@@ -435,28 +466,33 @@ def fetch_fresh(
     fetch_inputs=None,
     fetch_ladder=None,
     fetch_jup_ml=None,
+    fetch_news=None,
 ) -> dict:
     """Ambil data segar untuk cek ulang.
 
     analysis: artefak nba_analysis. cfg: dict playstyle (None = baca
     playstyle.yaml). client: HttpClient bersama (diteruskan ke
-    fetcher default). fetch_inputs / fetch_ladder / fetch_jup_ml:
-    fetcher injeksi untuk tes, masing-masing callable(analysis,
-    client) yang mengembalikan FetchResult atau dict mentah:
+    fetcher default). fetch_inputs / fetch_ladder / fetch_jup_ml /
+    fetch_news: fetcher injeksi untuk tes, masing-masing
+    callable(analysis, client) yang mengembalikan FetchResult atau
+    dict mentah:
       - fetch_inputs -> FetchResult berisi dict fetch_match_inputs.
       - fetch_ladder -> FetchResult berisi dict event Gamma (lalu
         di-parse dengan parse_event_ladders) ATAU dict tangga yang
         sudah ter-parse (mengandung kunci "totals").
       - fetch_jup_ml -> dict {"home_cents", "away_cents",
         "fetched_at"} atau FetchResult berisi dict itu.
+      - fetch_news -> FetchResult berisi list artikel news_nba
+        ATAU list artikel mentah.
     Default fetch_inputs = ingest.nba_brain.fetch_match_inputs;
     default fetch_ladder = ingest.polymarket.fetch_event_by_slug +
-    parse_event_ladders. Default fetch_jup_ml = TIDAK ADA fetcher
-    (repo tidak punya fetcher moneyline jup.ag per-event; hanya
-    pemindaian penuh di ingest/jupiter.py) -> moneyline_jup None +
-    errors terisi, dan itu TIDAK menggagalkan recheck.
+    parse_event_ladders; default fetch_news =
+    ingest.news_nba.fetch_news_nba. Default fetch_jup_ml = TIDAK ADA
+    fetcher (repo tidak punya fetcher moneyline jup.ag per-event;
+    hanya pemindaian penuh di ingest/jupiter.py) -> moneyline_jup
+    None + errors terisi, dan itu TIDAK menggagalkan recheck.
 
-    Mengembalikan {"inputs", "ladders", "moneyline_jup",
+    Mengembalikan {"inputs", "ladders", "moneyline_jup", "news",
     "fetched_at", "errors": {kunci: pesan}}. Fetch yang gagal
     mengisi errors + data None — TIDAK melempar — kecuali
     ConfigError (ambang config hilang) yang dibiarkan naik.
@@ -469,6 +505,7 @@ def fetch_fresh(
     inputs = None
     ladders = None
     moneyline_jup = None
+    news = None
 
     try:
         fetcher = fetch_inputs or _fetch_inputs_default
@@ -519,10 +556,31 @@ def fetch_fresh(
             errors["moneyline_jup"] = f"{type(exc).__name__}: {exc}"
             moneyline_jup = None
 
+    # Berita segar (modul news): gagal -> errors["news"] saja, tidak
+    # menggagalkan recheck (berita adalah konteks, bukan angka).
+    try:
+        fetcher_news = fetch_news or _fetch_news_default
+        hasil_news = fetcher_news(analysis, client)
+        if isinstance(hasil_news, list):
+            news = hasil_news
+        else:
+            news, err = _unpack_fetch(hasil_news)
+            if err is not None:
+                errors["news"] = err
+            elif news is not None and not isinstance(news, list):
+                errors["news"] = f"hasil fetch berita bukan list: {type(news).__name__}"
+                news = None
+    except config.ConfigError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — fetch gagal = errors, bukan exception
+        errors["news"] = f"{type(exc).__name__}: {exc}"
+        news = None
+
     return {
         "inputs": inputs,
         "ladders": ladders,
         "moneyline_jup": moneyline_jup,
+        "news": news,
         "fetched_at": _sekarang_iso(),
         "errors": errors,
     }
@@ -572,6 +630,59 @@ def compare_injuries(old_entries, new_entries) -> dict:
         "status_changed": status_changed,
         "resolved": resolved,
     }
+
+
+def _kunci_berita(item: dict) -> str | None:
+    """Identitas satu artikel berita untuk dedup (id, lalu url, lalu judul)."""
+    for kunci in ("id", "url", "headline"):
+        nilai = item.get(kunci)
+        if isinstance(nilai, str) and nilai:
+            return f"{kunci}:{nilai}"
+    return None
+
+
+def compare_news(old_news, new_items, analysis_generated_at) -> dict:
+    """Bandingkan berita analisis awal vs berita segar.
+
+    old_news: blok `news` artefak analisis awal (atau None bila
+    artefak lama tanpa blok itu). new_items: list artikel segar
+    dari fetch_fresh (atau None bila fetch berita gagal).
+    analysis_generated_at: jam artefak analisis dibuat (ISO).
+
+    Mengembalikan {"baru": [...], "n_baru": int, "n_dibandingkan":
+    int}. "baru" = artikel MENDADAK + RELEVAN:
+      - MENDADAK: jam terbit (published) LEBIH BARU dari
+        analysis_generated_at. Artikel tanpa jam terbit yang bisa
+        di-parse TIDAK PERNAH dihitung mendadak (tidak bisa
+        dibuktikan terbit setelah analisis). Jam analisis awal
+        yang tidak bisa di-parse -> tidak ada yang dihitung
+        mendadak (baseline tidak diketahui).
+      - RELEVAN: artikel ada di feed berita laga ini (fetcher
+        sudah menyaring per tim) DAN identitasnya (id/url/judul)
+        belum ada di blok news analisis awal.
+    Urutan keluaran: terbaru dulu (sesuai urutan fetcher).
+    """
+    segar = [item for item in (new_items or []) if isinstance(item, dict)]
+    baseline = _parse_iso(analysis_generated_at)
+    if baseline is None:
+        return {"baru": [], "n_baru": 0, "n_dibandingkan": len(segar)}
+    lama: set[str] = set()
+    if isinstance(old_news, dict):
+        for item in old_news.get("items") or []:
+            if isinstance(item, dict):
+                kunci = _kunci_berita(item)
+                if kunci is not None:
+                    lama.add(kunci)
+    baru: list[dict] = []
+    for item in segar:
+        terbit = _parse_iso(item.get("published"))
+        if terbit is None or terbit <= baseline:
+            continue
+        kunci = _kunci_berita(item)
+        if kunci is not None and kunci in lama:
+            continue
+        baru.append(item)
+    return {"baru": baru, "n_baru": len(baru), "n_dibandingkan": len(segar)}
 
 
 def compare_prices(analysis: dict, fresh: dict, cfg: dict | None = None) -> dict:
@@ -1376,6 +1487,24 @@ def decide(
     gerak_garis = price_diff["market_line_move"]["move_points"]
     garis_market_baru = price_diff["market_line_move"]["new"]
 
+    # --- Perbandingan berita (modul news) -------------------------------
+    # Berita baru TIDAK memicu hitung ulang (konteks, bukan angka) —
+    # hanya PERHATIAN + changes (lihat compare_news untuk definisi
+    # "mendadak" + "relevan"). fresh tanpa kunci "news" (stub lama)
+    # berarti tidak ada data berita segar: tidak ada yang ditandai.
+    news_baru: list[dict] = []
+    if isinstance(fresh.get("news"), list):
+        news_diff = compare_news(
+            analysis.get("news"), fresh["news"], analysis.get("generated_at")
+        )
+        news_baru = news_diff["baru"]
+    teks_news_baru = None
+    if news_baru:
+        judul_pertama = news_baru[0].get("headline") or "(judul tidak tercatat)"
+        teks_news_baru = f"berita baru sejak analisis awal: {judul_pertama}"
+        if len(news_baru) > 1:
+            teks_news_baru += f" (+{len(news_baru) - 1} berita lain)"
+
     # --- Hitung ulang bila perlu -----------------------------------------
     resim = None
     resim_gagal = None
@@ -1455,6 +1584,8 @@ def decide(
                 + ", ".join(konflik_baru),
             }
         )
+    if teks_news_baru is not None:
+        changes.append({"kind": "news", "detail": teks_news_baru})
     for gerak_harga in price_diff["moves"]:
         if gerak_harga.get("missing_line"):
             changes.append(
@@ -1743,6 +1874,8 @@ def decide(
                         "pemain kembali dari cedera: "
                         + ", ".join(str(n) for n in injury_diff["resolved"])
                     )
+            if teks_news_baru is not None:
+                lunak.append(teks_news_baru)
             if aturan_market_aktif and prob_market is not None:
                 lunak.append(
                     "condong_ke_market: memakai probabilitas market "
@@ -1820,6 +1953,8 @@ def decide(
         missing.append("legs")
     if resim_gagal is not None:
         missing.append("resim")
+    if "news" in errors:
+        missing.append("news")
 
     laporan = {
         "format": "nba_recheck",

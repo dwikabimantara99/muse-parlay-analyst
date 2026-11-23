@@ -333,6 +333,38 @@ ESPN_INJURIES = [
     },
 ]
 
+# Bentuk TERPARSE fetch_team_shooting_baselines (ingest/bbref.py):
+# baseline tembakan totals-team per tim (laju tripoin musim berjalan).
+SHOOTING = [
+    {
+        "tricode": "UTA",
+        "team": "Utah Jazz",
+        "games": 15,
+        "fg3_per_game": 13.2,
+        "fg3a_per_game": 37.5,
+        "fg3_pct": 0.352,
+        "fta_per_game": 24.6,
+    },
+    {
+        "tricode": "DAL",
+        "team": "Dallas Mavericks",
+        "games": 14,
+        "fg3_per_game": 11.0,
+        "fg3a_per_game": 31.5,
+        "fg3_pct": 0.349,
+        "fta_per_game": 22.1,
+    },
+    {
+        "tricode": "OKC",
+        "team": "Oklahoma City Thunder",
+        "games": 16,
+        "fg3_per_game": 12.5,
+        "fg3a_per_game": 35.0,
+        "fg3_pct": 0.357,
+        "fta_per_game": 23.0,
+    },
+]
+
 
 def _ok(source, tier, data):
     return FetchResult(source, tier, FETCHED_AT, True, data=data)
@@ -373,6 +405,7 @@ class _PatchSemua:
         defaults = {
             "fetch_league_games": _ok("stats.nba.com", 1, GAMES),
             "fetch_player_advanced": _ok("Basketball-Reference", 2, PLAYERS),
+            "fetch_team_shooting_baselines": _ok("Basketball-Reference", 2, SHOOTING),
             "fetch_report": _ok("Official NBA Injury Report", 1, PDF_INJURIES),
             "fetch_injuries_nba": _ok("ESPN", 2, ESPN_INJURIES),
             "fetch_missed_last10_many": _partisipasi_side_effect,
@@ -435,7 +468,8 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
         )
         self.assertIsNone(data["tournament"])
         self.assertEqual(data["fetched_at"], result.fetched_at)
-        # 7 sumber tercatat (urutan fetch; musim lalu untuk shrinkage).
+        # 8 sumber tercatat (urutan fetch; musim lalu untuk shrinkage;
+        # tembakan 3P ditambahkan langkah ekor 3P, setelah pemain).
         self.assertEqual(
             [(s["data_kind"], s["source"], s["tier"]) for s in data["sources"]],
             [
@@ -444,6 +478,7 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
                 ("nba_team_advanced_last10", "stats.nba.com", 1),
                 ("nba_player_impact", "Basketball-Reference", 2),
                 ("nba_player_impact_musim_lalu", "Basketball-Reference", 2),
+                ("nba_team_shooting_3p", "Basketball-Reference", 2),
                 ("nba_injuries", "Official NBA Injury Report", 1),
                 ("nba_injuries", "ESPN", 2),
             ],
@@ -624,6 +659,82 @@ class TestFetchMatchInputsLengkap(unittest.TestCase):
         self.assertEqual(cadangan["mp_per_game"], 5.0)
         # Pemain tanpa menit & tanpa cedera tetap tidak masuk.
         self.assertNotIn("Pemain Tanpa Menit", names)
+
+
+class TestTembakan3p(unittest.TestCase):
+    """Blok tembakan_3p per tim (laju tripoin, langkah ekor 3P)."""
+
+    def test_blok_membawa_tembakan_3p_dengan_jejak(self):
+        with _PatchSemua():
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        self.assertTrue(result.ok)
+        home = result.data["home"]["tembakan_3p"]
+        self.assertEqual(
+            home,
+            {
+                "fg3a_per_game": 37.5,
+                "fg3_per_game": 13.2,
+                "fg3_pct": 0.352,
+                "games": 15,
+                "source": "Basketball-Reference",
+                "tier": 2,
+                "fetched_at": FETCHED_AT,
+            },
+        )
+        away = result.data["away"]["tembakan_3p"]
+        self.assertEqual(away["fg3a_per_game"], 31.5)
+        self.assertEqual(away["fg3_pct"], 0.349)
+        self.assertEqual(away["games"], 14)
+        self.assertNotIn("home.tembakan_3p", result.data["missing"])
+        self.assertNotIn("away.tembakan_3p", result.data["missing"])
+
+    def test_shooting_gagal_field_none_dicatat_ok_tetap(self):
+        # Enrichment: gagal fetch shooting tidak menggagalkan rakitan.
+        with _PatchSemua(
+            fetch_team_shooting_baselines=_fail("Basketball-Reference", 2, "http_403")
+        ):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        self.assertTrue(result.ok)
+        self.assertIsNone(result.data["home"]["tembakan_3p"])
+        self.assertIsNone(result.data["away"]["tembakan_3p"])
+        self.assertIn("home.tembakan_3p", result.data["missing"])
+        self.assertIn("away.tembakan_3p", result.data["missing"])
+        self.assertEqual(result.extra["fetch_errors"]["team_shooting_3p"], "http_403")
+        kinds = [s["data_kind"] for s in result.data["sources"]]
+        self.assertNotIn("nba_team_shooting_3p", kinds)
+
+    def test_tim_hilang_dari_data_shooting_hanya_tim_itu(self):
+        shooting_tanpa_dal = [row for row in SHOOTING if row["tricode"] != "DAL"]
+        with _PatchSemua(
+            fetch_team_shooting_baselines=_ok(
+                "Basketball-Reference", 2, shooting_tanpa_dal
+            )
+        ):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        self.assertTrue(result.ok)
+        self.assertIsNotNone(result.data["home"]["tembakan_3p"])
+        self.assertIsNone(result.data["away"]["tembakan_3p"])
+        self.assertNotIn("home.tembakan_3p", result.data["missing"])
+        self.assertIn("away.tembakan_3p", result.data["missing"])
+
+    def test_shooting_saja_tidak_membuat_ok(self):
+        # Shooting adalah enrichment (tidak menambah n_ok): bila semua
+        # sumber lain gagal, ok tetap False walau shooting berhasil.
+        def adv_gagal(season, last_n_games=None, client=None):
+            return _fail("stats.nba.com", 1, "http_500")
+
+        with _PatchSemua(
+            fetch_league_games=_fail("stats.nba.com", 1, "http_500"),
+            fetch_team_advanced_stats=adv_gagal,
+            fetch_team_advanced=_fail("Basketball-Reference", 2, "http_403"),
+            fetch_player_advanced=_fail("Basketball-Reference", 2, "http_403"),
+            fetch_report=_fail("Official NBA Injury Report", 1, "pdf gagal"),
+            fetch_injuries_nba=_fail("ESPN", 2, "http_500"),
+        ):
+            result = nba_brain.fetch_match_inputs("UTA", "DAL", GAME_DATE, SEASON)
+        self.assertFalse(result.ok)
+        kinds = [s["data_kind"] for s in result.data["sources"]]
+        self.assertEqual(kinds, ["nba_team_shooting_3p"])
 
 
 class TestFetchMatchInputsGagalSebagian(unittest.TestCase):
@@ -843,6 +954,7 @@ class TestFetchMatchInputsGagalTotalDanInput(unittest.TestCase):
             fetch_team_advanced_stats=adv_gagal,
             fetch_team_advanced=_fail("Basketball-Reference", 2, "http_403"),
             fetch_player_advanced=_fail("Basketball-Reference", 2, "http_403"),
+            fetch_team_shooting_baselines=_fail("Basketball-Reference", 2, "http_403"),
             fetch_report=_fail("Official NBA Injury Report", 1, "pdf gagal"),
             fetch_injuries_nba=_fail("ESPN", 2, "http_500"),
         ):
@@ -856,7 +968,8 @@ class TestFetchMatchInputsGagalTotalDanInput(unittest.TestCase):
         self.assertIsNone(result.data["home"]["team"])
         self.assertIn("home.team", result.data["missing"])
         self.assertIn("tournament_flag_tidak_dapat_ditentukan", result.data["missing"])
-        # 7 percobaan fetch (termasuk fallback BBRef statistik musim).
+        # 8 percobaan fetch (termasuk fallback BBRef statistik musim
+        # + baseline tembakan 3P langkah ekor 3P).
         self.assertEqual(
             set(result.extra["fetch_errors"]),
             {
@@ -865,6 +978,7 @@ class TestFetchMatchInputsGagalTotalDanInput(unittest.TestCase):
                 "team_advanced_bbref",
                 "team_advanced_last10",
                 "player_advanced",
+                "team_shooting_3p",
                 "injuries_official_pdf",
                 "injuries_espn",
             },
@@ -1537,6 +1651,10 @@ class TestShrinkage(unittest.TestCase):
             missing,
             None,
             10.0,
+            # Tembakan 3P diisi (bukan fokus tes ini) agar missing == [].
+            nba_brain._peta_tembakan_3p(_ok("Basketball-Reference", 2, SHOOTING))[
+                "UTA"
+            ],
         )
         self.assertEqual(len(blok["players"]), 1)
         pemain = blok["players"][0]
@@ -1583,6 +1701,10 @@ class TestShrinkage(unittest.TestCase):
             missing,
             musim_lalu,
             10.0,
+            # Tembakan 3P diisi (bukan fokus tes ini) agar missing == [].
+            nba_brain._peta_tembakan_3p(_ok("Basketball-Reference", 2, SHOOTING))[
+                "UTA"
+            ],
         )
         self.assertEqual(
             [p["player"] for p in blok["players"]], ["Pemain B", "Pemain A"]

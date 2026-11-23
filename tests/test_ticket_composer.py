@@ -347,11 +347,10 @@ class TestRacikStandar(unittest.TestCase):
 
     def test_config_main_maks_5_target_35(self):
         # Perubahan config Langkah 3 (profil user 2026-11-22); versi
-        # config kini 15 (aturan keras pasca-Denver 2026-11-23:
-        # fondasi harga & pengali + gate banjir Asuransi + skenario
-        # setan + sharp-move bukan diskon — lihat komentar
-        # playstyle.yaml).
-        self.assertEqual(CFG["meta"]["version"], 15)
+        # config kini 16 (penyempurnaan mesin 2026-11-23: equilibrium
+        # + skip dari awal + news + ekor 3P + OT di seleksi — lihat
+        # komentar playstyle.yaml).
+        self.assertEqual(CFG["meta"]["version"], 16)
         self.assertEqual(CFG["tickets"]["main"]["multiplier_max"], 5.0)
         self.assertEqual(CFG["tickets"]["main"]["target_multiplier_max"], 3.5)
         self.assertEqual(CFG["tickets"]["insurance"]["multiplier_min"], 2.0)
@@ -2088,16 +2087,31 @@ class TestGateBanjirAsuransi(unittest.TestCase):
         kandidat, coret = self._kandidat(analisis)
         self.assertEqual(kandidat["insurance"], [])
         alasan = " ".join(coret["insurance"])
+        # Penolakan sekarang via equilibrium (tidak ada garis yang
+        # lolos semua gate); gate banjir komposer tetap jalan sebagai
+        # pertahanan berlapis di atasnya.
+        self.assertIn("equilibrium", alasan)
         self.assertIn("264.5", alasan)
         self.assertIn("volume tipis", alasan)
         self.assertIn("54.1%", alasan)
-        # Kaki Utama laga yang sama tidak kena gate banjir.
+        # Kaki Utama laga yang sama tidak kena gate banjir — garisnya
+        # adalah titik equilibrium Utama (U254,5 @79,5¢, ER tertinggi
+        # di antara garis yang lolos lantai harga), bukan garis
+        # artefak U250,5.
         self.assertEqual(len(kandidat["main"]), 1)
+        self.assertEqual(kandidat["main"][0]["line"], 254.5)
+        self.assertEqual(kandidat["main"][0]["leg"]["climb"]["reason"], "equilibrium")
 
     def test_garis_tahan_banjir_dipakai_bila_tidak_thin(self):
         # Median 224, sigma 5: U240,5 P banjir 41,8% (gagal) ->
-        # naik ke garis tahan-banjir 246,5 (P banjir 83,9%, tidak
-        # thin, 88¢) -> masuk kandidat dengan climb tercatat.
+        # equilibrium memilih 246,5 (garis tahan-banjir termurah,
+        # tidak thin, 88¢, ER tertinggi di antara garis yang lolos
+        # semua gate) -> masuk kandidat dengan climb tercatat.
+        # PERUBAHAN PERILAKU (equilibrium): climb reason sekarang
+        # "equilibrium" (bukan "banjir") dan p_final DIHITUNG ULANG
+        # di garis baru 0,995248 (bukan 0,927 garis lama) — ini
+        # memperbaiki interaksi banjir x edge LAPORAN-ATURAN-KERAS
+        # §5 (kaki naik garis tidak lagi memakai p_final basi).
         tangga = _tangga_banjir(
             [
                 (232.5, 74.0, 500.0, False),
@@ -2133,11 +2147,13 @@ class TestGateBanjirAsuransi(unittest.TestCase):
                 "from_line": 240.5,
                 "to_line": 246.5,
                 "rungs": 3,
-                "reason": "banjir",
+                "reason": "equilibrium",
             },
         )
-        # p_final/EV tetap garis lama (konservatif, didokumentasi).
-        self.assertEqual(kand["p_final"], 0.927)
+        # p_final dihitung ulang di garis baru: p_model CDF(246,5)
+        # 0,999996, p_market CDF(246,5 - delta 10,0) 0,993213,
+        # blend w=0,3 -> 0,995248 (bukan 0,927 garis lama).
+        self.assertEqual(kand["p_final"], 0.995248)
 
     def test_kaki_lolos_banjir_tetap_diterima(self):
         # Median 224, sigma 5: U252,5 P banjir 98,6% -> lolos tanpa
@@ -2184,10 +2200,17 @@ class TestGateBanjirAsuransi(unittest.TestCase):
             coret["insurance"],
         )
 
-    def test_garis_tahan_banjir_thin_skip_meski_garis_atas_tebal(self):
-        # Garis tahan 246,5 thin, garis di atasnya (248,5) tebal ->
-        # gate TIDAK melompat ke garis tebal di atasnya; SKIP.
-        # (Perilaku yang diputuskan: thin = hard gate Asuransi.)
+    def test_equilibrium_memakai_garis_tebal_di_atas_garis_tahan_thin(self):
+        # PERUBAHAN PERILAKU (equilibrium; menggantikan
+        # test_garis_tahan_banjir_thin_skip_meski_garis_atas_tebal):
+        # garis tahan 246,5 thin, garis di atasnya (248,5) tebal.
+        # Aturan lama (climb) TIDAK melompat dan SKIP; equilibrium
+        # menilai SEMUA garis dan memilih 248,5 @90,5¢ (tahan banjir,
+        # tidak thin, edge +9,4%). Keputusan lama "gate tidak
+        # melompat" (LAPORAN-ATURAN-KERAS §7.1) hanya masuk akal di
+        # dalam mekanisme climb dan digantikan oleh equilibrium.
+        # Thin tetap hard gate Asuransi: garis thin sendiri tidak
+        # pernah dipilih.
         tangga = _tangga_banjir(
             [
                 (232.5, 74.0, 500.0, False),
@@ -2211,10 +2234,22 @@ class TestGateBanjirAsuransi(unittest.TestCase):
             tangga=tangga,
         )
         kandidat, coret = self._kandidat(analisis)
-        self.assertEqual(kandidat["insurance"], [])
-        alasan = " ".join(coret["insurance"])
-        self.assertIn("246.5", alasan)
-        self.assertIn("volume tipis", alasan)
+        self.assertEqual(len(kandidat["insurance"]), 1)
+        kand = kandidat["insurance"][0]
+        self.assertEqual(kand["line"], 248.5)
+        self.assertEqual(kand["harga_jup"], 90.5)
+        self.assertFalse(kand["thin"])
+        self.assertEqual(kand["p_final"], 0.998538)
+        self.assertEqual(
+            kand["leg"]["climb"],
+            {
+                "from_line": 240.5,
+                "to_line": 248.5,
+                "rungs": 4,
+                "reason": "equilibrium",
+            },
+        )
+        self.assertEqual(coret["insurance"], [])
 
     def test_utama_tidak_kena_gate_banjir(self):
         # Kaki Utama dengan P banjir 41,8% (< 65%) tetap lolos —
@@ -2289,11 +2324,13 @@ class TestGateBanjirAsuransi(unittest.TestCase):
 
     def test_racik_penuh_dengan_kaki_naik_garis(self):
         # End-to-end: 7 laga, semua kaki Asuransi naik garis ke
-        # 246,5 @88,5¢; 7 kaki -> pengali 2,22 (target 2,0–2,5;
-        # 6 kaki hanya 1,97). Tiket mencatat climb alasan "banjir"
-        # di tiap kakinya. (Garis naik itu mahal — Asuransi butuh
-        # banyak kaki, sesuai arahan user "tumpuk banyak kaki di
-        # harga tinggi".)
+        # 246,5 @88,5¢ (titik equilibrium — garis tahan-banjir
+        # termurah sekaligus ER tertinggi); 7 kaki -> pengali 2,22
+        # (target 2,0–2,5; 6 kaki hanya 1,97). Tiket mencatat climb
+        # alasan "equilibrium" di tiap kakinya (dulu "banjir" —
+        # equilibrium menggantikan mekanisme climb banjir).
+        # (Garis naik itu mahal — Asuransi butuh banyak kaki, sesuai
+        # arahan user "tumpuk banyak kaki di harga tinggi".)
         tangga = _tangga_banjir(
             [
                 (232.5, 74.0, 500.0, False),
@@ -2342,10 +2379,148 @@ class TestGateBanjirAsuransi(unittest.TestCase):
                     "from_line": 240.5,
                     "to_line": 246.5,
                     "rungs": 3,
-                    "reason": "banjir",
+                    "reason": "equilibrium",
                 },
             )
             self.assertEqual(kaki["jup_price_cents"], 88.5)
+
+
+class TestEquilibriumSkipIntegrasi(unittest.TestCase):
+    """Integrasi equilibrium + skip di komposer (end-to-end).
+
+    Tes artefak nyata memakai out/analysis_live_2026-11-22.json
+    (file runtime, gitignored) dan di-skip bila file tidak ada.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        path = REPO_ROOT / "out" / "analysis_live_2026-11-22.json"
+        cls.path_artefak = path
+        cls.analyses = None
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            cls.analyses = [
+                match.get("nba_analysis") or {} for match in data.get("matches") or []
+            ]
+
+    def _butuh_artefak(self):
+        if self.analyses is None:
+            self.skipTest("out/analysis_live_2026-11-22.json tidak ada (runtime)")
+
+    def test_skip_den_artefak_nyata_di_komposer(self):
+        # DEN@CHI live di-skip dari kedua tiket di komposer (pola
+        # Denver) — tidak ada kandidat DEN di tiket mana pun, dan
+        # entri skip tercatat dengan pemicu + alasan.
+        self._butuh_artefak()
+        hasil = ticket_composer.compose_tickets(
+            self.analyses, None, CFG, stake_total=20, now=SEKARANG
+        )
+        di_skip = {
+            entri["match_id"]: entri for entri in hasil.get("skipped_matches") or []
+        }
+        self.assertIn("DEN@CHI_2026-11-22", di_skip)
+        entri_den = di_skip["DEN@CHI_2026-11-22"]
+        self.assertEqual(entri_den["pemicu"], ["pola_denver"])
+        self.assertIn("pola Denver", entri_den["alasan"])
+        # Tidak ada kaki DEN di kandidat mana pun.
+        per_laga = ticket_composer._terbaru_per_laga(self.analyses, "generated_at")
+        kandidat, _coret = ticket_composer._kumpulkan_kandidat(per_laga, {}, CFG)
+        for tiket in ("insurance", "main"):
+            self.assertNotIn(
+                "DEN@CHI_2026-11-22",
+                [k["match_id"] for k in kandidat[tiket]],
+            )
+        # Blok skip tampil di ringkasan.
+        self.assertIn("LAGA YANG DI-SKIP DARI AWAL", hasil["summary"])
+        self.assertIn("DEN@CHI_2026-11-22", hasil["summary"])
+
+    def test_flag_dimatikan_perilaku_lama_persis(self):
+        # A/B: dengan kedua flag dimatikan, komposer berperilaku
+        # persis seperti aturan lama — tidak ada skipped_matches,
+        # DET@ATL kembali jadi kandidat Utama (U237,5, aturan lama
+        # tidak mengenal skip OT), dan BOS@GSW HILANG dari kandidat
+        # Utama (kaki artefaknya U219,5 di bawah lantai 75¢ —
+        # equilibrium-lah yang menyelamatkannya ke U223,5).
+        self._butuh_artefak()
+        cfg_lama = copy.deepcopy(CFG)
+        cfg_lama["equilibrium"]["enabled"] = False
+        cfg_lama["skip_awal"]["enabled"] = False
+        hasil_lama = ticket_composer.compose_tickets(
+            self.analyses, None, cfg_lama, stake_total=20, now=SEKARANG
+        )
+        self.assertEqual(hasil_lama.get("skipped_matches"), [])
+        self.assertNotIn("LAGA YANG DI-SKIP DARI AWAL", hasil_lama["summary"])
+        per_laga = ticket_composer._terbaru_per_laga(self.analyses, "generated_at")
+        kandidat_lama, _ = ticket_composer._kumpulkan_kandidat(per_laga, {}, cfg_lama)
+        main_lama = {k["match_id"]: k for k in kandidat_lama["main"]}
+        self.assertIn("DET@ATL_2026-11-22", main_lama)
+        self.assertEqual(main_lama["DET@ATL_2026-11-22"]["line"], 237.5)
+        self.assertNotIn("BOS@GSW_2026-11-22", main_lama)
+        # Aturan baru: DET hilang (skip OT), BOS hadir (equilibrium).
+        kandidat_baru, _ = ticket_composer._kumpulkan_kandidat(per_laga, {}, CFG)
+        main_baru = {k["match_id"]: k for k in kandidat_baru["main"]}
+        self.assertNotIn("DET@ATL_2026-11-22", main_baru)
+        self.assertIn("BOS@GSW_2026-11-22", main_baru)
+        self.assertEqual(main_baru["BOS@GSW_2026-11-22"]["line"], 223.5)
+        self.assertEqual(
+            main_baru["BOS@GSW_2026-11-22"]["leg"]["climb"]["reason"],
+            "equilibrium",
+        )
+
+    def test_kaki_equilibrium_leg_id_tidak_berubah(self):
+        # Kaki equilibrium BOS@GSW memakai leg_id kaki artefak
+        # (recheck tetap bisa mencocokkan kaki yang digeser
+        # garisnya).
+        self._butuh_artefak()
+        artefak_bos = next(
+            a for a in self.analyses if a.get("match_id") == "BOS@GSW_2026-11-22"
+        )
+        leg_id_artifak = next(
+            leg["leg_id"] for leg in artefak_bos["legs"] if leg.get("ticket") == "main"
+        )
+        per_laga = ticket_composer._terbaru_per_laga(self.analyses, "generated_at")
+        kandidat, _ = ticket_composer._kumpulkan_kandidat(per_laga, {}, CFG)
+        kand_bos = next(
+            k for k in kandidat["main"] if k["match_id"] == "BOS@GSW_2026-11-22"
+        )
+        self.assertEqual(kand_bos["leg"]["leg_id"], leg_id_artifak)
+        self.assertEqual(kand_bos["line"], 223.5)
+
+    def test_skip_ot_sintetis_di_komposer(self):
+        # Laga dengan OT sim 3,0% di-skip komposer (pemicu
+        # ot_tinggi) meski kakinya lolos semua gate — tanpa
+        # bergantung pada artefak runtime.
+        analisis = buat_analisis_banjir(
+            LAGA[0],
+            224.0,
+            5.0,
+            kaki_ins=buat_kaki(LAGA[0], "insurance", 240.5, 0.99, 0.90, 82.0),
+            kaki_main=buat_kaki(LAGA[0], "main", 236.5, 0.99, 0.90, 78.0),
+            tangga=_tangga_banjir(
+                [
+                    (232.5, 74.0, 500.0, False),
+                    (234.5, 76.0, 500.0, False),
+                    (236.5, 78.0, 500.0, False),
+                    (238.5, 80.0, 500.0, False),
+                    (240.5, 82.0, 500.0, False),
+                    (242.5, 84.0, 500.0, False),
+                    (244.5, 86.0, 500.0, False),
+                    (246.5, 88.0, 500.0, False),
+                    (248.5, 90.0, 500.0, False),
+                    (250.5, 92.0, 500.0, False),
+                ]
+            ),
+        )
+        analisis["simulation"]["score_distribution"]["ot_probability"] = 0.03
+        hasil = ticket_composer.compose_tickets(
+            [analisis], None, CFG, stake_total=20, now=SEKARANG
+        )
+        self.assertEqual(len(hasil.get("skipped_matches") or []), 1)
+        entri = hasil["skipped_matches"][0]
+        self.assertEqual(entri["match_id"], LAGA[0])
+        self.assertEqual(entri["pemicu"], ["ot_tinggi"])
+        self.assertIsNone(hasil["insurance"])
+        self.assertIsNone(hasil["main"])
 
 
 class TestGateSkenarioUnit(unittest.TestCase):
