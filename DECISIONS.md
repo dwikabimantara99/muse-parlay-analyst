@@ -1485,3 +1485,52 @@ BATASAN JUJUR v18.1: artefak uji tanpa blok setan_pemain/veto
 fallback generik); MENENGAH terbukti via fixture sintetis, 0/10 di
 slate ini; demerit foul belum teruji di data nyata (FTr None di
 artefak); OT hard-skip tetap DORMAN; ambang pagar 0,55 INITIAL.
+
+## Build v18.1 SELESAI + TERVERIFIKASI (2026-11-23 16:36 WIB)
+
+Commit 9d52646 (main, remote cocok), config v18.1, 2111/2111 tes,
+ruff + black bersih, 0 kredit. Main agent memverifikasi independen:
+commit/remote/tree, full suite (2x), lint, config, out/ukur_v18_1.json,
+hitung tangan (fallback x1,8015 = (100/83)x(100/84)x(100/85,5)x
+(100/88)x0,945 ✓; joint P 0,5107 = 0,825x0,835x0,85x0,8721 ✓;
+Pi p_final 0,5402 vs joint 0,5107 — joint memakai decision_prob,
+lebih konservatif ✓; 7 kaki @88,5¢ = x2,22 ✓; fixture perangkap
+4 kaki @82,5¢ = x2,04 ✓; 0,93^7 = 0,6017 > 0,85^4 = 0,522 ✓; peta
+30/30, 9 fallback = 9 tim yang hilang ✓).
+Acceptance: K1 LOLOS fungsional (DEN terblokir kedua baris; pola
+0/10), K3 LOLOS (30/30), K4 LOLOS (GP==0 tidak memicu), K5 LOLOS
+(regresi nol); K2 GAGAL literal — tiket x2 tidak terbentuk (maks
+x1,86, 4 kaki; harga termurah lolos gate 83¢) TAPI opsi fallback
+TERLAPORKAN sesuai desain (b): x1,8015, joint P 0,5107, 4 kaki
+(BOS 227,5 @83¢, DAL 242,5 @84¢, DET 243,5 @85,5¢, ORL 241,5 @88¢),
+semua lolos 100% gate. Utama maks x2,30 < x3 (naik dari x1,85).
+TEMUAN UTAMA: pola Denver menyala 0/10 — syarat (2)/(3)/(4)
+dibangun di atas premis era v16 (garis jauh thin + edge datar)
+yang SUDAH dibatalkan pengukuran v18 sendiri (orderbook
+market-maker dalam; EV ≈ impas). S1 menyala 10/10 (tidak
+membedakan DEN; ORL memenuhi LEBIH BANYAK syarat daripada DEN).
+Fungsi pola kini ditanggung veto + vonis + timing gate + gate
+equilibrium. Pola butuh REDESAIN berprinsip — kirim pengukuran
+v18.1 ke Gemini untuk iterasi (bukan pemblokir besok: DEN tetap
+terblokir veto + timing gate).
+KEPUTUSAN KOORDINATOR (menunggu keberatan): (1) batas 6 kaki
+DIPERTAHANKAN sesuai spek — trade-off nyata: 7 kaki @88,5¢ = x2,22
+(joint P 0,60 > 0,52 untuk 4 kaki murah) terblokir; band [2,00x,
+2,50x] sendiri membatasi kaki maks 8. REKOMENDASI: naikkan ke 8
+(selaras filosofi user "tumpuk BANYAK kaki di harga tinggi asal
+tiap kaki fundamental kuat" + perilaku komposer v18). _DP_MAKS_KAKI
+saat ini konstanta kode, perlu dipindah ke config bila diubah.
+KEPUTUSAN USER (D12). (2) joint_p_final = Π decision_prob, bukan
+Π p_final — nilai benar + konservatif, nama kunci menyesatkan
+(tindak lanjut minor). (3) Haliburton GP=4 di artefak nyata (+
+missed_last10: 10) — filter GP≥3 TIDAK mengecualikannya;
+rekomendasi aturan 14-hari/missed_last10 sebagai tindak lanjut
+(berdampak ke laga IND; IND main besok vs OKC). (4) garis referensi
+tail_fragility difilter cek_eksekusi (hindari garis sampah U117,5).
+(5) pagar syarat (3) "tahan setan" = P_setan ≥ 0,55 (INITIAL).
+(6) OG Anunoby (PF) fallback NYK vs KAT (C) bila dibatasi C.
+BATASAN: artefak uji tanpa blok setan_pemain/veto (jalur pemain +
+veto-blok hanya teruji fixture); pagar tidak pernah berlaku di slate
+uji (bukti hanya fixture); MENENGAH 0/10 di slate ini; demerit foul
+belum teruji di data nyata (FTr None); OT hard-skip dorman; ambang
+pagar 0,55 INITIAL; veto bergantung data cedera SEGAR.
