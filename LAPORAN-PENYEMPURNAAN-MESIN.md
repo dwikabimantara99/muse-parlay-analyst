@@ -1,6 +1,6 @@
 # Laporan Penyempurnaan Mesin — Tambal Semua Kebulungan Sekaligus
 
-Commit: `<diisi setelah commit feat>` (config v16, 0 kredit Odds API).
+Commit: `05dcf4b` (config v16, 0 kredit Odds API).
 Laporan per item: LAPORAN-EQUILIBRIUM-SKIP-AWAL.md (items 1, 2, 5),
 LAPORAN-EKOR-3P.md (item 4), probes/HASIL-PROBE-NEWS.md (item 3).
 Keputusan user yang diimplementasikan: DECISIONS.md ("Titik
