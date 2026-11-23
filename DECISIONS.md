@@ -1602,3 +1602,82 @@ format-skema terpisah).
 File: out/slate_preview_2026-11-24.json, out/analysis_preview_2026-11-24.json,
 out/tickets_preview_2026-11-24.json, out/laporan_preview_2026-11-24.txt
 (2.527 baris). Tidak ada commit / perubahan kode / kredit.
+
+## Jawaban Gemini soal gate volume + 5 temuan preview (user 2026-11-23 18:55 WIB)
+
+DITERIMA + DIVERIFIKASI main agent dari laporan/artefak preview
+(BUKAN sekadar diterima). v18.1 TETAP DIBEKUKAN untuk besok pagi;
+semua ini bahan v18.2 + panduan baca laporan besok.
+(1) GATE VOLUME: Gemini SETUJU PENUH — pembangun kaki artefak
+wajib disamakan ke cek_eksekusi (likuiditas + spread + ask asli),
+gate volume kumulatif ≥$100 DIHAPUS sebagai pemblokir (turun jadi
+catatan L3). Diagnosis "bug split-brain" cocok dengan pengukuran
+kami. Klaimnya: besok pagi pun dengan Odds API, bug ini tetap
+memblokir kaki Asuransi di OKC, MEM, MIL, BKN, SAS (masuk akal —
+Odds API mengisi p_market, bukan volume). 4 RISIKO yang wajib
+dijaga di cek_eksekusi v18.2: (a) likuiditas agregat vs top-of-book
+— bila ada ask_depth (dalam +2¢ dari best ask) minimal ≥2× stake
+($30); bila hanya liquidity_gamma agregat, naikkan lantai ke
+$250–$500; (b) sanity check monotonisitas tangga — ask(L) ≥
+ask(L−2) − 1¢; (c) one-sided book — syarat eksplisit bid > 0 dan
+ask < 0,99; (d) kalibrasi max_spread 5,0¢ dari catatan fill nyata
+besok pagi. (Catatan: teks "Balasan Siap Kirim" Gemini hanya
+menyebut 3 risiko — yang ke-4 (kalibrasi spread) ada di teks utama.)
+(2) KONTRADIKSI HIJAU TANPA EQ ASURANSI — TERKONFIRMASI PERSIS:
+PHX@NOP + LAC@HOU divonis HIJAU ("kandidat Asuransi") padahal EQ
+Asuransi = None; PHX garis terbaik U257.5 @91¢ EV −1,6%, LAC
+U250.5 @93,5¢ EV −10,8% (keduanya persis seperti kata Gemini).
+Vonis mundur menilai garis EQ Utama (banjir FT 57,9% / 41,7%).
+ATURAN v18.2: tanpa EQ Asuransi valid, vonis maksimal MENENGAH.
+(3) HOLD MASSAL KONFLIK CEDERA PEMAIN PINGGIRAN — TERKONFIRMASI:
+konflik di Grant Nelson, Bryce McGowens, Adem Bona, Dean Wade,
+Collin Murray-Boyles, Jaylon Tyson (pemain pelapis/non-star)
+memicu HOLD. ATURAN v18.2: bedakan konflik bintang (mp ≥15 &
+BPM ≥+1,0, atau OUT vs AVAILABLE) yang memicu HOLD, vs konflik
+minor PROBABLE (Official NBA, jenjang 1) vs QUESTIONABLE (ESPN,
+jenjang 2) yang cukup jadi catatan L3 (utamakan jenjang 1).
+(4) BUG PARSER PDF OFFICIAL NBA ("bocor baris") — TERKONFIRMASI
+VERBATIM (4/4 contoh Gemini): "NOT YET SUBMITTED" laga lain
+menempel di komentar Murray-Boyles (OKC@IND), Ernest Udeh Jr.
+(Chicago Bulls), Austin Reaves (DET@ORL/BOS@WAS/DAL@DEN), Ben
+Simmons (UTA@LAL). Bukti turunan: Official NBA Injury Report
+untuk OKC@IND memang BELUM SUBMIT saat preview.
+(5) MISTERI OKC@IND −21,5 — BUKTI TERKONFIRMASI, MEKANISME
+HIPOTESIS: total model 199,1 (laporan baris 557: IND 102,1 +
+OKC 97,0) vs median sim mentah 200,0 (blok Vegas) — dua kuantitas
+berbeda, bukan kontradiksi; 13 pemain tidak main/diragukan
+(daftar persis, termasuk Haliburton/Holmgren/Jalen Williams);
+ESPN basi "out for Sunday's game against the Heat" terkonfirmasi
+verbatim (SGA, Mara, Caruso, Jaylin Williams, Topic, McConnell).
+Double-counting cedera jangka panjang (sudah masuk rating tim
+lalu dikurangi BPM lagi) + DBPM bek elit ikut memotong proyeksi
+total = HIPOTESIS Gemini yang masuk akal, PERLU investigasi
+desain di v18.2 (belum terbukti). "Skenario semua tersedia
+~220" = perkiraan Gemini, BUKAN angka mesin (laporan tidak punya
+skenario semua-tersedia).
+(6) BUG TAMPILAN — TERKONFIRMASI: pemenang H2H terbalik di 4 laga
+(TOR 121–107 MIL ditulis MIL menang; CHI 115–126 CLE ditulis CHI;
+LAL 132–123 UTA ditulis UTA; SAC 103–130 SAS ditulis SAC — plus
+rekap menang/kalah ikut salah); flag "Bermain di kota dataran
+tinggi" menyala di Utah (tandang) pada laga UTA@LAL yang main di
+Los Angeles (flag harusnya soal LOKASI laga, bukan kota kandang
+tim tandang). H2H tidak masuk vonis (sudah dicatat), jadi ini bug
+tampilan + kepercayaan laporan.
+RENCANA BESOK PAGI (disepakati Gemini): tetap jalan v18.1 + Odds
+API dulu; bila kaki Asuransi artefak masih terblokir volume_tipis,
+evaluasi bareng dari angka Equilibrium Asuransi langsung sebelum
+v18.2 dieksekusi. Gemini menawarkan cross-check laporan segar
+(~05:30–06:15 WIB) — angka EQ Asuransi + status injury report
+final — sebelum user klik pasang di jup.ag. User diminta lempar
+laporan segar ke Gemini besok pagi.
+DAFTAR v18.2 (diperbarui): (1) _DP_MAKS_KAKI ke config tetap 6;
+(2) kesegaran cedera GP≥3 DAN missed_last10≤5; (3) joint_p_final
+→ joint_p_keputusan; (4) redesain skip_awal (high-total + 3P
+volume + P_setan<0,55); (5) satukan pembangun kaki ke
+cek_eksekusi + 4 risiko di atas, volume kumulatif jadi L3;
+(6) tanpa EQ Asuransi valid → vonis maks MENENGAH; (7) filter
+konflik cedera bintang vs minor; (8) perbaiki parser PDF
+(bocor baris NOT YET SUBMITTED); (9) investigasi double-counting
+cedera + DBPM bek elit (OKC@IND); (10) perbaiki pemenang H2H +
+flag dataran tinggi (lokasi laga); (11) duplikat slate BKN@MIN +
+output build_slate tidak bisa langsung jadi input analyze.
