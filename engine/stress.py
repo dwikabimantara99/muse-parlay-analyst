@@ -33,22 +33,45 @@ SKENARIO (geser dalam poin, ditambahkan ke total):
 - "setan": geser ``stress.setan_points`` dari config — deviasi
   maksimal tripoin yang pernah teramati (maks musim, BUKAN p99).
   BUKAN gate: hanya deteksi kerapuhan (flag_setan) + garis
-  tahan-setan sebagai info.
+  tahan-setan sebagai info. Bila data setan per pemain tersedia
+  (argumen ``setan_pemain=`` hasil engine/setan_pemain.py, atau
+  ``analysis["setan_pemain"]``), skenario setan memakai geser
+  pemain (total_setan_pemain - median) sebagai demon UTAMA dan
+  setan umum di atas hanya menjadi fallback — lihat "SETAN PER
+  PEMAIN" di bawah.
 - "konservatif": distribusi dipusatkan ke garis market — geser =
   ``market.main_total_line`` - median sim (``score_distribution.total.
   median``), sigma sama. Bila garis market atau median tidak ada di
   artefak, skenario ini tidak terdefinisi (dicatat, bukan ditebak).
 
+SETAN PER PEMAIN (build 2026-11-23; engine/setan_pemain.py +
+ingest/pemain_3p.py; LAPORAN-SETAN-PEMAIN.md): demon berbasis data
+pemain — tiap pemain rotasi yang main menembak sebesar % 3P terbaik
+liga musim ini; total setan laga = median - poin 3P normal + poin 3P
+setan (dihitung per tim lalu digabung). Bila datanya tersedia DAN
+``setan_pemain.enabled`` di config true, skenario "setan" memakai
+geser pemain itu (P setan, flag_setan, dan garis tahan-setan
+mengikutinya) dan tiap kaki mendapat field ``total_setan_pemain``,
+``deviasi_setan_pemain_dari_garis_bandar`` (vs garis bandar;
+None bila garis bandar tidak ada), ``p_setan_pemain``, dan
+``flag_setan_pemain`` (total setan > garis kaki). Bila data tidak
+tersedia / tidak valid / dinonaktifkan, skenario setan memakai
+setan umum (``stress.setan_points``) + catatan fallback — perilaku
+lama tidak berubah. BANJIR 3P/FT TIDAK disentuh wiring ini.
+
 DASAR DATA PARAMETER BANJIR (bukan tebakan — diturunkan dari game log
-stats.nba.com, musim 2026-27, n=247 laga, 20 Okt–22 Nov 2026,
-leaguegamefinder; 0 kredit Odds API):
-- 3PM gabungan/laga: rata-rata 26,62, p90 33,00 (lebih 6,38 tembakan).
-  Kemiringan regresi OLS total poin terhadap 3PM gabungan: 2,12 poin
+stats.nba.com, musim 2026-27, HANYA laga selesai, n=243, 20 Okt–22 Nov
+2026, leaguegamefinder; 0 kredit Odds API). Nilai ini SUDAH DIKOREKSI
+ke data bersih (disetujui user 2026-11-23 12:38 WIB; config v17) —
+nilai lama (13,54/17,54) diturunkan dari snapshot n=247 yang TERCEMAR
+4 laga berjalan (lihat TEMUAN KONTAMINASI di bawah):
+- 3PM gabungan/laga: rata-rata 26,79, p90 33,00 (lebih 6,21 tembakan).
+  Kemiringan regresi OLS total poin terhadap 3PM gabungan: 1,37 poin
   per tembakan masuk (bukan 3,0 — tembakan tiga tambahan sebagian
-  menggantikan tembakan dua angka). Geser = 6,38 x 2,12 = 13,54 poin.
-- FTM gabungan/laga: rata-rata 37,79, p90 52,00 (lebih 14,22).
-  Kemiringan OLS total terhadap FTM gabungan: 1,23 poin per lemparan
-  masuk. Geser = 14,22 x 1,23 = 17,54 poin.
+  menggantikan tembakan dua angka). Geser = 6,21 x 1,37 = 8,50 poin.
+- FTM gabungan/laga: rata-rata 38,16, p90 52,00 (lebih 13,84).
+  Kemiringan OLS total terhadap FTM gabungan: 0,90 poin per lemparan
+  masuk. Geser = 13,84 x 0,90 = 12,52 poin.
 - Persentil p90 ("1 dari 10 laga") adalah PILIHAN DESAIN — menunggu
   keberatan reviewer. Jangkar insiden DEN@CHI: 21 tripoin masuk di
   halftime (laju 42/laga) berada DI ATAS maks musim (40; z +2,89,
@@ -69,16 +92,14 @@ leaguegamefinder; 0 kredit Odds API):
   DEN@CHI 171 poin); laga berjalan BUKAN observasi laga penuh
   (menarik rerata ke bawah + kemiringan ke atas: kemiringan
   tercemar 2,12 vs bersih 1,37).
-- TEMUAN KONTAMINASI (dilaporkan ke koordinator, BUKAN diperbaiki
-  diam-diam): nilai banjir p90 di config (13,54/17,54) diturunkan
-  dari snapshot n=247 YANG TERCEMAR 4 laga berjalan itu — terbukti
-  karena tarikan ulang 2026-11-23 mereproduksi persis rerata
-  26,62, kemiringan 2,12, dan geser 13,54/17,54 dari snapshot
-  yang sama. Data bersih memberi p90 3P 8,50 / FT 12,52.
-  Kalibrasi ulang banjir MENUNGGU keputusan user; setan memakai
-  data bersih, banjir tetap memakai nilai config apa adanya
-  sampai diputuskan. Detail + dataset:
-  out/derivasi_setan_2026-11-23.json.
+- TEMUAN KONTAMINASI (dilaporkan 2026-11-23, DIPERBAIKI atas
+  persetujuan user 12:38 WIB — config v17): nilai banjir p90 LAMA
+  (13,54/17,54) diturunkan dari snapshot n=247 YANG TERCEMAR 4 laga
+  berjalan — terbukti karena tarikan ulang 2026-11-23 mereproduksi
+  persis rerata 26,62, kemiringan 2,12, dan geser 13,54/17,54 dari
+  snapshot yang sama. Nilai config SEKARANG adalah data bersih
+  (p90 3P 8,50 / FT 12,52, n=243). Setan memakai data bersih sejak
+  awal. Detail + dataset: out/derivasi_setan_2026-11-23.json.
 - KALIBRASI ULANG: tarik lagi game log musim berjalan (leaguegamefinder,
   keyless), hitung ulang rata-rata + p90 + kemiringan OLS, ganti kedua
   kunci config, dan minta persetujuan user (seperti D12 untuk parameter
@@ -153,14 +174,14 @@ _TARGET_TIKET = {
 # Penjelasan dasar parameter (ditulis ke output agar artefak stress
 # bisa diaudit sendiri tanpa membuka file ini).
 _DASAR_BANJIR_3P = (
-    "p90-rerata 3PM gabungan/laga (33,00-26,62) x kemiringan total/3PM "
-    "(2,12) = 13,54 poin; game log stats.nba.com 2026-27, n=247 laga, "
-    "20 Okt-22 Nov 2026"
+    "p90-rerata 3PM gabungan/laga (33,00-26,79) x kemiringan total/3PM "
+    "(1,37) = 8,50 poin; game log stats.nba.com 2026-27, HANYA laga "
+    "selesai, n=243 laga, 20 Okt-22 Nov 2026"
 )
 _DASAR_BANJIR_FT = (
-    "p90-rerata FTM gabungan/laga (52,00-37,79) x kemiringan total/FTM "
-    "(1,23) = 17,54 poin; game log stats.nba.com 2026-27, n=247 laga, "
-    "20 Okt-22 Nov 2026"
+    "p90-rerata FTM gabungan/laga (52,00-38,16) x kemiringan total/FTM "
+    "(0,90) = 12,52 poin; game log stats.nba.com 2026-27, HANYA laga "
+    "selesai, n=243 laga, 20 Okt-22 Nov 2026"
 )
 _DASAR_SETAN = (
     "maks-rerata 3PM gabungan/laga (40,00-26,79) x kemiringan total/3PM "
@@ -369,11 +390,35 @@ def _validasi_kaki_eksplisit(kaki: list[dict]) -> list[dict]:
     return hasil
 
 
+def _setan_pemain_diaktifkan(cfg: dict) -> bool:
+    """Apakah setan per pemain diaktifkan di config (section setan_pemain).
+
+    Section hilang -> True (kompatibel dengan fixture/config lama;
+    tanpa data pemain, skenario setan tetap memakai setan umum).
+    Section ada tapi bukan mapping / kunci enabled hilang / enabled
+    bukan bool -> ConfigError (fail-closed: kill-switch tidak boleh
+    ambigu).
+    """
+    bagian = cfg.get("setan_pemain")
+    if bagian is None:
+        return True
+    if not isinstance(bagian, dict):
+        raise config_mod.ConfigError("setan_pemain harus mapping")
+    if "enabled" not in bagian:
+        raise config_mod.ConfigError(
+            "kunci config tidak ditemukan: setan_pemain.enabled"
+        )
+    if not isinstance(bagian["enabled"], bool):
+        raise config_mod.ConfigError("setan_pemain.enabled harus bool")
+    return bagian["enabled"]
+
+
 def skenario_panas(
     analysis: dict,
     kaki: list[dict] | None = None,
     harga_cek: list[float] | None = None,
     cfg: dict | None = None,
+    setan_pemain: dict | None = None,
 ) -> dict:
     """Hitung skenario panas satu laga NBA dari artefak nba_analysis.
 
@@ -387,12 +432,21 @@ def skenario_panas(
       nggak kalau panas?") — untuk tiap harga dicari garis tangga
       Under terdekat harganya + P(Under) per skenario di garis itu.
     cfg: dict playstyle (default: dibaca dari config/playstyle.yaml).
+    setan_pemain: dict hasil engine/setan_pemain.hitung_setan_pemain
+      (butuh kunci ``total_setan_pemain`` numerik) — bila None,
+      dipakai analysis["setan_pemain"] bila ada. Bila data tersedia
+      dan setan_pemain.enabled true, skenario "setan" memakai geser
+      pemain (total_setan_pemain - median sim); bila tidak, fallback
+      ke setan umum (stress.setan_points) + catatan fallback, dan
+      field per-kaki setan pemain bernilai None.
 
     Mengembalikan dict format "nba_stress" v1: geser per skenario,
     P(Under) per kaki per skenario, garis tahan-banjir per kaki
     (atau None + alasan bila tidak ada), garis tahan-setan +
     flag_setan per kaki (deteksi kerapuhan, BUKAN gate), dan hasil
-    cek harga.
+    cek harga. Bila setan per pemain dipakai, tiap kaki juga membawa
+    total_setan_pemain, deviasi_setan_pemain_dari_garis_bandar,
+    p_setan_pemain, dan flag_setan_pemain.
     Raise ValueError bila CDF tidak bisa dibangun; ConfigError bila
     kunci config hilang (fail-closed, tanpa default dari kode).
     """
@@ -439,6 +493,71 @@ def skenario_panas(
             "tidak bisa dicari"
         )
 
+    # SETAN PER PEMAIN (demon utama bila data tersedia; setan umum
+    # sebagai fallback — lihat docstring modul). Argumen eksplisit
+    # menang atas analysis["setan_pemain"].
+    setan_pemain_aktif = _setan_pemain_diaktifkan(cfg)
+    data_setan_pemain = (
+        setan_pemain if setan_pemain is not None else analysis.get("setan_pemain")
+    )
+    total_setan_pemain: float | None = None
+    geser_setan_pemain: float | None = None
+    alasan_fallback_setan: str | None = None
+    if not setan_pemain_aktif:
+        alasan_fallback_setan = (
+            "setan per pemain dinonaktifkan di config "
+            "(setan_pemain.enabled=false) — memakai setan umum"
+        )
+    elif not isinstance(data_setan_pemain, dict):
+        alasan_fallback_setan = (
+            "data setan per pemain tidak tersedia — memakai setan umum"
+        )
+    else:
+        total_kandidat = _angka(data_setan_pemain.get("total_setan_pemain"))
+        if total_kandidat is None:
+            alasan_fallback_setan = (
+                "data setan per pemain tanpa total_setan_pemain numerik — "
+                "memakai setan umum"
+            )
+        elif median_sim is None:
+            alasan_fallback_setan = (
+                "median total simulasi tidak ada di artefak — geser setan "
+                "per pemain tidak bisa dihitung, memakai setan umum"
+            )
+        else:
+            total_setan_pemain = total_kandidat
+            geser_setan_pemain = total_setan_pemain - median_sim
+    setan_pemain_dipakai = geser_setan_pemain is not None
+    if (
+        setan_pemain_dipakai
+        and geser_setan_pemain is not None
+        and geser_setan_pemain < 0
+    ):
+        # Kasus patologis (tim sudah menembak di atas % terbaik liga
+        # yang memenuhi ambang) — geser negatif dipakai apa adanya,
+        # tapi dicatat agar tidak dibaca sebagai demon yang membantu.
+        catatan.append(
+            "total setan per pemain di bawah median sim "
+            f"(geser {geser_setan_pemain:+.2f}) — tim sudah menembak "
+            "di atas % terbaik liga yang memenuhi ambang"
+        )
+    if alasan_fallback_setan is not None and (
+        not setan_pemain_aktif or isinstance(data_setan_pemain, dict)
+    ):
+        # Fallback yang "aneh" (dinonaktifkan / data rusak) dicatat di
+        # catatan; fallback karena data memang tidak diberikan hanya
+        # tercatat di penjelasan skenario setan (menghindari noise di
+        # setiap pemanggilan lama yang tidak memakai setan pemain).
+        catatan.append(alasan_fallback_setan)
+    geser_setan_efektif = geser_setan_pemain if setan_pemain_dipakai else geser_setan
+    deviasi_setan_pemain: float | None = None
+    if (
+        setan_pemain_dipakai
+        and total_setan_pemain is not None
+        and garis_market is not None
+    ):
+        deviasi_setan_pemain = round(total_setan_pemain - garis_market, 2)
+
     if geser_ft >= geser_3p:
         banjir_terburuk, geser_terburuk = "banjir_ft", geser_ft
     else:
@@ -456,7 +575,7 @@ def skenario_panas(
         "normal": 0.0,
         "banjir_3p": geser_3p,
         "banjir_ft": geser_ft,
-        "setan": geser_setan,
+        "setan": geser_setan_efektif,
         "konservatif": geser_konservatif,
     }
     hasil_kaki: list[dict] = []
@@ -487,10 +606,14 @@ def skenario_panas(
         # Setan: analogi yang sama di geser maksimal (deteksi, bukan
         # gate — lihat docstring modul). garis_tahan_banjir() generik:
         # ia hanya mencari garis terkecil yang lolos di geser tertentu.
+        # Geser yang dipakai adalah geser setan per pemain bila data
+        # tersedia, setan umum bila fallback.
         p_setan = p_under["setan"]
         tahan_setan = p_setan is not None and p_setan >= target
         entri_tahan_setan = (
-            garis_tahan_banjir(tangga, cdf, geser_setan, target) if tangga else None
+            garis_tahan_banjir(tangga, cdf, geser_setan_efektif, target)
+            if tangga
+            else None
         )
         alasan_tidak_tahan_setan: str | None = None
         if not tangga:
@@ -534,6 +657,23 @@ def skenario_panas(
                 "alasan_tidak_tahan_setan": alasan_tidak_tahan_setan,
                 "flag_setan": flag_setan,
                 "alasan_flag_setan": alasan_flag_setan,
+                # Setan per pemain (None bila fallback ke setan umum):
+                # total setan spesifik-tim, deviasinya vs garis bandar,
+                # P(Under) di skenario setan pemain (= p_under setan
+                # bila dipakai), dan flag rapuh langsung (total setan
+                # di atas garis kaki).
+                "total_setan_pemain": (
+                    round(total_setan_pemain, 2)
+                    if setan_pemain_dipakai and total_setan_pemain is not None
+                    else None
+                ),
+                "deviasi_setan_pemain_dari_garis_bandar": deviasi_setan_pemain,
+                "p_setan_pemain": p_setan if setan_pemain_dipakai else None,
+                "flag_setan_pemain": (
+                    total_setan_pemain > garis
+                    if setan_pemain_dipakai and total_setan_pemain is not None
+                    else None
+                ),
             }
         )
 
@@ -569,10 +709,35 @@ def skenario_panas(
             }
         )
 
+    # Penjelasan skenario setan: bedakan demon pemain vs fallback umum.
+    if setan_pemain_dipakai:
+        penjelasan_setan = (
+            "Deviasi MAKSIMAL tripoin berbasis data pemain "
+            "(engine/setan_pemain.py): semua pemain rotasi yang main "
+            "menembak sebesar % 3P terbaik liga; total setan "
+            f"{total_setan_pemain} (geser {geser_setan_pemain:+.2f} dari "
+            f"median {median_sim})"
+            + (
+                f", deviasi {deviasi_setan_pemain:+.2f} dari garis bandar "
+                f"{garis_market}"
+                if deviasi_setan_pemain is not None
+                else ", garis bandar tidak ada di artefak"
+            )
+            + ". DETEKSI kerapuhan, BUKAN gate."
+        )
+    else:
+        penjelasan_setan = (
+            "Deviasi MAKSIMAL tripoin (maksimum teramati musim "
+            "ini, bukan p90) — DETEKSI kerapuhan, BUKAN gate. "
+            "Dasar: " + _DASAR_SETAN + ". "
+            f"Fallback: {alasan_fallback_setan}."
+        )
+
     return {
         "format": FORMAT,
         "format_version": FORMAT_VERSION,
         "match_id": analysis.get("match_id"),
+        "setan_pemain_dipakai": setan_pemain_dipakai,
         "skenario": {
             "normal": {
                 "geser_points": 0.0,
@@ -593,12 +758,15 @@ def skenario_panas(
                 ),
             },
             "setan": {
-                "geser_points": round(geser_setan, 2),
-                "penjelasan": (
-                    "Deviasi MAKSIMAL tripoin (maksimum teramati musim "
-                    "ini, bukan p90) — DETEKSI kerapuhan, BUKAN gate. "
-                    "Dasar: " + _DASAR_SETAN + "."
+                "geser_points": round(geser_setan_efektif, 2),
+                "sumber_setan": "pemain" if setan_pemain_dipakai else "umum",
+                "total_setan_pemain": (
+                    round(total_setan_pemain, 2)
+                    if setan_pemain_dipakai and total_setan_pemain is not None
+                    else None
                 ),
+                "deviasi_setan_pemain_dari_garis_bandar": deviasi_setan_pemain,
+                "penjelasan": penjelasan_setan,
             },
             "konservatif": {
                 "geser_points": (

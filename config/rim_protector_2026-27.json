@@ -1,0 +1,407 @@
+{
+ "format": "rim_protector",
+ "format_version": 1,
+ "season": "2026-27",
+ "fetched_at": "2026-11-23T06:00:47.130116+00:00",
+ "source": "stats.nba.com",
+ "n_players_fetched": 474,
+ "rule": {
+  "min_games": 3.0,
+  "min_mp_per_game": 15.0,
+  "min_blk_per_game": 0.8,
+  "max_per_team": 2,
+  "penjelasan": "Per tim maksimal max_per_team pemain rotasi (GP >= min_games, MP >= min_mp_per_game) dengan blok bermakna (BLK >= min_blk_per_game), urut BPG tertinggi (seri -> menit -> nama). Aturan + ambang di config/playstyle.yaml section vonis.rim_protector."
+ },
+ "teams": {
+  "UTA": [
+   {
+    "player": "Mo Bamba",
+    "blk_per_game": 1.6,
+    "mp_per_game": 20.8,
+    "games_played": 14
+   },
+   {
+    "player": "Jaren Jackson Jr.",
+    "blk_per_game": 1.3,
+    "mp_per_game": 26.1,
+    "games_played": 4
+   }
+  ],
+  "OKC": [
+   {
+    "player": "Chet Holmgren",
+    "blk_per_game": 3.0,
+    "mp_per_game": 29.9,
+    "games_played": 3
+   },
+   {
+    "player": "Aday Mara",
+    "blk_per_game": 1.7,
+    "mp_per_game": 22.4,
+    "games_played": 16
+   }
+  ],
+  "GSW": [
+   {
+    "player": "Al Horford",
+    "blk_per_game": 1.0,
+    "mp_per_game": 17.0,
+    "games_played": 14
+   },
+   {
+    "player": "Draymond Green",
+    "blk_per_game": 0.9,
+    "mp_per_game": 25.6,
+    "games_played": 14
+   }
+  ],
+  "WAS": [
+   {
+    "player": "Kyshawn George",
+    "blk_per_game": 1.2,
+    "mp_per_game": 33.8,
+    "games_played": 18
+   },
+   {
+    "player": "Alex Sarr",
+    "blk_per_game": 1.2,
+    "mp_per_game": 26.6,
+    "games_played": 17
+   }
+  ],
+  "HOU": [
+   {
+    "player": "Kevin Durant",
+    "blk_per_game": 0.9,
+    "mp_per_game": 33.5,
+    "games_played": 17
+   },
+   {
+    "player": "Jabari Smith Jr.",
+    "blk_per_game": 0.9,
+    "mp_per_game": 33.3,
+    "games_played": 17
+   }
+  ],
+  "MIA": [
+   {
+    "player": "Giannis Antetokounmpo",
+    "blk_per_game": 1.3,
+    "mp_per_game": 32.1,
+    "games_played": 15
+   },
+   {
+    "player": "Bam Adebayo",
+    "blk_per_game": 0.8,
+    "mp_per_game": 32.6,
+    "games_played": 16
+   }
+  ],
+  "ORL": [
+   {
+    "player": "Wendell Carter Jr.",
+    "blk_per_game": 0.9,
+    "mp_per_game": 32.0,
+    "games_played": 16
+   },
+   {
+    "player": "Anthony Black",
+    "blk_per_game": 0.8,
+    "mp_per_game": 33.1,
+    "games_played": 13
+   }
+  ],
+  "MIN": [
+   {
+    "player": "Joan Beringer",
+    "blk_per_game": 1.2,
+    "mp_per_game": 16.8,
+    "games_played": 17
+   },
+   {
+    "player": "Rudy Gobert",
+    "blk_per_game": 1.1,
+    "mp_per_game": 29.4,
+    "games_played": 16
+   }
+  ],
+  "DET": [
+   {
+    "player": "Cade Cunningham",
+    "blk_per_game": 0.9,
+    "mp_per_game": 34.8,
+    "games_played": 15
+   },
+   {
+    "player": "Kevin Huerter",
+    "blk_per_game": 0.9,
+    "mp_per_game": 27.0,
+    "games_played": 16
+   }
+  ],
+  "LAC": [
+   {
+    "player": "Isaiah Jackson",
+    "blk_per_game": 1.1,
+    "mp_per_game": 17.7,
+    "games_played": 14
+   },
+   {
+    "player": "Derrick Jones Jr.",
+    "blk_per_game": 0.9,
+    "mp_per_game": 28.4,
+    "games_played": 14
+   }
+  ],
+  "CHI": [
+   {
+    "player": "Jalen Smith",
+    "blk_per_game": 1.1,
+    "mp_per_game": 25.3,
+    "games_played": 14
+   },
+   {
+    "player": "Nic Claxton",
+    "blk_per_game": 1.0,
+    "mp_per_game": 20.4,
+    "games_played": 6
+   }
+  ],
+  "MEM": [
+   {
+    "player": "Zach Edey",
+    "blk_per_game": 1.1,
+    "mp_per_game": 20.9,
+    "games_played": 13
+   },
+   {
+    "player": "Isaiah Stewart",
+    "blk_per_game": 1.0,
+    "mp_per_game": 18.3,
+    "games_played": 12
+   }
+  ],
+  "TOR": [
+   {
+    "player": "Collin Murray-Boyles",
+    "blk_per_game": 1.1,
+    "mp_per_game": 23.5,
+    "games_played": 14
+   },
+   {
+    "player": "Scottie Barnes",
+    "blk_per_game": 0.8,
+    "mp_per_game": 34.0,
+    "games_played": 11
+   }
+  ],
+  "DAL": [
+   {
+    "player": "Daniel Gafford",
+    "blk_per_game": 1.6,
+    "mp_per_game": 22.1,
+    "games_played": 17
+   },
+   {
+    "player": "P.J. Washington",
+    "blk_per_game": 1.1,
+    "mp_per_game": 30.8,
+    "games_played": 15
+   }
+  ],
+  "BKN": [
+   {
+    "player": "Day'Ron Sharpe",
+    "blk_per_game": 1.2,
+    "mp_per_game": 23.8,
+    "games_played": 15
+   },
+   {
+    "player": "Keon Ellis",
+    "blk_per_game": 0.9,
+    "mp_per_game": 19.4,
+    "games_played": 14
+   }
+  ],
+  "NOP": [
+   {
+    "player": "Yves Missi",
+    "blk_per_game": 1.4,
+    "mp_per_game": 22.8,
+    "games_played": 7
+   },
+   {
+    "player": "Derik Queen",
+    "blk_per_game": 0.8,
+    "mp_per_game": 22.2,
+    "games_played": 18
+   }
+  ],
+  "POR": [
+   {
+    "player": "Donovan Clingan",
+    "blk_per_game": 2.1,
+    "mp_per_game": 26.0,
+    "games_played": 16
+   },
+   {
+    "player": "Robert Williams III",
+    "blk_per_game": 1.0,
+    "mp_per_game": 16.4,
+    "games_played": 13
+   }
+  ],
+  "SAC": [
+   {
+    "player": "Precious Achiuwa",
+    "blk_per_game": 1.0,
+    "mp_per_game": 24.5,
+    "games_played": 13
+   },
+   {
+    "player": "Dylan Cardwell",
+    "blk_per_game": 0.8,
+    "mp_per_game": 15.0,
+    "games_played": 9
+   }
+  ],
+  "CLE": [
+   {
+    "player": "Peyton Watson",
+    "blk_per_game": 1.5,
+    "mp_per_game": 27.8,
+    "games_played": 13
+   },
+   {
+    "player": "Jarrett Allen",
+    "blk_per_game": 1.3,
+    "mp_per_game": 26.9,
+    "games_played": 14
+   }
+  ],
+  "IND": [
+   {
+    "player": "Kelly Oubre Jr.",
+    "blk_per_game": 0.9,
+    "mp_per_game": 24.4,
+    "games_played": 15
+   },
+   {
+    "player": "Tyrese Haliburton",
+    "blk_per_game": 0.8,
+    "mp_per_game": 33.0,
+    "games_played": 4
+   }
+  ],
+  "LAL": [
+   {
+    "player": "Walker Kessler",
+    "blk_per_game": 2.1,
+    "mp_per_game": 30.9,
+    "games_played": 16
+   },
+   {
+    "player": "Matisse Thybulle",
+    "blk_per_game": 0.9,
+    "mp_per_game": 24.9,
+    "games_played": 17
+   }
+  ],
+  "DEN": [
+   {
+    "player": "Nikola Jokić",
+    "blk_per_game": 1.0,
+    "mp_per_game": 37.1,
+    "games_played": 15
+   },
+   {
+    "player": "Jamal Murray",
+    "blk_per_game": 1.0,
+    "mp_per_game": 37.0,
+    "games_played": 15
+   }
+  ],
+  "PHI": [
+   {
+    "player": "Joel Embiid",
+    "blk_per_game": 1.0,
+    "mp_per_game": 32.1,
+    "games_played": 14
+   }
+  ],
+  "MIL": [
+   {
+    "player": "Myles Turner",
+    "blk_per_game": 2.3,
+    "mp_per_game": 26.6,
+    "games_played": 15
+   },
+   {
+    "player": "Kel'el Ware",
+    "blk_per_game": 1.1,
+    "mp_per_game": 18.8,
+    "games_played": 17
+   }
+  ],
+  "PHX": [
+   {
+    "player": "Khaman Maluach",
+    "blk_per_game": 0.8,
+    "mp_per_game": 18.5,
+    "games_played": 15
+   }
+  ],
+  "BOS": [
+   {
+    "player": "Neemias Queta",
+    "blk_per_game": 1.2,
+    "mp_per_game": 23.3,
+    "games_played": 16
+   },
+   {
+    "player": "Mitchell Robinson",
+    "blk_per_game": 0.8,
+    "mp_per_game": 17.5,
+    "games_played": 14
+   }
+  ],
+  "CHA": [
+   {
+    "player": "Ryan Kalkbrenner",
+    "blk_per_game": 1.1,
+    "mp_per_game": 18.2,
+    "games_played": 15
+   },
+   {
+    "player": "Moussa Diabaté",
+    "blk_per_game": 1.0,
+    "mp_per_game": 29.6,
+    "games_played": 13
+   }
+  ],
+  "NYK": [
+   {
+    "player": "OG Anunoby",
+    "blk_per_game": 0.9,
+    "mp_per_game": 34.0,
+    "games_played": 15
+   }
+  ],
+  "ATL": [
+   {
+    "player": "Onyeka Okongwu",
+    "blk_per_game": 0.8,
+    "mp_per_game": 30.9,
+    "games_played": 17
+   }
+  ],
+  "SAS": [
+   {
+    "player": "Victor Wembanyama",
+    "blk_per_game": 3.9,
+    "mp_per_game": 30.3,
+    "games_played": 17
+   }
+  ]
+ }
+}

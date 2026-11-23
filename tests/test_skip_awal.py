@@ -123,9 +123,15 @@ def _analisis_pola_denver(match_id="DEN@CHI_2026-11-22", ot=0.02):
     """Fixture pola Denver: keempat syarat benar (median 233, sigma 19,2).
 
     Garis acuan 246,5 @72,5¢ thin (P normal 75,9%, P setan 40,6%,
-    edge -1,5%); garis tahan banjir 264,5–270,5 semuanya thin.
+    edge -1,5%); garis tahan banjir 258,5–270,5 semuanya thin.
     Equilibrium Utama ADA (U252,5) — skip hanya via pola (b),
     bukan via (a). OT 2,0% (di bawah ambang) — bukan via (c).
+
+    KALIBRASI ULANG (koreksi banjir 2026-11-23, worker B): dengan
+    geser bersih (banjir FT 12,52, bukan 17,54), garis tahan
+    banjir pertama turun dari 264,5 ke 258,5 — garis 258,5–262,5
+    ikut dibuat thin supaya syarat (2) fixture tetap benar
+    (tidak ada garis tidak-tipis yang tahan banjir).
     """
     tangga = _tangga(
         [
@@ -139,9 +145,9 @@ def _analisis_pola_denver(match_id="DEN@CHI_2026-11-22", ot=0.02):
             (252.5, 76.0, 500.0, False),
             (254.5, 78.0, 500.0, False),
             (256.5, 80.0, 500.0, False),
-            (258.5, 82.0, 500.0, False),
-            (260.5, 84.0, 500.0, False),
-            (262.5, 86.0, 500.0, False),
+            (258.5, 82.0, 10.0, True),
+            (260.5, 84.0, 10.0, True),
+            (262.5, 86.0, 10.0, True),
             (264.5, 94.0, 10.0, True),
             (266.5, 95.0, 10.0, True),
             (268.5, 96.0, 10.0, True),
@@ -197,7 +203,7 @@ class TestPolaDenverKonjungsi(unittest.TestCase):
         self.assertAlmostEqual(acuan["p_normal"], 0.75879, places=4)
         self.assertAlmostEqual(acuan["p_setan"], 0.406, places=2)
         self.assertLess(acuan["edge"], 0.035)
-        self.assertEqual(acuan["n_tahan_banjir"], 4)
+        self.assertEqual(acuan["n_tahan_banjir"], 7)
         self.assertEqual(acuan["n_tahan_banjir_nonthin"], 0)
 
     def test_syarat2_mati_ada_garis_tahan_tebal(self):
@@ -569,7 +575,8 @@ class TestArtefakNyata(unittest.TestCase):
         # KASUS WAJIB: DEN@CHI live di-skip dengan alasan pola
         # Denver — keempat syarat benar: flag setan (P normal
         # 75,9% vs P setan 40,5%), tidak ada garis tidak-tipis yang
-        # tahan banjir (satu-satunya U266,5 thin), garis acuan
+        # tahan banjir (garis tahan banjir 260,5–266,5, keempatnya
+        # thin — geser bersih 12,52, bukan 17,54), garis acuan
         # U248,5 @72¢ thin, edge +1,5% < 3,5%.
         hasil = skip_awal.evaluasi_skip_awal(self.live["DEN@CHI_2026-11-22"], CFG)
         self.assertTrue(hasil["dievaluasi"])

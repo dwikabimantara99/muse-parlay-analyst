@@ -1111,6 +1111,22 @@ class TestTahap4GarisBandarDanBantalan(unittest.TestCase):
             teks,
         )
 
+    def test_penjelasan_volume_per_garis(self):
+        # Transparansi volume (keputusan user 12:38 WIB 2026-11-23):
+        # satu kalimat menjelaskan volume laga tersebar di ratusan
+        # garis sehingga garis jauh tipis — mesin mengecek volume
+        # PER GARIS, bukan volume laga.
+        data = nba_report_mod.render_nba_report_json(_artefak_tahap4())
+        bagian = _bagian(data, "Kaki Asuransi & Utama")
+        teks = "\n".join(bagian["lines"])
+        self.assertIn(
+            "Catatan volume: volume satu laga tersebar di ratusan "
+            "garis, sehingga garis yang jauh dari garis bandar hanya "
+            "ditawar segelintir orang dan harganya kurang bisa "
+            "dipercaya — garis seperti itu disebut volume tipis.",
+            teks,
+        )
+
     def test_artefak_lama_tanpa_analisis_wajar_tidak_crash(self):
         # Fixture lama (_artefak tanpa field Tahap 4): bagian garis
         # bandar menulis "tidak terverifikasi", kaki tanpa alasan
@@ -1195,20 +1211,24 @@ class TestSkenarioPanas(unittest.TestCase):
     def test_hitung_otomatis_dari_artefak(self):
         teks = nba_report_mod.render_nba_report(_artefak())
         self.assertIn("Skenario panas", teks)
-        # Geser dari config (13,54 / 17,54 / setan 18,07) + konservatif
-        # (225,5-219).
-        self.assertIn("banjir tripoin +13,54 poin", teks)
-        self.assertIn("banjir lemparan bebas +17,54 poin", teks)
+        # Geser dari config (8,50 / 12,52 — KOREKSI kontaminasi
+        # 2026-11-23, worker B; sebelumnya 13,54 / 17,54) + setan
+        # 18,07 (tidak berubah) + konservatif (225,5-219).
+        # Penyimpangan dinyatakan vs garis bandar (permintaan user
+        # 12:33 WIB).
+        self.assertIn("dari garis bandar 225,5", teks)
+        self.assertIn("banjir tripoin +8,50 poin", teks)
+        self.assertIn("banjir lemparan bebas +12,52 poin", teks)
         self.assertIn("deviasi maksimal (setan tripoin) +18,07 poin", teks)
         self.assertIn("konservatif (selaras garis market) +6,50 poin", teks)
         self.assertIn("Skenario banjir terburuk: banjir lemparan bebas.", teks)
-        # Under 233,5: CDF(233,5-13,54)=CDF(219,96)=51,8%;
-        # CDF(233,5-17,54)=CDF(215,96) dijepit ke 50,0%;
+        # Under 233,5: CDF(233,5-8,50)=CDF(225,0)=61,3%;
+        # CDF(233,5-12,52)=CDF(220,98)=53,7%;
         # CDF(233,5-6,5)=CDF(227)=65,0%;
         # setan CDF(233,5-18,07)=CDF(215,43) dijepit ke 50,0%.
         self.assertIn(
             "Under 233,5 (Asuransi, 68¢): normal 77,2%; banjir tripoin "
-            "51,8%; banjir lemparan bebas 50,0%; konservatif 65,0%; "
+            "61,3%; banjir lemparan bebas 53,7%; konservatif 65,0%; "
             "setan 50,0%.",
             teks,
         )
@@ -1222,6 +1242,12 @@ class TestSkenarioPanas(unittest.TestCase):
         # 241,5 -> CDF(223,43)=58,3% < 74%).
         self.assertIn("Tidak ada garis tahan setan", teks)
         self.assertIn("tidak ada garis tahan-setan", teks)
+        # Deviasi garis tahan vs garis bandar (kaki Utama punya garis
+        # tahan banjir 241,5): 241,5 - 225,5 = 16 poin.
+        self.assertIn(
+            "Garis tahan banjir itu 16 poin di atas garis bandar 225,5.",
+            teks,
+        )
 
     def test_membaca_stress_tersimpan_bila_ada(self):
         artefak = _artefak()
@@ -1266,7 +1292,7 @@ class TestSkenarioPanas(unittest.TestCase):
         }
         teks = nba_report_mod.render_nba_report(artefak)
         # Nilai tersimpan dipakai, bukan hitung otomatis (20, bukan
-        # 13,54 — _fmt_poin memangkas nol di belakang koma) — membuktikan
+        # 8,50 — _fmt_poin memangkas nol di belakang koma) — membuktikan
         # jalur baca-artefak.
         self.assertIn("banjir tripoin +20 poin", teks)
         self.assertIn("Skenario banjir terburuk: banjir tripoin.", teks)
@@ -1281,11 +1307,57 @@ class TestSkenarioPanas(unittest.TestCase):
             "— PERHATIAN: volume garis ini tipis (volume tidak tercatat).",
             teks,
         )
+        # Deviasi garis tahan vs garis bandar juga dirender dari
+        # stress tersimpan: 240,5 - 225,5 = 15 poin.
+        self.assertIn(
+            "Garis tahan banjir itu 15 poin di atas garis bandar 225,5.",
+            teks,
+        )
         self.assertIn(
             "Di harga 94¢ (garis 250,5): kalau banjir terburuk, "
             "peluang Under 92,0%.",
             teks,
         )
+
+    def test_setan_per_pemain_dirender_bila_ada(self):
+        # Field setan per pemain (diisi worker setan-pemain, per
+        # kaki di hasil stress) dirender sekali: total + deviasi
+        # vs garis bandar.
+        artefak = _artefak()
+        artefak["stress"] = {
+            "format": "nba_stress",
+            "format_version": 1,
+            "skenario": {
+                "banjir_3p": {"geser_points": 8.5},
+                "banjir_ft": {"geser_points": 12.52},
+            },
+            "banjir_terburuk": "banjir_ft",
+            "kaki": [
+                {
+                    "line": 233.5,
+                    "ticket": "insurance",
+                    "price_cents": 68.0,
+                    "target_probability": 0.74,
+                    "p_under": {"normal": 0.772},
+                    "tahan_banjir": False,
+                    "total_setan_pemain": 261.5,
+                    "deviasi_setan_pemain_dari_garis_bandar": 36.0,
+                }
+            ],
+        }
+        teks = nba_report_mod.render_nba_report(artefak)
+        self.assertIn(
+            "Setan per pemain (kalau semua pemain panas bareng): "
+            "total bisa sampai 261,5 poin, 36 poin di atas garis "
+            "bandar 225,5.",
+            teks,
+        )
+
+    def test_setan_per_pemain_dilewati_bila_tidak_ada(self):
+        # Tanpa field setan per pemain, barisnya dilewati (bukan
+        # error, bukan angka karangan) — artefak lama tetap render.
+        teks = nba_report_mod.render_nba_report(_artefak())
+        self.assertNotIn("Setan per pemain", teks)
 
 
 class TestEquilibriumSkip(unittest.TestCase):

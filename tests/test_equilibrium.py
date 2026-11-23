@@ -1,11 +1,19 @@
 """Tes titik equilibrium per kaki (engine/equilibrium.py).
 
-Definisi yang diuji: di antara garis tangga yang lolos SEMUA gate
-tiket itu, equilibrium = garis dengan expected return tertinggi
-ER = p_final x (100 / harga venue). Seri ER (< 1e-9) -> p_final
-lebih besar -> garis lebih kecil. Tidak ada lantai ER > 1: max-ER
-adalah yang terbaik yang tersedia; viabilitas tiket dinilai di
-level tiket oleh komposer.
+Definisi yang diuji — MODE PER TIKET (keputusan user 12:20 +
+12:33 WIB 2026-11-23; config equilibrium.mode_insurance /
+mode_main, worker B):
+- Asuransi (safety_first): di antara garis tangga yang lolos SEMUA
+  gate tiket itu, equilibrium = garis dengan p_final TERTINGGI
+  (paling aman). Seri p_final (< 1e-9) -> ER lebih besar -> garis
+  lebih kecil.
+- Utama (max_er): equilibrium = garis dengan expected return
+  tertinggi ER = p_final x (100 / harga venue). Seri ER (< 1e-9)
+  -> p_final lebih besar -> garis lebih kecil.
+Tidak ada lantai ER > 1: equilibrium adalah yang terbaik yang
+tersedia; viabilitas tiket dinilai di level tiket oleh komposer.
+Kendala pengali Asuransi (x2) ditegakkan komposer (_pilih_subset),
+bukan di sini.
 
 Tes artefak nyata memakai out/analysis_live_2026-11-22.json +
 out/analysis_verif_tahap4_2026-11-22.json (file runtime, gitignored)
@@ -182,6 +190,28 @@ def _analisis_den(match_id="DET@ATL_2026-11-22"):
     )
 
 
+def _analisis_edge_mengikat(match_id="DET@ATL_2026-11-22"):
+    """Fixture edge-mengikat: garis tahan banjir tidak thin ada, tapi
+    edge < 3,5% di semua garis (harga 90–98¢ vs p_final 0,93–1,00).
+
+    KALIBRASI ULANG (koreksi banjir 2026-11-23, worker B): dengan
+    geser bersih, garis tahan banjir pertama turun ke 240,5 —
+    tangga lama (240,5 @82¢) kini lolos edge (+10,5%), jadi harga
+    dinaikkan agar fixture tetap menguji gate edge (bukan banjir
+    atau volume).
+    """
+    tangga = _tangga(
+        [
+            (240.5, 90.0, 500.0, False),
+            (242.5, 94.0, 500.0, False),
+            (244.5, 96.0, 500.0, False),
+            (246.5, 97.0, 500.0, False),
+            (248.5, 98.0, 500.0, False),
+        ]
+    )
+    return _analisis_224(match_id, tangga=tangga)
+
+
 def _muat_artefak(path):
     """Analisis per laga dari satu file artefak (dict match_id -> dict).
 
@@ -201,21 +231,23 @@ class TestMaxER(unittest.TestCase):
     """Definisi equilibrium: expected return tertinggi, bukan termurah."""
 
     def test_memilih_expected_return_tertinggi(self):
-        # Asuransi: 3 garis lolos semua gate (246,5/248,5/250,5);
-        # ER tertinggi di 246,5 (1,1246) — garis termurah di antara
-        # yang lolos SEKALIGUS max-ER di fixture ini.
-        hasil = equilibrium.cari_equilibrium(_analisis_224(), "insurance", CFG)
+        # Utama tetap max-ER (keputusan user 12:33 WIB): di
+        # fixture-224, 6 garis lolos gate Utama; ER tertinggi di
+        # 238,5 @80,5¢ (1,2008) — lihat juga
+        # test_bukan_garis_termurah_yang_lolos. Tes Asuransi
+        # safety-first ada di TestSafetyFirst.
+        hasil = equilibrium.cari_equilibrium(_analisis_224(), "main", CFG)
         self.assertTrue(hasil["dihitung"])
         self.assertTrue(hasil["ada"])
-        self.assertEqual(hasil["garis"], 246.5)
-        self.assertEqual(hasil["harga_venue_cents"], 88.5)
-        self.assertEqual(hasil["p_final"], 0.995248)
-        self.assertAlmostEqual(hasil["expected_return"], 1.1246, places=3)
-        self.assertEqual(hasil["n_kandidat_lolos"], 3)
-        # ER equilibrium > ER garis lolos lain (248,5).
-        ktx = equilibrium.siapkan_konteks(_analisis_224(), "insurance", CFG)
-        _, _, p_final_248 = equilibrium.peluang_pada_garis(ktx, 248.5)
-        self.assertGreater(hasil["expected_return"], p_final_248 * (100.0 / 90.5))
+        self.assertEqual(hasil["garis"], 238.5)
+        self.assertEqual(hasil["harga_venue_cents"], 80.5)
+        self.assertEqual(hasil["p_final"], 0.966624)
+        self.assertAlmostEqual(hasil["expected_return"], 1.2008, places=3)
+        self.assertEqual(hasil["mode"], "max_er")
+        # ER equilibrium > ER garis lolos lain (240,5).
+        ktx = equilibrium.siapkan_konteks(_analisis_224(), "main", CFG)
+        _, _, p_final_240 = equilibrium.peluang_pada_garis(ktx, 240.5)
+        self.assertGreater(hasil["expected_return"], p_final_240 * (100.0 / 82.5))
 
     def test_bukan_garis_termurah_yang_lolos(self):
         # Utama: garis termurah yang lolos lantai + peluang adalah
@@ -382,20 +414,154 @@ class TestMaxER(unittest.TestCase):
         self.assertAlmostEqual(hasil["expected_return"], 0.9333, places=3)
 
 
+class TestSafetyFirst(unittest.TestCase):
+    """Mode safety-first Asuransi (keputusan user 12:20 + 12:33 WIB).
+
+    Asuransi memilih garis dengan p_final TERTINGGI di antara garis
+    yang lolos semua gate — bukan ER tertinggi. Utama tetap max-ER.
+    """
+
+    def test_asuransi_pilih_p_final_tertinggi_bukan_er(self):
+        # Fixture-224 Asuransi: 6 garis lolos (240,5–250,5).
+        # Safety-first memilih 250,5 @92,5¢ (p_final 0,999612, ER
+        # 1,0807) — garis paling aman, BUKAN max-ER (242,5 @84,5¢,
+        # p_final 0,967212, ER 1,1446).
+        hasil = equilibrium.cari_equilibrium(_analisis_224(), "insurance", CFG)
+        self.assertTrue(hasil["dihitung"])
+        self.assertTrue(hasil["ada"])
+        self.assertEqual(hasil["mode"], "safety_first")
+        self.assertEqual(hasil["garis"], 250.5)
+        self.assertEqual(hasil["harga_venue_cents"], 92.5)
+        self.assertEqual(hasil["p_final"], 0.999612)
+        self.assertAlmostEqual(hasil["expected_return"], 1.0807, places=3)
+        self.assertEqual(hasil["n_kandidat_lolos"], 6)
+        # p_final equilibrium > p_final garis lolos lain (248,5).
+        ktx = equilibrium.siapkan_konteks(_analisis_224(), "insurance", CFG)
+        _, _, p_final_248 = equilibrium.peluang_pada_garis(ktx, 248.5)
+        self.assertGreater(hasil["p_final"], p_final_248)
+        # ... meski ER-nya lebih rendah dari max-ER (242,5).
+        _, _, p_final_242 = equilibrium.peluang_pada_garis(ktx, 242.5)
+        self.assertLess(hasil["expected_return"], p_final_242 * (100.0 / 84.5))
+
+    def test_mode_max_er_di_config_memilih_er(self):
+        # Override config mode_insurance=max_er -> perilaku lama:
+        # 242,5 @84,5¢ (p_final 0,967212, ER 1,1446). Bukti mode
+        # dikendalikan config, bukan hardcode per tiket.
+        cfg = copy.deepcopy(CFG)
+        cfg["equilibrium"]["mode_insurance"] = "max_er"
+        hasil = equilibrium.cari_equilibrium(_analisis_224(), "insurance", cfg)
+        self.assertTrue(hasil["ada"])
+        self.assertEqual(hasil["mode"], "max_er")
+        self.assertEqual(hasil["garis"], 242.5)
+        self.assertEqual(hasil["harga_venue_cents"], 84.5)
+        self.assertEqual(hasil["p_final"], 0.967212)
+        self.assertAlmostEqual(hasil["expected_return"], 1.1446, places=3)
+
+    def test_mode_utama_safety_first_memilih_p_final(self):
+        # Mode juga bisa dibalik (Utama safety-first) — bukti mode
+        # murni fungsi config per tiket: Utama memilih garis p_final
+        # tertinggi yang lolos (250,5), bukan max-ER (238,5).
+        cfg = copy.deepcopy(CFG)
+        cfg["equilibrium"]["mode_main"] = "safety_first"
+        hasil = equilibrium.cari_equilibrium(_analisis_224(), "main", cfg)
+        self.assertTrue(hasil["ada"])
+        self.assertEqual(hasil["mode"], "safety_first")
+        self.assertEqual(hasil["garis"], 250.5)
+
+    def test_seri_p_final_pilih_er_tertinggi(self):
+        # CDF datar di atas 240 (p 0,99): dua garis p_final seri
+        # persis 0,99 -> yang ER lebih besar (248,5 @90,5¢, ER
+        # 1,0939) menang atas 250,5 @92,5¢ (ER 1,0703).
+        hasil = equilibrium.cari_equilibrium(
+            self._analisis_seri(92.0), "insurance", CFG
+        )
+        self.assertTrue(hasil["ada"])
+        self.assertEqual(hasil["garis"], 248.5)
+        self.assertEqual(hasil["p_final"], 0.99)
+        self.assertAlmostEqual(hasil["expected_return"], 1.0939, places=3)
+
+    def test_seri_penuh_pilih_garis_terkecil(self):
+        # p_final seri + harga sama -> ER seri -> garis terkecil
+        # (248,5) menang.
+        hasil = equilibrium.cari_equilibrium(
+            self._analisis_seri(90.0), "insurance", CFG
+        )
+        self.assertTrue(hasil["ada"])
+        self.assertEqual(hasil["garis"], 248.5)
+        self.assertEqual(hasil["p_final"], 0.99)
+
+    def test_mode_tidak_dikenal_config_error(self):
+        cfg = copy.deepcopy(CFG)
+        cfg["equilibrium"]["mode_insurance"] = "paling_murah"
+        with self.assertRaises(config.ConfigError):
+            equilibrium.cari_equilibrium(_analisis_224(), "insurance", cfg)
+
+    def test_mode_hilang_config_error(self):
+        # Fail-closed: kunci mode hilang -> ConfigError, bukan
+        # default diam-diam (mode yang salah diam-diam lebih buruk
+        # daripada error keras).
+        cfg = copy.deepcopy(CFG)
+        del cfg["equilibrium"]["mode_insurance"]
+        with self.assertRaises(config.ConfigError):
+            equilibrium.cari_equilibrium(_analisis_224(), "insurance", cfg)
+
+    @staticmethod
+    def _analisis_seri(harga_atas):
+        # CDF datar 0,99 di atas 240: p_final seri di 248,5/250,5
+        # (keduanya lolos banjir: P banjir 79,3%/89,1% >= 74%).
+        return {
+            "format": "nba_analysis",
+            "format_version": 1,
+            "match_id": "SER@I_2026-11-22",
+            "status": "OK",
+            "legs": [
+                _kaki("SER@I_2026-11-22", "insurance", 240.5, 0.9, 0.9, 80.0),
+                _kaki("SER@I_2026-11-22", "main", 240.5, 0.9, 0.9, 80.0),
+            ],
+            "simulation": {
+                "score_distribution": {"total": {"median": 230.0}},
+                "markets": {
+                    "total_under_230": 0.50,
+                    "total_under_240": 0.99,
+                    "total_under_250": 0.99,
+                    "total_under_260": 0.99,
+                },
+            },
+            "market": {
+                "main_total_line": 231.5,
+                "totals": _tangga(
+                    [
+                        (248.5, 90.0, 500.0, False),
+                        (250.5, harga_atas, 500.0, False),
+                    ]
+                ),
+            },
+        }
+
+
 class TestGate(unittest.TestCase):
     """Gate per tiket + diagnosis gate yang mengikat."""
 
     def test_asuransi_volume_mengikat_fixture_den(self):
-        # Fixture DEN: satu-satunya garis tahan banjir (264,5)
-        # thin -> tidak ada equilibrium Asuransi, gate mengikat
-        # volume; Utama tetap punya equilibrium (254,5).
+        # PERUBAHAN REALITA (koreksi banjir 2026-11-23, worker B):
+        # dengan geser bersih, fixture DEN sintetis kini PUNYA
+        # equilibrium Asuransi — garis tahan banjir pertama turun
+        # dari 264,5 ke 258,5, dan 258,5 @85,5¢ tidak thin (edge
+        # +4,5%) sehingga menjadi satu-satunya garis yang lolos
+        # semua gate. Cakupan "volume mengikat" sintetis pindah ke
+        # artefak nyata DEN live/verif (TestArtefakNyata) — di sana
+        # semua garis tahan banjir tetap thin. Utama tetap 254,5.
         analisis = _analisis_den()
         hasil = equilibrium.cari_equilibrium(analisis, "insurance", CFG)
         self.assertTrue(hasil["dihitung"])
-        self.assertFalse(hasil["ada"])
-        self.assertIn("volume", hasil["alasan_tidak_ada"])
-        self.assertIn("264.5", hasil["alasan_tidak_ada"])
-        self.assertIn("volume tipis", hasil["alasan_tidak_ada"])
+        self.assertTrue(hasil["ada"])
+        self.assertEqual(hasil["mode"], "safety_first")
+        self.assertEqual(hasil["garis"], 258.5)
+        self.assertEqual(hasil["harga_venue_cents"], 85.5)
+        self.assertEqual(hasil["p_final"], 0.900437)
+        self.assertAlmostEqual(hasil["expected_return"], 1.0531, places=3)
+        self.assertEqual(hasil["n_kandidat_lolos"], 1)
+        self.assertFalse(hasil["thin"])
         hasil_main = equilibrium.cari_equilibrium(analisis, "main", CFG)
         self.assertTrue(hasil_main["ada"])
         self.assertEqual(hasil_main["garis"], 254.5)
@@ -403,17 +569,10 @@ class TestGate(unittest.TestCase):
     def test_asuransi_edge_mengikat(self):
         # Garis tahan banjir tidak thin ada, tapi edge di bawah
         # minimum 3,5% di semua garis -> tidak ada equilibrium,
-        # gate mengikat edge, token edge_kecil dipakai.
-        tangga = _tangga(
-            [
-                (240.5, 82.0, 500.0, False),
-                (242.5, 84.0, 500.0, False),
-                (244.5, 86.0, 500.0, False),
-                (246.5, 96.0, 500.0, False),
-                (248.5, 98.0, 500.0, False),
-            ]
-        )
-        analisis = _analisis_224(tangga=tangga)
+        # gate mengikat edge, token edge_kecil dipakai. Fixture
+        # dikalibrasi ulang untuk geser bersih (lihat
+        # _analisis_edge_mengikat).
+        analisis = _analisis_edge_mengikat()
         hasil = equilibrium.cari_equilibrium(analisis, "insurance", CFG)
         self.assertTrue(hasil["dihitung"])
         self.assertFalse(hasil["ada"])
@@ -423,16 +582,16 @@ class TestGate(unittest.TestCase):
     def test_asuransi_banjir_mengikat_tanpa_garis_tahan(self):
         # Tangga berhenti di bawah garis tahan banjir -> token
         # tidak_ada_garis_tahan_banjir dipakai ulang (jejak audit
-        # tetap nyambung dengan aturan lama).
+        # tetap nyambung dengan aturan lama). Dengan geser bersih,
+        # garis tahan banjir pertama fixture-224 adalah 240,5, jadi
+        # tangga dipendekkan sampai 238,5 (sebelumnya 244,5 —
+        # koreksi banjir 2026-11-23, worker B).
         tangga = _tangga(
             [
                 (232.5, 74.0, 500.0, False),
                 (234.5, 76.0, 500.0, False),
                 (236.5, 78.0, 500.0, False),
                 (238.5, 80.0, 500.0, False),
-                (240.5, 82.0, 500.0, False),
-                (242.5, 84.0, 500.0, False),
-                (244.5, 86.0, 500.0, False),
             ]
         )
         analisis = _analisis_224(tangga=tangga)
@@ -467,7 +626,11 @@ class TestGate(unittest.TestCase):
         self.assertTrue(hasil["ada"])
         self.assertEqual(hasil["garis"], 238.5)
         self.assertTrue(hasil["thin"])
-        self.assertLess(hasil["p_banjir_terburuk"], 0.65)
+        # Garis Utama BOLEH gagal target banjir Asuransi (74%):
+        # P banjir 238,5 adalah 65,4% — di bawah 74% (dengan geser
+        # bersih; sebelum koreksi nilainya 27,6%, di bawah 65%).
+        # Intinya tetap: Utama tidak di-gate banjir.
+        self.assertLess(hasil["p_banjir_terburuk"], 0.74)
 
     def test_label_mahal_tersubsumsi_gate_edge(self):
         # Untuk Asuransi, gate label MAHAL saat ini tidak pernah
@@ -486,8 +649,9 @@ class TestGate(unittest.TestCase):
 
     def test_asuransi_boleh_melompati_garis_tahan_thin(self):
         # Equilibrium menilai SEMUA garis: garis tahan 246,5 thin
-        # dilewati, 248,5 tebal dipilih (248,5 @90,5¢, edge +9,4%).
-        # Keputusan lama "gate tidak melompat" digantikan.
+        # dilewati; safety-first memilih p_final tertinggi di
+        # antara yang lolos (250,5 @92,5¢, p_final 0,999612, tidak
+        # thin). Keputusan lama "gate tidak melompat" digantikan.
         tangga = _tangga(
             [
                 (232.5, 74.0, 500.0, False),
@@ -505,9 +669,9 @@ class TestGate(unittest.TestCase):
         analisis = _analisis_224(tangga=tangga)
         hasil = equilibrium.cari_equilibrium(analisis, "insurance", CFG)
         self.assertTrue(hasil["ada"])
-        self.assertEqual(hasil["garis"], 248.5)
+        self.assertEqual(hasil["garis"], 250.5)
         self.assertFalse(hasil["thin"])
-        self.assertEqual(hasil["p_final"], 0.998538)
+        self.assertEqual(hasil["p_final"], 0.999612)
 
 
 class TestJangkarPasar(unittest.TestCase):
@@ -601,27 +765,27 @@ class TestRakitKaki(unittest.TestCase):
         self.assertIsNotNone(kaki_baru)
         # Identitas sama (recheck tetap cocok), isi garis baru.
         self.assertEqual(kaki_baru["leg_id"], kaki_lama["leg_id"])
-        self.assertEqual(kaki_baru["line"], 246.5)
-        self.assertEqual(kaki_baru["price_cents"], 88.0)
-        self.assertEqual(kaki_baru["jup_estimated_cents"], 88.5)
-        self.assertEqual(kaki_baru["p_final"], 0.995248)
-        self.assertEqual(kaki_baru["p_model"], 0.999996)
-        self.assertEqual(kaki_baru["p_market"], 0.993213)
+        self.assertEqual(kaki_baru["line"], 250.5)
+        self.assertEqual(kaki_baru["price_cents"], 92.0)
+        self.assertEqual(kaki_baru["jup_estimated_cents"], 92.5)
+        self.assertEqual(kaki_baru["p_final"], 0.999612)
+        self.assertEqual(kaki_baru["p_model"], 1.0)
+        self.assertEqual(kaki_baru["p_market"], 0.999445)
         self.assertEqual(kaki_baru["thin"], False)
         self.assertEqual(kaki_baru["volume_usd"], 500.0)
         self.assertTrue(kaki_baru["meets"])
         # Cushion dihitung ulang di garis baru; cushion artefak
         # (per-laga) dipertahankan.
-        self.assertEqual(kaki_baru["cushion_vs_median_points"], 22.5)
-        self.assertEqual(kaki_baru["cushion_vs_market_points"], 21.0)
+        self.assertEqual(kaki_baru["cushion_vs_median_points"], 26.5)
+        self.assertEqual(kaki_baru["cushion_vs_market_points"], 25.0)
         self.assertEqual(kaki_baru["cushion_points"], 8.0)
         self.assertEqual(kaki_baru["cushion_reason"], "bantalan_adaptif")
         self.assertEqual(
             kaki_baru["climb"],
             {
                 "from_line": 240.5,
-                "to_line": 246.5,
-                "rungs": 3,
+                "to_line": 250.5,
+                "rungs": 5,
                 "reason": "equilibrium",
             },
         )
@@ -643,7 +807,12 @@ class TestRakitKaki(unittest.TestCase):
         )
 
     def test_tidak_ada_equilibrium_tidak_dibangun_ulang(self):
-        analisis = _analisis_den()
+        # Fixture edge-mengikat (tidak ada equilibrium Asuransi)
+        # -> rakit_kaki mengembalikan None. Sebelum koreksi banjir,
+        # tes ini memakai fixture DEN — kini DEN sintetis PUNYA
+        # equilibrium Asuransi (lihat
+        # test_asuransi_volume_mengikat_fixture_den).
+        analisis = _analisis_edge_mengikat()
         hasil = equilibrium.cari_equilibrium(analisis, "insurance", CFG)
         self.assertFalse(hasil["ada"])
         self.assertIsNone(
@@ -670,8 +839,8 @@ class TestRakitKaki(unittest.TestCase):
             kaki_baru["climb"],
             {
                 "from_line": 238.5,
-                "to_line": 246.5,
-                "rungs": 4,
+                "to_line": 250.5,
+                "rungs": 6,
                 "reason": "volume_tipis+equilibrium",
             },
         )
@@ -692,14 +861,15 @@ class TestArtefakNyata(unittest.TestCase):
 
     def test_den_live_tidak_ada_equilibrium_asuransi(self):
         # KASUS WAJIB 1 (bagian Asuransi): DEN@CHI live — tidak ada
-        # equilibrium Asuransi; gate mengikat volume (satu-satunya
-        # garis tahan banjir U266,5 @94¢ thin).
+        # equilibrium Asuransi; gate mengikat volume (garis tahan
+        # banjir 260,5–266,5, keempatnya thin — geser bersih
+        # 12,52; sebelum koreksi hanya U266,5 @94¢).
         analisis = self.live["DEN@CHI_2026-11-22"]
         hasil = equilibrium.cari_equilibrium(analisis, "insurance", CFG)
         self.assertTrue(hasil["dihitung"])
         self.assertFalse(hasil["ada"])
         self.assertIn("volume", hasil["alasan_tidak_ada"])
-        self.assertIn("266.5", hasil["alasan_tidak_ada"])
+        self.assertIn("260.5", hasil["alasan_tidak_ada"])
         self.assertIn("volume tipis", hasil["alasan_tidak_ada"])
 
     def test_den_live_ada_equilibrium_utama(self):
@@ -718,11 +888,44 @@ class TestArtefakNyata(unittest.TestCase):
         analisis = self.verif["DEN@CHI_2026-11-22"]
         hasil_ins = equilibrium.cari_equilibrium(analisis, "insurance", CFG)
         self.assertFalse(hasil_ins["ada"])
-        self.assertIn("264.5", hasil_ins["alasan_tidak_ada"])
+        # Garis tahan banjir pertama verif: 258,5 (geser bersih;
+        # sebelum koreksi 264,5).
+        self.assertIn("258.5", hasil_ins["alasan_tidak_ada"])
         hasil_main = equilibrium.cari_equilibrium(analisis, "main", CFG)
         self.assertTrue(hasil_main["ada"])
         self.assertEqual(hasil_main["garis"], 250.5)
         self.assertEqual(hasil_main["harga_venue_cents"], 78.5)
+
+    def test_okc_verif_asuransi_vs_utama_berbeda_tujuan(self):
+        # KASUS WAJIB (worker B): equilibrium Asuransi vs Utama
+        # BERBEDA sesuai tujuannya. OKC@MIA verif:
+        # - Utama (max-er): ADA di U240,5 @75,5¢, p_final 0,788828,
+        #   ER 1,0448 — titik paling manis (nilai terbaik).
+        # - Asuransi (safety-first): TIDAK ADA — garis terbaik yang
+        #   lolos banjir + volume (U250,5 @89,5¢, p_final 0,908)
+        #   gagal edge (+1,3% < 3,5%). Safety-first TIDAK
+        #   melonggarkan gate: garis paling aman pun harus lolos
+        #   semua gate; bila tidak ada yang lolos, tidak ada
+        #   equilibrium (bukan dipaksa ke garis termurah).
+        # Catatan jujur: perbedaan MODE (safety-first vs max-er)
+        # dibuktikan di fixture sintetis (TestSafetyFirst) — di
+        # OKC verif, Asuransi tidak punya garis yang lolos di mode
+        # mana pun, jadi tes ini membuktikan perbedaan HASIL
+        # (Utama ada, Asuransi tidak ada) + alasan gate-nya.
+        analisis = self.verif["OKC@MIA_2026-11-22"]
+        hasil_ins = equilibrium.cari_equilibrium(analisis, "insurance", CFG)
+        hasil_main = equilibrium.cari_equilibrium(analisis, "main", CFG)
+        self.assertEqual(hasil_ins["mode"], "safety_first")
+        self.assertEqual(hasil_main["mode"], "max_er")
+        self.assertFalse(hasil_ins["ada"])
+        self.assertIn("edge", hasil_ins["alasan_tidak_ada"])
+        self.assertIn("250.5", hasil_ins["alasan_tidak_ada"])
+        self.assertIn("+1.3%", hasil_ins["alasan_tidak_ada"])
+        self.assertTrue(hasil_main["ada"])
+        self.assertEqual(hasil_main["garis"], 240.5)
+        self.assertEqual(hasil_main["harga_venue_cents"], 75.5)
+        self.assertAlmostEqual(hasil_main["p_final"], 0.788828, places=5)
+        self.assertAlmostEqual(hasil_main["expected_return"], 1.0448, places=3)
 
     def test_okc_verif_equilibrium_utama(self):
         # KASUS WAJIB 2: OKC@MIA verif — equilibrium Utama ada di

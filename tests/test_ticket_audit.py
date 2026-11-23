@@ -660,10 +660,12 @@ def _cdf_normal(median, sigma, garis_min, garis_max, langkah=2.0):
 def _artefak_den_stress():
     """Artefak DEN@CHI sintetis (median 233, sigma 19,2).
 
-    Jangkar P normal U252,5 = 84,5%, P banjir FT ~54,1%,
+    Jangkar P normal U252,5 = 84,5%, P banjir FT ~64,2%,
     P setan ~53,0% — mirip artefak nyata
     out/stress_den_chi_2026-11-22.json. Tangga: 252,5 tidak thin
     (supaya verdict tidak terkunci JANGAN_PASANG oleh volume).
+    P banjir memakai geser BERSIH (FT 12,52; koreksi kontaminasi
+    2026-11-23, worker B — sebelumnya ~54,1% dengan geser 17,54).
     """
     return _artefak(
         "DEN@CHI_2026-11-22",
@@ -690,7 +692,7 @@ class TestAuditSkenarioPanas(unittest.TestCase):
         tiket = _tiket("insurance", [_kaki("DEN@CHI_2026-11-22", 252.5, 82.0)])
         hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
         kaki = hasil["tickets"][0]["legs"][0]
-        self.assertAlmostEqual(kaki["p_banjir"], 0.541, delta=0.01)
+        self.assertAlmostEqual(kaki["p_banjir"], 0.642, delta=0.01)
         self.assertAlmostEqual(kaki["p_setan"], 0.530, delta=0.01)
         self.assertIsNone(kaki["stress_alasan"])
         # Verdict tidak berubah karena tampilan stress: edge +2,5%
@@ -702,7 +704,7 @@ class TestAuditSkenarioPanas(unittest.TestCase):
         tiket = _tiket("insurance", [_kaki("DEN@CHI_2026-11-22", 252.5, 82.0)])
         hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
         teks = ticket_audit.render_audit_text(hasil)
-        self.assertIn("banjir terburuk 54,1%", teks)
+        self.assertIn("banjir terburuk 64,2%", teks)
         self.assertIn("skenario setan 53,0%", teks)
 
     def test_kaki_utama_juga_menampilkan_p_banjir_p_setan(self):
@@ -712,10 +714,10 @@ class TestAuditSkenarioPanas(unittest.TestCase):
         tiket = _tiket("main", [_kaki("DEN@CHI_2026-11-22", 250.5, 79.0)])
         hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
         kaki = hasil["tickets"][0]["legs"][0]
-        self.assertAlmostEqual(kaki["p_banjir"], 0.499, delta=0.01)
+        self.assertAlmostEqual(kaki["p_banjir"], 0.602, delta=0.01)
         self.assertAlmostEqual(kaki["p_setan"], 0.488, delta=0.01)
         teks = ticket_audit.render_audit_text(hasil)
-        self.assertIn("banjir terburuk 49,9%", teks)
+        self.assertIn("banjir terburuk 60,2%", teks)
         self.assertIn("skenario setan 48,8%", teks)
 
     def test_garis_tiket_di_luar_kaki_analisis_tetap_dihitung(self):
@@ -733,7 +735,7 @@ class TestAuditSkenarioPanas(unittest.TestCase):
         tiket = _tiket("insurance", [_kaki("DEN@CHI_2026-11-22", 252.5, 82.0)])
         hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
         kaki = hasil["tickets"][0]["legs"][0]
-        self.assertAlmostEqual(kaki["p_banjir"], 0.541, delta=0.01)
+        self.assertAlmostEqual(kaki["p_banjir"], 0.642, delta=0.01)
         self.assertAlmostEqual(kaki["p_setan"], 0.530, delta=0.01)
 
     def test_setan_belum_ada_tidak_crash(self):
@@ -754,10 +756,10 @@ class TestAuditSkenarioPanas(unittest.TestCase):
         ):
             hasil = ticket_audit.audit_tickets(tiket, [art], cfg=CFG)
         kaki = hasil["tickets"][0]["legs"][0]
-        self.assertAlmostEqual(kaki["p_banjir"], 0.541, delta=0.01)
+        self.assertAlmostEqual(kaki["p_banjir"], 0.642, delta=0.01)
         self.assertIsNone(kaki["p_setan"])
         teks = ticket_audit.render_audit_text(hasil)
-        self.assertIn("banjir terburuk 54,1%", teks)
+        self.assertIn("banjir terburuk 64,2%", teks)
         self.assertIn("skenario setan belum tersedia", teks)
 
     def test_skenario_gagal_tidak_menggagalkan_audit(self):

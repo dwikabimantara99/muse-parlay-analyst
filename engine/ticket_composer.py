@@ -24,10 +24,19 @@ Keluaran: ``{"insurance": tiket|None, "insurance_reason": str|None,
 ``summary`` ringkasan Bahasa Indonesia sehari-hari.
 
 Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
-- Garis berbeda untuk laga yang sama: bila suatu laga masuk kedua tiket,
-  garis Asuransi HARUS lebih tinggi (lebih aman) dari garis Utama. Bila
-  garisnya sama — atau garis Asuransi lebih rendah — laga itu hanya masuk
-  SATU tiket, diprioritaskan Asuransi.
+- TANPA KAKI KEMBAR (keputusan user 2026-11-23 12:20 WIB — insiden
+  DEN@CHI 23 Nov: kaki Denver ada di KEDUA tiket sehingga keduanya
+  mati bersamaan): satu laga (match_id) TIDAK BOLEH muncul di kedua
+  tiket. MENGGANTIKAN aturan lama "garis berbeda" (laga boleh masuk
+  kedua tiket asal garis Asuransi lebih tinggi — aturan itu yang
+  membiarkan Denver membunuh kedua tiket). Alokasi vonis
+  (``_alokasikan_laga``): laga HIJAU -> Asuransi dulu, laga
+  menengah-hijau -> Utama, laga KUNING -> skip dari kedua tiket,
+  laga tanpa vonis -> tanpa preferensi (disjoint ditegakkan di
+  tingkat subset: Asuransi dipilih dulu, Utama membuang laga yang
+  sudah masuk Asuransi). Bila satu tiket tidak mencapai target
+  pengali karena pembagian ini -> tiket tidak terbentuk
+  (fail-closed, jangan paksa).
 - TANPA_XG (B4, Tahap 3 Langkah 5): kaki dari analisis bola TANPA_XG
   (``no_xg``/``banned_from_insurance``) DILARANG masuk Tiket Asuransi,
   dan ambang peluang minimumnya naik ``no_xg.threshold_penalty_points``
@@ -79,9 +88,11 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   untuk keduanya).
 - Titik equilibrium per kaki (keputusan user 2026-11-23 10:31 +
   10:41 WIB; engine/equilibrium.py): garis kaki NBA total_under
-  DIPILIH ULANG dari tangga + CDF sim — garis yang memaksimalkan
-  expected return p_final x (100/harga) di antara garis yang lolos
-  SEMUA gate tiket itu. MENGGANTIKAN aturan lama "garis termurah
+  DIPILIH ULANG dari tangga + CDF sim — garis yang dipilih MODE
+  tiket itu di antara garis yang lolos SEMUA gate tiket itu:
+  Asuransi "safety_first" (p_final tertinggi — keputusan user
+  12:20 + 12:33 WIB), Utama "max_er" (expected return p_final x
+  (100/harga) tertinggi). MENGGANTIKAN aturan lama "garis termurah
   yang lolos" (seleksi cushion + climb banjir): kaki equilibrium
   dibangun ulang dengan p_model/p_market/p_final/EV/label dihitung
   di garis baru (leg_id tidak berubah — recheck matching), climb
@@ -191,6 +202,7 @@ import config as config_mod
 from engine import equilibrium as equilibrium_mod
 from engine import skip_awal as skip_awal_mod
 from engine import stress as stress_mod
+from engine import vonis as vonis_mod
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 _SKEMA_TIKET = REPO_ROOT / "schemas" / "ticket.schema.json"
@@ -896,6 +908,14 @@ def _kumpulkan_kandidat(
     "alasan"}) — dipakai ``compose_tickets`` untuk hasil
     ["skipped_matches"]; pemanggil lama tanpa argumen ini tidak
     terpengaruh.
+
+    Vonis per laga (engine/vonis.py, NBA saja): laga KUNING yang
+    DIEVALUASI dikeluarkan dari kedua tiket (alasan di ``coret``);
+    tiap kandidat membawa ``vonis`` ("hijau" / "menengah_hijau" /
+    None bila tidak dievaluasi / tidak dihitung) + ``vonis_alasan``
+    (daftar alasan) — dibaca ``_alokasikan_laga`` untuk aturan tanpa
+    kaki kembar. Laga KUNING-karena-data (tidak dievaluasi) TIDAK
+    dikeluarkan di sini (gate per kaki tetap fail-closed sendiri).
     """
     ambang_gap = _ambang(cfg, "market_line_check", "total_gap_points")
     min_prob = {
@@ -912,6 +932,7 @@ def _kumpulkan_kandidat(
     skenario_gate = _skenario_gate_asuransi(cfg)
     equilibrium_aktif = _flag_enabled(cfg, "equilibrium")
     skip_aktif = _flag_enabled(cfg, "skip_awal")
+    vonis_aktif = _flag_enabled(cfg, "vonis")
     stress_per_laga: dict[str, tuple[dict | None, str | None]] = {}
     tolak_mahal_ins = bool(
         config_mod.get_value(cfg, "optimizer", "exclude_mahal_from_insurance")
@@ -1006,6 +1027,36 @@ def _kumpulkan_kandidat(
                                 "pemicu": list(info_skip.get("pemicu") or []),
                                 "alasan": info_skip.get("alasan"),
                             }
+                        )
+                    continue
+        # --- Vonis per laga (NBA saja; bola tidak punya model
+        # CDF/tangga/stress yang sama). Dihitung sekali per laga,
+        # SETELAH skip dari awal (laga yang di-skip tidak mencapai
+        # vonis) dan SEBELUM kaki apa pun dinilai: laga KUNING yang
+        # DIEVALUASI dikeluarkan dari kedua tiket; vonis + alasan
+        # disimpan pada tiap kandidat (dipakai alokasi tiket untuk
+        # aturan tanpa kaki kembar). Laga KUNING-karena-data
+        # (dievaluasi False) TIDAK dikeluarkan di sini — gate per
+        # kaki yang sudah fail-closed tetap berlaku — dan
+        # kandidatnya membawa vonis None (tanpa preferensi alokasi)
+        # supaya satu ladder fetch yang gagal tidak mematikan
+        # seluruh slate termasuk Utama (lihat engine/vonis.py;
+        # menunggu keberatan). Vonis menghitung konteksnya sendiri
+        # (tidak memakai ktx/equilibrium di atas) supaya tetap jalan
+        # bila equilibrium nonaktif.
+        info_vonis: dict | None = None
+        vonis_kandidat: str | None = None
+        vonis_alasan: list[str] = []
+        if vonis_aktif and analisis.get("format") != "soccer_analysis":
+            info_vonis = vonis_mod.nilai_vonis(analisis, None, cfg)
+            vonis_alasan = list(info_vonis.get("alasan") or [])
+            if (info_vonis.get("indikator") or {}).get("dievaluasi"):
+                vonis_kandidat = info_vonis.get("vonis")
+                if vonis_kandidat == "kuning":
+                    alasan_vonis = "; ".join(vonis_alasan) or "tanpa alasan"
+                    for tiket_vonis in ("insurance", "main"):
+                        coret[tiket_vonis].append(
+                            f"{match_id}: vonis KUNING — {alasan_vonis}"
                         )
                     continue
         for kaki in analisis.get("legs") or []:
@@ -1375,6 +1426,8 @@ def _kumpulkan_kandidat(
                     "thin": kaki.get("thin") is True,
                     "ada_anomali": ada_anomali,
                     "sim_markets": pasar_sim,
+                    "vonis": vonis_kandidat,
+                    "vonis_alasan": list(vonis_alasan),
                 }
             )
     # Satu laga menyumbang paling banyak satu kaki per tiket (bila artefak
@@ -1779,6 +1832,170 @@ def _ringkasan_tiket(
     return baris
 
 
+def _normalisasi_vonis(nilai) -> str | None:
+    """Normalisasi vonis per laga ke token kanonik.
+
+    Menerima ejaan apa pun yang masuk akal ("HIJAU",
+    "menengah_hijau", "menengah-cukup-hijau", "KUNING", spasi /
+    kapital apa pun) -> "hijau" / "menengah_hijau" / "kuning".
+    Nilai tidak dikenal / bukan string -> None (tanpa preferensi
+    alokasi — lihat ``_alokasikan_laga``).
+    """
+    if not isinstance(nilai, str):
+        return None
+    token = nilai.strip().lower().replace("-", "_").replace(" ", "_")
+    if token == "hijau":
+        return "hijau"
+    if token in ("menengah_hijau", "menengah_cukup_hijau"):
+        return "menengah_hijau"
+    if token == "kuning":
+        return "kuning"
+    return None
+
+
+def _vonis_dari_nilai(nilai) -> str | None:
+    """Ekstrak token vonis dari satu nilai field "vonis".
+
+    Bentuk yang diterima: string ("HIJAU" / "menengah_hijau" /
+    "KUNING", ejaan apa pun) atau dict hasil
+    ``engine.vonis.nilai_vonis`` ({"vonis": ..., "indikator":
+    {"dievaluasi": ...}}). KUNING yang TIDAK dievaluasi
+    (dievaluasi False — KUNING-karena-data atau bukan NBA) -> None:
+    bukan vonis yang dievaluasi, jadi tidak mengalokasikan (preseden
+    skip_awal: tanpa data -> tidak dievaluasi, BUKAN skip; gate per
+    kaki yang sudah fail-closed tetap berjalan). Nilai lain -> None.
+    """
+    if isinstance(nilai, str):
+        return _normalisasi_vonis(nilai)
+    if isinstance(nilai, dict):
+        token = _normalisasi_vonis(nilai.get("vonis"))
+        if token is None:
+            return None
+        if token == "kuning":
+            indikator = nilai.get("indikator")
+            dievaluasi = (
+                indikator.get("dievaluasi") if isinstance(indikator, dict) else None
+            )
+            if dievaluasi is False:
+                return None
+        return token
+    return None
+
+
+def _vonis_kandidat(kand: dict) -> str | None:
+    """Vonis satu kandidat: field "vonis" kandidat, lalu artefaknya.
+
+    Vonis adalah sifat LAGA (dihitung worker sistem vonis dari
+    indikator per laga — DECISIONS.md 2026-11-23 12:33 WIB); dibaca
+    dari kandidat bila ada, bila tidak dari artefak analisis yang
+    dibawa kandidat. Kedua sumber boleh membawa string vonis atau
+    dict hasil ``engine.vonis.nilai_vonis`` (lihat
+    ``_vonis_dari_nilai``). None bila tidak ada di keduanya.
+    """
+    nilai = _vonis_dari_nilai(kand.get("vonis"))
+    if nilai is not None:
+        return nilai
+    analisis = kand.get("analysis")
+    if isinstance(analisis, dict):
+        return _vonis_dari_nilai(analisis.get("vonis"))
+    return None
+
+
+def _alokasikan_laga(
+    kandidat: dict[str, list[dict]], coret: dict[str, list[str]]
+) -> dict[str, list[dict]]:
+    """Alokasikan laga ke tiket berdasarkan vonis (tanpa kaki kembar).
+
+    ATURAN ALOKASI (keputusan user 2026-11-23 12:20 + 12:33 WIB;
+    vonis dari angka, bukan perasaan):
+    - Laga HIJAU (sehat) -> ASURANSI dulu: kandidat Utamanya dibuang,
+      kandidat Asuransinya dipertahankan.
+    - Laga MENENGAH-HIJAU (cukup hijau) -> UTAMA: kandidat
+      Asuransinya dibuang, kandidat Utamanya dipertahankan.
+    - Laga KUNING (lempar koin) -> SKIP dari kedua tiket: kedua
+      kandidatnya dibuang. KUNING yang TIDAK dievaluasi
+      (KUNING-karena-data, indikator.dievaluasi False) BUKAN skip —
+      diperlakukan seperti tanpa vonis (lihat ``_vonis_dari_nilai``).
+      Catatan: komposer juga mengeluarkan laga KUNING yang
+      dievaluasi lebih awal di ``_kumpulkan_kandidat`` (wiring
+      worker sistem vonis) — cabang ini adalah pertahanan kedua
+      bila kandidat KUNING mencapai alokasi lewat jalur lain.
+    - Laga TANPA VONIS (artefak lama / sistem vonis belum jalan) ->
+      TIDAK ADA preferensi alokasi: kedua kandidat dipertahankan,
+      dan disjoint ditegakkan di tingkat subset (Asuransi dipilih
+      dulu, Utama membuang laga yang sudah masuk Asuransi — lihat
+      ``compose_tickets``). PENYIMPANGAN YANG DIDOKUMENTASIKAN dari
+      perintah kerja ("tanpa vonis = menengah_hijau"): menandai
+      semua laga tanpa vonis sebagai menengah-hijau akan membuang
+      SEMUA kandidat Asuransi dan membuat Asuransi tidak pernah
+      terbentuk — termasuk di slate uji yang belum punya vonis.
+      Perilaku ini menunggu keberatan koordinator; bila koordinator
+      memutuskan lain, yang berubah hanya cabang ini.
+    - Laga dengan dua vonis BERBEDA di kedua kandidatnya (data tidak
+      konsisten — tidak seharusnya terjadi) -> tanpa preferensi +
+      catatan di coret kedua tiket, supaya terlihat di ringkasan.
+
+    Bila satu tiket tidak mencapai target pengali karena pembagian
+    ini -> tiket TIDAK TERBENTUK (fail-closed, jangan paksa — lihat
+    ``_pilih_subset``: tidak ada subset dalam target -> None).
+    Penghapusan dicatat di ``coret`` (alasan jujur di ringkasan +
+    alasan tiket yang tidak terracik). Mengembalikan dict kandidat
+    baru (dict lama tidak diubah); ``coret`` dimutasi (ditambah).
+    """
+    vonis_per_laga: dict[str, str] = {}
+    bentrok: dict[str, set[str]] = {}
+    for tiket in ("insurance", "main"):
+        for kand in kandidat[tiket]:
+            vonis = _vonis_kandidat(kand)
+            if vonis is None:
+                continue
+            match_id = kand["match_id"]
+            lama = vonis_per_laga.get(match_id)
+            if lama is None:
+                vonis_per_laga[match_id] = vonis
+            elif lama != vonis:
+                bentrok.setdefault(match_id, set()).add(lama)
+                bentrok[match_id].add(vonis)
+    for match_id, nilai_set in bentrok.items():
+        # Vonis bentrok -> tanpa preferensi (disjoint tetap ditegakkan
+        # di tingkat subset) + catatan supaya terlihat.
+        del vonis_per_laga[match_id]
+        daftar = ", ".join(sorted(nilai_set))
+        for tiket in ("insurance", "main"):
+            coret[tiket].append(
+                f"{match_id}: vonis bentrok ({daftar}) — alokasi "
+                "dibatalkan, laga berebut kedua tiket (disjoint "
+                "tetap ditegakkan di tingkat subset)"
+            )
+    baru: dict[str, list[dict]] = {"insurance": [], "main": []}
+    for tiket in ("insurance", "main"):
+        for kand in kandidat[tiket]:
+            match_id = kand["match_id"]
+            vonis = vonis_per_laga.get(match_id)
+            if vonis == "hijau" and tiket == "main":
+                coret["main"].append(
+                    f"{match_id}: dialokasikan ke Asuransi (vonis "
+                    "HIJAU) — tidak masuk Utama (aturan tanpa kaki "
+                    "kembar)"
+                )
+                continue
+            if vonis == "menengah_hijau" and tiket == "insurance":
+                coret["insurance"].append(
+                    f"{match_id}: dialokasikan ke Utama (vonis "
+                    "menengah-hijau) — tidak masuk Asuransi (aturan "
+                    "tanpa kaki kembar)"
+                )
+                continue
+            if vonis == "kuning":
+                coret[tiket].append(
+                    f"{match_id}: vonis KUNING (lempar koin) — di-skip "
+                    "dari kedua tiket"
+                )
+                continue
+            baru[tiket].append(kand)
+    return baru
+
+
 def compose_tickets(
     analyses: list[dict],
     rechecks: list[dict] | None = None,
@@ -1911,6 +2128,11 @@ def compose_tickets(
         edge_min_ins=ambang_edge,
         skipped=skipped_matches,
     )
+    # Alokasi laga ke tiket berdasarkan vonis (aturan tanpa kaki
+    # kembar — lihat _alokasikan_laga). Berjalan SETELAH kandidat
+    # dikumpulkan (vonis dibaca dari kandidat/artefak) dan SEBELUM
+    # subset dipilih, supaya pembagian memengaruhi kedua tiket.
+    kandidat = _alokasikan_laga(kandidat, coret)
 
     warnings: list[str] = []
     hasil: dict = {}
@@ -1918,7 +2140,9 @@ def compose_tickets(
     info_tiket: dict[str, tuple[float, float]] = {}
     belum_dicek: dict[str, bool] = {}
 
-    # Asuransi dulu (prioritas bila ada konflik garis laga yang sama).
+    # Asuransi dulu (prioritas: laga HIJAU dialokasikan ke Asuransi
+    # dulu di _alokasikan_laga; di sini Asuransi memilih subsetnya
+    # dulu dan Utama mendapat sisanya — aturan tanpa kaki kembar).
     subset_ins, maks_ins, pangkas_ins, _blokir_ins = _pilih_subset(
         kandidat["insurance"],
         target["insurance"]["min"],
@@ -1932,7 +2156,7 @@ def compose_tickets(
             f"{_MAKS_KAKI_PENCARIAN} — hanya "
             f"{_MAKS_KAKI_PENCARIAN} kaki teraman yang dipertimbangkan."
         )
-    garis_ins_terpilih: dict[str, float] = {}
+    laga_ins_terpilih: set[str] = set()
     if subset_ins is None:
         if not kandidat["insurance"]:
             alasan_ins = "Tidak ada kaki Asuransi yang lolos."
@@ -1957,7 +2181,7 @@ def compose_tickets(
         subset_terpilih["insurance"] = None
         belum_dicek["insurance"] = False
     else:
-        garis_ins_terpilih = {k["match_id"]: k["line"] for k in subset_ins}
+        laga_ins_terpilih = {k["match_id"] for k in subset_ins}
         catatan_ins: list[str] = []
         if len(subset_ins) == 1:
             catatan_ins.append("Tiket Asuransi hanya berisi 1 kaki.")
@@ -1988,34 +2212,27 @@ def compose_tickets(
                     "hitungan, tiket ini merugi dalam jangka panjang."
                 )
 
-    # Utama: buang kaki dari laga yang sudah masuk Asuransi bila garisnya
-    # tidak lebih rendah dari garis Asuransi (kendala garis berbeda).
+    # Utama: TANPA KAKI KEMBAR (keputusan user 2026-11-23 12:20 WIB —
+    # MENGGANTIKAN aturan lama "garis berbeda"): kaki Utama dari laga
+    # yang sudah masuk Asuransi DIBUANG seluruhnya, apa pun garisnya.
+    # Alokasi vonis di _alokasikan_laga sudah memisahkan laga
+    # HIJAU/menengah-hijau di tingkat kandidat; filter ini adalah
+    # pertahanan kedua untuk laga tanpa vonis (kedua tiket masih
+    # berebut laga yang sama) + menjamin himpunan laga kedua tiket
+    # disjoint apa pun yang terjadi di atas. Bila Asuransi tidak
+    # terbentuk, tidak ada yang difilter (tidak ada kembar yang bisa
+    # terjadi).
     kandidat_main = kandidat["main"]
-    catatan_garis: list[str] = []
+    catatan_kembar: list[str] = []
     if subset_terpilih["insurance"]:
         tersaring = []
         for kand in kandidat_main:
-            garis_ins = garis_ins_terpilih.get(kand["match_id"])
-            garis_main = kand.get("line")
-            # Aturan garis berbeda hanya berlaku bila kedua kaki punya
-            # garis (total); kaki 1X2/BTTS tidak punya garis dan tidak
-            # pernah masuk Asuransi (TANPA_XG) sehingga tidak berkonflik.
-            if (
-                garis_ins is not None
-                and garis_main is not None
-                and garis_ins <= garis_main
-            ):
-                if garis_ins == garis_main:
-                    catatan_garis.append(
-                        f"Laga {kand['match_id']} hanya masuk Asuransi "
-                        f"karena garisnya sama ({garis_ins:g})."
-                    )
-                else:
-                    catatan_garis.append(
-                        f"Laga {kand['match_id']} hanya masuk Asuransi "
-                        f"karena garis Asuransi ({garis_ins:g}) tidak lebih "
-                        f"aman dari garis Utama ({garis_main:g})."
-                    )
+            if kand["match_id"] in laga_ins_terpilih:
+                catatan_kembar.append(
+                    f"Laga {kand['match_id']} hanya masuk Asuransi "
+                    "(aturan tanpa kaki kembar — satu laga tidak boleh "
+                    "ada di kedua tiket)."
+                )
                 continue
             tersaring.append(kand)
         kandidat_main = tersaring
@@ -2046,7 +2263,7 @@ def compose_tickets(
     if subset_main is None:
         if not kandidat_main:
             alasan_main = "Tidak ada kaki Utama yang lolos."
-            rincian = list(coret["main"]) + catatan_garis
+            rincian = list(coret["main"]) + catatan_kembar
             if rincian:
                 alasan_main += " " + "; ".join(rincian) + "."
         elif maks_main < target["main"]["min"] - _EPS:
@@ -2074,7 +2291,7 @@ def compose_tickets(
         subset_terpilih["main"] = None
         belum_dicek["main"] = False
     else:
-        catatan_main: list[str] = list(catatan_garis)
+        catatan_main: list[str] = list(catatan_kembar)
         if len(subset_main) == 1:
             catatan_main.append("Tiket Utama hanya berisi 1 kaki.")
             warnings.append("Tiket Utama hanya berisi 1 kaki.")
@@ -2204,7 +2421,7 @@ def compose_tickets(
                 + (f" [{pemicu}]" if pemicu else "")
                 + f": {item.get('alasan') or 'tanpa alasan'}"
             )
-    catatan_ringkas = list(catatan_garis)
+    catatan_ringkas = list(catatan_kembar)
     if sumber_lantai["insurance"] == "default" or sumber_lantai["main"] == "default":
         catatan_ringkas.append(
             f"Lantai harga kaki {_DEFAULT_HARGA_MIN_CENTS:g}¢ (nilai "

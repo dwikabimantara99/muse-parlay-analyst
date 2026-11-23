@@ -72,6 +72,7 @@ from datetime import datetime
 from engine import anomaly as anomaly_mod
 from engine import skip_awal as skip_awal_mod
 from engine import stress as stress_mod
+from engine import vonis as vonis_mod
 
 FORMAT = "nba_report"
 FORMAT_VERSION = 1
@@ -403,6 +404,7 @@ class _Laporan:
         self._bagian_proyeksi()
         self._bagian_cedera()
         self._bagian_berita()
+        self._bagian_vonis()
         self._bagian_market()
         self._bagian_kaki()
         self._bagian_form5()
@@ -890,6 +892,116 @@ class _Laporan:
         )
         self._tambah(judul, baris)
 
+    def _bagian_vonis(self) -> None:
+        """Vonis laga: HIJAU / MENENGAH HIJAU / KUNING dari data.
+
+        Vonis dihitung mesin dari 8 indikator pelajaran Denver
+        (edge kaki terbaik, peluang Under kalau panas, peluang di
+        deviasi maksimal, volume per garis, gap model-vs-pasar,
+        sinyal ekor gemuk, risiko overtime, level total — lihat
+        engine/vonis.py): HIJAU berarti laga sehat (kandidat
+        Asuransi), MENENGAH HIJAU berarti cukup sehat untuk Utama
+        tapi belum cukup aman untuk Asuransi, KUNING berarti lempar
+        koin (tidak masuk tiket mana pun). Bila data tidak cukup,
+        vonisnya KUNING dengan alasannya (mesin tidak berani menilai
+        tanpa data). VETO RIM PROTECTOR (pelindung ring utama OUT
+        terkonfirmasi + garis/pace tinggi) ditampilkan MENONJOL di
+        baris pertama setelah vonis — laga yang kena veto diblokir
+        dari tiket, tidak bisa dikalahkan skor EV simulasi. Laporan
+        tidak pernah crash karena vonis gagal dihitung (pola yang
+        sama dengan skenario panas). Laga bola tidak punya bagian
+        ini (vonis hanya untuk total Under NBA).
+        """
+        if self.a.get("format") == "soccer_analysis":
+            return
+        baris: list[str] = []
+        try:
+            hasil = vonis_mod.nilai_vonis(self.a)
+        except Exception as exc:  # Alasan tampil di laporan, bukan crash.
+            baris.append(f"Vonis laga: tidak bisa dihitung ({exc}).")
+            self._celah(f"Vonis laga: tidak bisa dihitung ({exc}).")
+            self._tambah("Vonis laga", baris)
+            return
+        vonis = hasil.get("vonis")
+        ind = hasil.get("indikator") or {}
+        dievaluasi = bool(ind.get("dievaluasi"))
+        if vonis == "hijau":
+            baris.append("Vonis: HIJAU — laga ini sehat, kandidat Asuransi.")
+        elif vonis == "menengah_hijau":
+            baris.append(
+                "Vonis: MENENGAH HIJAU — laga ini cukup sehat untuk "
+                "Utama, tapi belum cukup aman untuk Asuransi."
+            )
+        elif not dievaluasi:
+            baris.append(
+                "Vonis: KUNING — data tidak cukup untuk menilai laga "
+                "ini, jadi mesin tidak berani memasukkannya ke tiket."
+            )
+            self._celah(
+                "Vonis laga: data tidak cukup — "
+                f"{(hasil.get('alasan') or ['tanpa alasan'])[0]}"
+            )
+        else:
+            baris.append(
+                "Vonis: KUNING — laga ini lempar koin, tidak masuk " "tiket mana pun."
+            )
+        # Veto menonjol di depan (bukan terkubur di bullet): laga kena
+        # veto diblokir dari tiket — user harus membacanya pertama.
+        veto = ind.get("veto") if isinstance(ind.get("veto"), dict) else {}
+        if veto.get("menyala"):
+            baris.append(
+                "VETO — LAGA INI DIBLOKIR DARI TIKET (pelindung ring "
+                "utama absen di laga skor-tinggi):"
+            )
+            for alasan_veto in veto.get("alasan") or []:
+                baris.append(f"- {alasan_veto}")
+        for alasan in hasil.get("alasan") or []:
+            # Alasan veto sudah tampil menonjol di atas — jangan
+            # diduplikasi di bullet.
+            if str(alasan).startswith("VETO rim protector:"):
+                continue
+            baris.append(f"- {alasan}")
+        if dievaluasi:
+            garis_info = ind.get("garis_asuransi") or {}
+            garis = _fmt_poin(garis_info.get("line"))
+            harga = _fmt_sen(garis_info.get("harga_venue_cents"))
+            if garis:
+                teks = f"Garis yang dinilai: Under {garis}"
+                if harga:
+                    teks += f", harga {harga}"
+                sumber = garis_info.get("sumber")
+                if sumber:
+                    teks += f" ({sumber})"
+                baris.append(teks + ".")
+            edge = _angka(ind.get("edge_terbaik"))
+            if edge is not None:
+                sumber_edge = ind.get("edge_terbaik_sumber") or ""
+                teks = f"Nilai terbaik (edge): {edge * 100:+.1f}%".replace(".", ",")
+                if sumber_edge:
+                    teks += f" ({sumber_edge})"
+                baris.append(teks + ".")
+            p_banjir = _fmt_persen(ind.get("p_banjir_terburuk"))
+            p_setan = _fmt_persen(ind.get("p_setan"))
+            if p_banjir and p_setan:
+                baris.append(
+                    "Kalau panas (banjir terburuk): peluang Under "
+                    f"{p_banjir}; kalau deviasi maksimal datang: "
+                    f"{p_setan}."
+                )
+            volume = _angka(garis_info.get("volume_usd"))
+            if volume is not None:
+                teks_vol = f"Volume garis yang dinilai: {_fmt_usd(volume)}"
+                if garis_info.get("thin") is True:
+                    teks_vol += " — pasar tipis"
+                baris.append(teks_vol + ".")
+            ot = _angka(ind.get("ot_probability"))
+            if ot is not None:
+                baris.append(
+                    "Peluang overtime menurut sim: "
+                    f"{ot * 100:.2f}%.".replace(".", ",")
+                )
+        self._tambah("Vonis laga", baris)
+
     def _bagian_market(self) -> None:
         """Bursa: garis total utama, spread, moneyline, tangga Under."""
         baris: list[str] = []
@@ -1139,6 +1251,18 @@ class _Laporan:
                 "dipasang tanpa Asuransi, tidak ada yang menyelamatkan "
                 "modal bila Utama kalah."
             )
+        # Transparansi volume (keputusan user 2026-11-23 12:38 WIB):
+        # volume yang dicek mesin adalah volume PER GARIS (angka
+        # "Volume garis ini" di tiap kaki di atas), bukan volume laga.
+        # Ambang tipis $100 (polymarket_ladder.min_volume_usd) TIDAK
+        # diubah.
+        baris.append("")
+        baris.append(
+            "Catatan volume: volume satu laga tersebar di ratusan "
+            "garis, sehingga garis yang jauh dari garis bandar hanya "
+            "ditawar segelintir orang dan harganya kurang bisa "
+            "dipercaya — garis seperti itu disebut volume tipis."
+        )
         self._tambah("Kaki Asuransi & Utama", baris)
 
     def _teks_climb(self, climb) -> str | None:
@@ -1490,6 +1614,7 @@ class _Laporan:
         di laporan ini). Bila tidak bisa dihitung, ditulis alasannya.
         """
         baris: list[str] = []
+        garis_bandar = self._garis_utama()
         data = self.a.get("stress")
         if not isinstance(data, dict) or data.get("format") != "nba_stress":
             try:
@@ -1516,8 +1641,17 @@ class _Laporan:
             if nilai is not None:
                 geser[label] = nilai
         if geser:
+            # Penyimpangan dinyatakan sebagai poin di atas garis
+            # bandar (permintaan user 2026-11-23 12:33 WIB — angka
+            # banjir abstrak tidak ditangkap user; yang dipahami
+            # adalah penyimpangan dari garis normal bandar). Geser
+            # sudah dalam poin, jadi tidak ada hitungan tambahan.
+            awalan = "Kalau laga memanas, total poin naik"
+            if garis_bandar is not None:
+                awalan += f" dari garis bandar {_fmt_poin(garis_bandar)}"
             baris.append(
-                "Kalau laga memanas, total poin naik: "
+                awalan
+                + ": "
                 + "; ".join(f"{label} +{nilai} poin" for label, nilai in geser.items())
                 + "."
             )
@@ -1594,6 +1728,15 @@ class _Laporan:
                         f" ({volume})" if volume else " (volume tidak tercatat)"
                     )
                 baris.append(teks_tahan + ".")
+                # Deviasi garis tahan vs garis bandar (poin di atas
+                # garis bandar — permintaan user 12:33 WIB).
+                garis_tahan_angka = _angka(tahan.get("line"))
+                if garis_tahan_angka is not None and garis_bandar is not None:
+                    baris.append(
+                        "  Garis tahan banjir itu "
+                        f"{_fmt_poin(garis_tahan_angka - garis_bandar)} poin "
+                        f"di atas garis bandar {_fmt_poin(garis_bandar)}."
+                    )
             else:
                 alasan = kaki.get("alasan_tidak_tahan_banjir") or "tidak diketahui"
                 baris.append(f"  Tidak ada garis tahan banjir: {alasan}.")
@@ -1620,11 +1763,58 @@ class _Laporan:
                             else " (volume tidak tercatat)"
                         )
                     baris.append(teks_tahan_setan + ".")
+                    # Deviasi garis tahan setan vs garis bandar.
+                    garis_setan_angka = _angka(tahan_setan.get("line"))
+                    if garis_setan_angka is not None and garis_bandar is not None:
+                        baris.append(
+                            "  Garis tahan setan itu "
+                            f"{_fmt_poin(garis_setan_angka - garis_bandar)} poin "
+                            f"di atas garis bandar {_fmt_poin(garis_bandar)}."
+                        )
                 else:
                     alasan_setan = (
                         kaki.get("alasan_tidak_tahan_setan") or "tidak diketahui"
                     )
                     baris.append(f"  Tidak ada garis tahan setan: {alasan_setan}.")
+        # Setan per pemain (keputusan user 2026-11-23 12:38 WIB —
+        # dihitung worker setan-pemain di engine/stress.py): total
+        # bila semua pemain panas bareng + deviasinya dari garis
+        # bandar. Field hidup PER KAKI di hasil stress (sama untuk
+        # semua kaki satu laga — dibaca dari entri pertama yang
+        # membawanya, ditampilkan sekali); top-level dicek sebagai
+        # cadangan. Bila tidak ada di mana pun, baris ini dilewati
+        # (jangan error, jangan mengarang).
+        total_setan = _angka(data.get("total_setan_pemain"))
+        deviasi_setan = _angka(data.get("deviasi_setan_pemain_dari_garis_bandar"))
+        if total_setan is None and deviasi_setan is None:
+            for kaki_sp in kaki_list:
+                if not isinstance(kaki_sp, dict):
+                    continue
+                total_setan = _angka(kaki_sp.get("total_setan_pemain"))
+                deviasi_setan = _angka(
+                    kaki_sp.get("deviasi_setan_pemain_dari_garis_bandar")
+                )
+                if total_setan is not None or deviasi_setan is not None:
+                    break
+        if total_setan is not None or deviasi_setan is not None:
+            bagian_sp = []
+            if total_setan is not None:
+                bagian_sp.append(f"total bisa sampai {_fmt_poin(total_setan)} poin")
+            if deviasi_setan is not None:
+                if garis_bandar is not None:
+                    bagian_sp.append(
+                        f"{_fmt_poin(deviasi_setan)} poin di atas garis "
+                        f"bandar {_fmt_poin(garis_bandar)}"
+                    )
+                else:
+                    bagian_sp.append(
+                        f"naik {_fmt_poin(deviasi_setan)} poin dari garis bandar"
+                    )
+            baris.append(
+                "Setan per pemain (kalau semua pemain panas bareng): "
+                + ", ".join(bagian_sp)
+                + "."
+            )
         for cek in data.get("cek_harga") or []:
             if not isinstance(cek, dict):
                 continue

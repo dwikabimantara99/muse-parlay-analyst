@@ -5,15 +5,26 @@ kaki-kaki yang benar-benar kuat hingga Asuransi x2 dan Utama x3+").
 Untuk satu laga + satu tiket, dari distribusi sim 100.000x (CDF total
 di ``simulation.markets``) + tangga Polymarket (``market.totals``):
 di antara garis Under yang lolos SEMUA gate tiket itu, equilibrium
-adalah garis yang memaksimalkan expected return
+adalah garis yang dipilih MODE tiket itu (config ``equilibrium.
+mode_insurance`` / ``equilibrium.mode_main``):
 
-    ER(garis) = p_final(garis) x (100 / harga_venue(garis))
+- "max_er" (Utama): garis yang memaksimalkan expected return
+  ER(garis) = p_final(garis) x (100 / harga_venue(garis)), yaitu
+  ekspektasi pengembalian per $1 bila kaki itu dipasang sendiri
+  (ER = 1 + EV). Seri (selisih ER < 1e-9): p_final lebih besar, lalu
+  garis lebih kecil (deterministik).
+- "safety_first" (Asuransi, keputusan user 2026-11-23 12:20 + 12:33
+  WIB): garis dengan p_final TERTINGGI (paling aman) di antara garis
+  yang lolos semua gate. Seri p_final (< 1e-9): ER lebih tinggi, lalu
+  garis lebih kecil. Alasan: Asuransi adalah permainan yang
+  "benar-benar bisa menyelamatkan dari kegagalan Utama" — titik
+  manisnya adalah yang paling aman, bukan yang nilai harapannya
+  tertinggi. KONSEKUENSI: garis paling aman adalah garis termahal,
+  jadi pengali per kaki kecil dan Asuransi butuh LEBIH BANYAK kaki
+  untuk mencapai target x2 — kendala pengali tiket tetap ditegakkan
+  peracik (``ticket_composer._pilih_subset``), bukan di sini.
 
-yaitu ekspektasi pengembalian per $1 bila kaki itu dipasang sendiri
-(ER = 1 + EV). Seri (selisih ER < 1e-9): p_final lebih besar, lalu
-garis lebih kecil (deterministik).
-
-KENAPA MAX-ER (alasan definisi): aturan lama memilih garis TERMURAH
+KENAPA MAX-ER (alasan definisi, untuk Utama): aturan lama memilih
 yang lolos ambang — garis itu lolos saringan, tapi belum tentu titik
 manisnya: garis yang sedikit lebih mahal bisa jauh lebih mungkin
 menang sehingga nilai harapannya lebih tinggi, atau sebaliknya garis
@@ -105,10 +116,15 @@ from engine import stress as stress_mod
 FORMAT = "nba_equilibrium"
 FORMAT_VERSION = 1
 
-# Toleransi seri expected return (lihat docstring modul).
+# Toleransi seri expected return / p_final (lihat docstring modul).
 _EPS_ER = 1e-9
 
 _TIKET = ("insurance", "main")
+
+# Mode pemilihan equilibrium per tiket (config equilibrium.
+# mode_insurance / mode_main). "max_er": ER tertinggi; "safety_first":
+# p_final tertinggi. Nilai lain -> ConfigError (fail-closed).
+_MODE = ("max_er", "safety_first")
 
 
 def _angka(nilai) -> float | None:
@@ -145,6 +161,24 @@ def _muat_cfg(cfg: dict | None) -> dict:
     if cfg is not None:
         return cfg
     return config_mod.load_playstyle()
+
+
+def _mode_equilibrium(cfg: dict, tiket: str) -> str:
+    """Mode pemilihan equilibrium satu tiket dari config.
+
+    Kunci: ``equilibrium.mode_insurance`` / ``equilibrium.
+    mode_main``. Hilang / bukan string / tidak dikenal ->
+    ConfigError (fail-closed: mode yang salah diam-diam lebih buruk
+    daripada error keras).
+    """
+    kunci = f"mode_{tiket}"
+    mode = config_mod.get_value(cfg, "equilibrium", kunci)
+    if not isinstance(mode, str) or mode not in _MODE:
+        raise config_mod.ConfigError(
+            f"playstyle.yaml equilibrium.{kunci} harus salah satu dari "
+            f"{list(_MODE)}, dapat: {mode!r}"
+        )
+    return mode
 
 
 def inversi_cdf(cdf: list[tuple[float, float]], p_target: float) -> float:
@@ -502,20 +536,53 @@ def _alasan_tidak_ada(
     return f"{pembuka}; gate yang mengikat: {mengikat} — {detail}."
 
 
+def nilai_semua_garis(
+    analysis: dict, tiket: str, cfg: dict | None = None, ktx: dict | None = None
+) -> list[dict] | None:
+    """Nilai SEMUA garis tangga satu laga + satu tiket (gate per garis).
+
+    Mengembalikan daftar dict hasil ``_nilai_garis`` (tanpa kunci
+    "entri" — entri tangga mentah tidak perlu keluar modul), atau
+    None bila konteks tidak bisa disiapkan (tanpa CDF / tangga /
+    jangkar pasar — sama seperti ``cari_equilibrium`` mengembalikan
+    dihitung=False). Dipakai pengukuran (mis. menghitung garis yang
+    gagal HANYA karena volume) tanpa menduplikasi logika gate.
+    Config rusak -> ConfigError. Artefak bukan dict / tiket tidak
+    dikenal -> ValueError.
+    """
+    if not isinstance(analysis, dict):
+        raise ValueError("analysis harus dict")
+    if tiket not in _TIKET:
+        raise ValueError(f"tiket tidak dikenal: {tiket!r}")
+    cfg = _muat_cfg(cfg)
+    if ktx is None:
+        ktx = siapkan_konteks(analysis, tiket, cfg)
+    if not ktx.get("ok"):
+        return None
+    ambang = _ambang(cfg, "tickets", tiket, "min_leg_prob")
+    nilai: list[dict] = []
+    for entri in ktx["tangga"]:
+        dinilai = _nilai_garis(ktx, entri, tiket, ambang, cfg)
+        if dinilai is not None:
+            nilai.append({k: v for k, v in dinilai.items() if k != "entri"})
+    return nilai
+
+
 def cari_equilibrium(
     analysis: dict, tiket: str, cfg: dict | None = None, ktx: dict | None = None
 ) -> dict:
     """Cari titik equilibrium satu laga + satu tiket.
 
     Mengembalikan dict hasil (lihat docstring modul untuk definisi):
-    {"dihitung", "ada", "garis", "harga_venue_cents", "p_model",
-    "p_market", "p_final", "p_banjir_terburuk", "p_setan", "edge",
-    "ev_pct", "expected_return", "thin", "volume_usd", "geser_pasar",
-    "anchor", "n_kandidat_lolos", "n_garis_dinilai", "diagnosis_gate",
-    "alasan_tidak_dihitung", "alasan_tidak_ada"}.
-    ``ktx`` opsional: konteks dari ``siapkan_konteks`` (dipakai
-    pemanggil yang sudah menghitungnya — mis. skip_awal — supaya CDF
-    + tangga tidak dihitung ulang).
+    {"dihitung", "ada", "mode", "garis", "harga_venue_cents",
+    "p_model", "p_market", "p_final", "p_banjir_terburuk", "p_setan",
+    "edge", "ev_pct", "expected_return", "thin", "volume_usd",
+    "geser_pasar", "anchor", "n_kandidat_lolos", "n_garis_dinilai",
+    "diagnosis_gate", "alasan_tidak_dihitung", "alasan_tidak_ada"}.
+    ``mode`` adalah mode pemilihan yang dipakai ("max_er" /
+    "safety_first" dari config). ``ktx`` opsional: konteks dari
+    ``siapkan_konteks`` (dipakai pemanggil yang sudah menghitungnya
+    — mis. skip_awal — supaya CDF + tangga tidak dihitung ulang).
     Config rusak -> ConfigError. Artefak bukan dict -> ValueError.
     """
     if not isinstance(analysis, dict):
@@ -524,11 +591,13 @@ def cari_equilibrium(
         raise ValueError(f"tiket tidak dikenal: {tiket!r}")
     cfg = _muat_cfg(cfg)
     ambang = _ambang(cfg, "tickets", tiket, "min_leg_prob")
+    mode = _mode_equilibrium(cfg, tiket)
     hasil = {
         "format": FORMAT,
         "format_version": FORMAT_VERSION,
         "match_id": analysis.get("match_id"),
         "ticket": tiket,
+        "mode": mode,
         "dihitung": False,
         "alasan_tidak_dihitung": None,
         "ada": False,
@@ -563,11 +632,7 @@ def cari_equilibrium(
     hasil["banjir_terburuk"] = ktx["banjir_terburuk"]
     hasil["geser_pasar"] = round(ktx["delta"], 4) if ktx["delta"] is not None else None
     hasil["anchor"] = ktx["anchor"]
-    nilai: list[dict] = []
-    for entri in ktx["tangga"]:
-        dinilai = _nilai_garis(ktx, entri, tiket, ambang, cfg)
-        if dinilai is not None:
-            nilai.append(dinilai)
+    nilai = nilai_semua_garis(analysis, tiket, cfg, ktx=ktx) or []
     hasil["dihitung"] = True
     hasil["n_garis_dinilai"] = len(nilai)
     urutan = _URUTAN_GATE_INS if tiket == "insurance" else _URUTAN_GATE_MAIN
@@ -581,12 +646,21 @@ def cari_equilibrium(
             ktx, nilai, tiket, ambang, cfg, analysis
         )
         return hasil
-    # Max-ER; seri (< 1e-9) -> p_final lebih besar -> garis lebih kecil.
-    er_maks = max(n["expected_return"] for n in lolos)
-    seri = [n for n in lolos if er_maks - n["expected_return"] < _EPS_ER]
-    p_maks = max(n["p_final"] for n in seri)
-    seri = [n for n in seri if p_maks - n["p_final"] < _EPS_ER]
-    pilihan = min(seri, key=lambda n: n["line"])
+    if mode == "safety_first":
+        # p_final tertinggi (paling aman); seri (< 1e-9) -> ER lebih
+        # tinggi -> garis lebih kecil.
+        p_maks = max(n["p_final"] for n in lolos)
+        seri = [n for n in lolos if p_maks - n["p_final"] < _EPS_ER]
+        er_maks = max(n["expected_return"] for n in seri)
+        seri = [n for n in seri if er_maks - n["expected_return"] < _EPS_ER]
+        pilihan = min(seri, key=lambda n: n["line"])
+    else:
+        # Max-ER; seri (< 1e-9) -> p_final lebih besar -> garis lebih kecil.
+        er_maks = max(n["expected_return"] for n in lolos)
+        seri = [n for n in lolos if er_maks - n["expected_return"] < _EPS_ER]
+        p_maks = max(n["p_final"] for n in seri)
+        seri = [n for n in seri if p_maks - n["p_final"] < _EPS_ER]
+        pilihan = min(seri, key=lambda n: n["line"])
     hasil.update(
         {
             "ada": True,

@@ -109,10 +109,12 @@ from engine import cushion as cushion_mod
 from engine import devig as devig_mod
 from engine import nba_sim as nba_sim_mod
 from engine import price_labels as price_labels_mod
+from engine import setan_pemain as setan_pemain_mod
 from ingest import kalshi as kalshi_mod
 from ingest import matching as matching_mod
 from ingest import nba_brain as nba_brain_mod
 from ingest import news_nba as news_nba_mod
+from ingest import pemain_3p as pemain_3p_mod
 from ingest import polymarket as polymarket_mod
 from ingest.common import now_iso
 
@@ -295,6 +297,99 @@ def _blok_news(hasil) -> dict:
         "fetched_at": getattr(hasil, "fetched_at", None),
         "error": None,
     }
+
+
+def _musim_nba_dari_tanggal(tanggal: str) -> str:
+    """Turunkan musim NBA ('2026-27') dari tanggal laga YYYY-MM-DD.
+
+    Musim NBA mulai Oktober: tanggal Okt–Des -> musim tahun itu;
+    Jan–Sep -> musim tahun sebelumnya. ValueError bila tanggal
+    tidak bisa diparse (pemanggil mengubahnya jadi blok gagal).
+    """
+    potong = str(tanggal or "").strip().split("T", 1)[0].split(" ", 1)[0]
+    tahun, bulan, _hari = (int(bagian) for bagian in potong.split("-", 2))
+    if bulan >= 10:
+        return f"{tahun}-{str(tahun + 1)[2:]}"
+    return f"{tahun - 1}-{str(tahun)[2:]}"
+
+
+def _blok_setan_pemain(
+    home: str,
+    away: str,
+    median: float | None,
+    main_line: float | None,
+    artefak: dict,
+    cfg: dict,
+    generated_at: str,
+    tanggal: str,
+) -> dict:
+    """Rakit blok setan_pemain artefak (Tahap 5c, setan per pemain).
+
+    Fetch data 3P se-liga (sekali per proses via cache pemain_3p),
+    hitung total setan spesifik-tim via engine/setan_pemain, lalu
+    ratakan hasilnya ke blok dengan status + sumber + jam.
+    TIDAK PERNAH melempar: fetch/hitung gagal -> status 'gagal' +
+    error, artefak tetap jalan dan skenario_panas fallback ke
+    setan umum. ``setan_pemain.enabled`` false -> 'nonaktif'
+    (tanpa fetch). Kunci ``total_setan_pemain`` di level atas blok
+    dibaca engine/stress.skenario_panas dari analysis.
+    """
+    dasar: dict = {
+        "status": "gagal",
+        "sources": [],
+        "tier": None,
+        "fetched_at": generated_at,
+        "error": None,
+    }
+    try:
+        aktif = config_mod.get_value(cfg, "setan_pemain", "enabled")
+    except Exception:  # noqa: BLE001 - config lama tanpa kunci -> anggap aktif
+        aktif = True
+    if aktif is False:
+        return {**dasar, "status": "nonaktif", "error": "setan_pemain.enabled false"}
+    if median is None:
+        return {**dasar, "error": "median_tidak_ada"}
+    try:
+        musim = _musim_nba_dari_tanggal(tanggal)
+        hasil = pemain_3p_mod.fetch_pemain_3p_cached(season=musim)
+    except Exception as exc:  # noqa: BLE001 - fetch tidak boleh mematikan builder
+        return {**dasar, "error": f"{type(exc).__name__}: {exc}"}
+    if (
+        not getattr(hasil, "ok", False)
+        or not isinstance(getattr(hasil, "data", None), list)
+        or not hasil.data
+    ):
+        return {
+            **dasar,
+            "fetched_at": getattr(hasil, "fetched_at", generated_at),
+            "error": str(getattr(hasil, "error", None) or "fetch pemain 3P gagal"),
+        }
+    try:
+        absen = setan_pemain_mod.pemain_absen_dari_artefak(artefak)
+        demon = setan_pemain_mod.hitung_setan_pemain(
+            hasil.data,
+            home,
+            away,
+            median,
+            garis_bandar=main_line,
+            pemain_absen=absen,
+            cfg=cfg,
+        )
+    except Exception as exc:  # noqa: BLE001 - hitung gagal -> blok gagal
+        return {
+            **dasar,
+            "fetched_at": getattr(hasil, "fetched_at", generated_at),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    blok: dict = {
+        "status": "ok",
+        "sources": [hasil.source] if isinstance(hasil.source, str) else [],
+        "tier": getattr(hasil, "tier", None),
+        "fetched_at": getattr(hasil, "fetched_at", generated_at),
+        "error": None,
+    }
+    blok.update(demon)
+    return blok
 
 
 def _angka(nilai) -> float | None:
@@ -1389,6 +1484,28 @@ def _build_nba_analysis(
                     "time": hasil_news.fetched_at,
                 }
             )
+
+    # Tahap 5c: setan per pemain (KONTEKS stress — gagal -> blok
+    # setan_pemain status "gagal" + missing, artefak tetap jalan;
+    # skenario_panas fallback ke setan umum bila blok tidak ada/ok).
+    artefak["setan_pemain"] = _blok_setan_pemain(
+        home, away, median, main_line, artefak, cfg_efektif, generated_at, tanggal
+    )
+    if artefak["setan_pemain"]["status"] == "gagal":
+        missing.append(f"setan_pemain_gagal: {artefak['setan_pemain']['error']}")
+    elif artefak["setan_pemain"]["status"] == "ok":
+        artefak["sources"].append(
+            {
+                "kind": "nba_pemain_3p",
+                "source": (
+                    artefak["setan_pemain"]["sources"][0]
+                    if artefak["setan_pemain"]["sources"]
+                    else "stats.nba.com"
+                ),
+                "tier": artefak["setan_pemain"].get("tier") or 2,
+                "time": artefak["setan_pemain"]["fetched_at"],
+            }
+        )
 
     legs = [
         _rakit_kaki(

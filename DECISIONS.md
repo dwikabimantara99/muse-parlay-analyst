@@ -857,3 +857,229 @@ probes/HASIL-PROBE-NEWS.md).
   per pemakaian: news gagal → status gagal tercatat; ekor hilang →
   sigma global + catatan) — berbeda dengan equilibrium/skip_awal/
   ot_seleksi yang wajib ada.
+
+## Aturan tanpa kaki kembar + masukan objektif soal Asuransi (user 2026-11-23 12:20 WIB)
+
+Riwayat user (screenshot jup.ag, 18 tiket, 15–23 Nov 2026): 10 menang,
+8 kalah, total +$169,66 dari modal $223 (+76%). Hari ini (23 Nov)
+pertama kalinya KEDUA tiket dalam sepasang kalah bersamaan; secara
+umum tiket Asuransi user tidak pernah gagal.
+
+- **TANPA KAKI KEMBAR (keputusan user):** satu laga tidak boleh ada di
+  kedua tiket. Kekalahan hari ini karena Denver ada di kedua tiket;
+  andai Denver tidak ada di Asuransi, Asuransi selamat. Kemarin
+  (22 Nov) kaki kembar selamat hanya karena laganya dingin — itu
+  keberuntungan, bukan desain. Dengan 10 laga besok, tiket tanpa
+  kembar dimungkinkan (mis. 4–5 laga Asuransi + 5–6 laga Utama).
+- **Sedikit longgar pada penyimpangan bisa diterima** (user), tapi
+  TIDAK melonggarkan tes simulasi. Yang tidak bisa diterima: laga
+  seperti Denver — garis tinggi (252,5) tapi harga cuma 82¢. Itu
+  sinyal pasar: ekornya gemuk. Laga seperti itu langsung di-skip.
+- **Bila equilibrium Asuransi tidak ditemukan:** pasang Asuransi di
+  kaki-kaki yang paling aman (bukan "pasti menang" — tidak ada yang
+  pasti; bahkan 94¢ kalah di Denver). Mesin harus memilih titik
+  Asuransi yang manis untuk tim yang benar-benar tidak akan membuat
+  anomali.
+- **Masukan objektif main agent (disampaikan 12:20 WIB, menunggu
+  persetujuan build):** (a) koreksi geser banjir ke data bersih
+  (8,50/12,52) — ini koreksi, bukan pelonggaran; (b) equilibrium
+  Asuransi = safety-first (p_final tertinggi yang mencapai x2),
+  bukan max-ER (max-ER benar untuk Utama); (c) bila masih buntu,
+  gate Asuransi pakai banjir moderat sementara p90/setan tetap jadi
+  flag peringatan; (d) sinyal pasar "garis jauh + harga rendah"
+  ditambahkan ke aturan skip.
+- **Batas data riwayat:** screenshot hanya memuat ukuran kombo,
+  modal, payout, P/L, status — tanpa detail per kaki, sehingga
+  18 tiket riwayat tidak bisa masuk ledger/modul belajar (butuh
+  hasil per kaki). Bila user punya detail kakinya, bisa dicatat.
+
+## Vonis per laga + setan per pemain (diskusi user 2026-11-23 12:33 WIB)
+
+Pelajaran Denver — indikator yang bisa mesin ambil (bukan perasaan):
+kaki terlemah di tiket (peluang + edge terkecil), gap model-vs-pasar
+terkecil (mesin hampir setuju dengan bandar = tidak ada edge), volume
+tipis, rapuh banjir (P banjir 54%) + flag setan (53%), garis jauh +
+harga rendah (252,5 @82¢ = pasar bilang ekornya gemuk), laga ketat
+(spread 2,5 = risiko OT), total tinggi (garis bandar 236,5 = variasi
+lebih besar). Yang JUJUR tidak terprediksi: banjirnya sendiri (kedua
+tim penembak tripoin di bawah rata-rata musim) — yang terdeteksi
+adalah RAPUHNYA, bukan banjirnya.
+
+- **Sistem vonis (diusulkan, menunggu jawaban user):** mesin menghitung
+  vonis per laga dari indikator-indikator di atas — HIJAU/sehat
+  (→ Asuransi), menengah-cukup-hijau (→ Utama), KUNING/lempar koin
+  (→ skip). Vonis dari angka, bukan perasaan (beda dengan Gemini
+  yang menandai KUNING lalu tetap memasukkan).
+- **Setan per pemain (ide user):** ganti setan umum (+18,07 untuk
+  semua laga) dengan setan per tim: tiap pemain diambil data tripoin
+  musimnya (berapa persen per laga), dihitung kalau semuanya panas
+  bareng (di atas rata-rata NBA) totalnya bisa sampai berapa —
+  diuji ke semua pemain dalam tim. Rumus/titiknya ditentukan mesin
+  dari data dan fakta. Mesin uji menarik data NBA untuk itu, selain
+  simulasi 100.000x real-time.
+- **Penyimpangan dilaporkan vs garis bandar** (permintaan user —
+  angka banjir abstrak tidak ditangkap user; yang dipahami adalah
+  penyimpangan jauh dari poin garis normal bandar).
+- **Poin 2 DIKONFIRMASI (12:33 WIB):** Asuransi = safety-first
+  (permainan yang benar-benar bisa menyelamatkan dari kegagalan
+  Utama); Utama TIDAK main brutal — tetap cari titik paling manis
+  pada grafik (max-ER).
+- **Pertanyaan terbuka ke user:** definisi vonis HIJAU/KUNING;
+  setan per pemain — 5 starter atau seluruh rotasi; definisi
+  "maksimal" per pemain (laga terbaik musim ini atau patokan lain);
+  persetujuan betulkan geser banjir ke data bersih sebagai bagian
+  dari build ini.
+
+## Jawaban 4 pertanyaan + build vonis/setan-pemain (user 2026-11-23 12:38 WIB)
+
+1. **Definisi vonis: terserah mesin**, asal data di baliknya cukup.
+   Pertanyaan user: "volume cukup" itu apa — volume laga NBA di
+   Polymarket selalu ratusan ribu dolar. Jawaban: yang dicek mesin
+   adalah volume PER GARIS (mis. U252,5 cuma $26), bukan volume
+   laga — volume laga tersebar di ratusan garis; garis jauh hanya
+   ditawar segelintir orang sehingga harganya kurang bisa dipercaya.
+   Ambang $100 tetap (tidak diubah diam-diam); build mengukur
+   seberapa sering volume menjadi penghalang + melaporkannya jelas.
+2. **Setan per pemain: semua pemain yang terdaftar dan rotasi**
+   (bukan cuma 5 starter).
+3. **"Maksimal" per pemain:** rapor pemain sampai hari H, lalu dia
+   kemasukan persentase 3 poin TERBAIK musim NBA saat ini —
+   demon per pemain = percobaan 3 poin per laganya × % 3 poin
+   terbaik liga musim ini (fakta dari data). Dijumlah ke semua
+   pemain tim (dengan percobaan yang DIHARAPKAN — memperhitungkan
+   siapa yang benar-benar main, bukan jumlah naif seluruh roster).
+4. **Banjir: SETUJU** — betulkan ke data bersih, asal menghasilkan
+   analisis pemilihan tiket yang bermanfaat.
+
+Build DISETUJUI + DIJALANKAN 12:38 WIB (koordinator): (1) sistem
+vonis per laga (HIJAU/MENENGAH-HIJAU/KUNING dari data), (2) aturan
+tanpa kaki kembar, (3) equilibrium Asuransi safety-first,
+(4) setan per pemain, (5) koreksi geser banjir ke data bersih,
+(6) penyimpangan dilaporkan vs garis bandar, (7) transparansi
+volume per garis + pengukuran.
+
+## Gemini adalah senior + pelajaran buru-buru (user 2026-11-23 12:43 WIB)
+
+Gemini sejauh ini membawa user menang dan tidak pernah kalah — kalah
+benar-benar cuma hari ini (23 Nov). User mengakui itu juga salahnya:
+terlalu buru-buru pasang tiket, diskusi cuma sebentar karena memaksa
+laga jam 06:00 masuk, padahal kalau santai sedikit mungkin tidak
+terjadi begini. Jadi kekalahan hari ini adalah kesalahan BERSAMA:
+kesalahan Gemini (memasukkan laga KUNING) + user yang buru-buru.
+Gemini adalah "senior" — tugas mesin bukan menggantikan penilaiannya,
+tapi memberi penilaian itu badan mesin yang kaku (vonis yang
+ditegakkan kode, tidak bisa di-override ingatan).
+
+- **Aturan proses (DIUSULKAN, menunggu persetujuan):** jangan memaksa
+  laga yang tip-off-nya sudah dekat masuk tiket — kalau analisis
+  belum selesai, skip laganya. Buffer yang diusulkan: analisis harus
+  selesai 30 menit sebelum tip-off (INITIAL). Besok pagi mulai
+  05:00–05:30 WIB agar tidak terburu-buru.
+- **Pertanyaan untuk Gemini (disampaikan ke user 12:43 WIB, untuk
+  diteruskan):** (1) sinyal apa yang membuat DEN@CHI KUNING, diurut
+  dari yang paling penting; (2) cara memilih garis per laga (kenapa
+  252,5 bukan 250,5/248,5); (3) apa yang dilihat PERTAMA saat buka
+  slate + urutan analisisnya; (4) apa yang dilakukan berbeda pagi ini
+  kalau tidak buru-buru. Jawabannya dilipat ke mesin (sistem vonis)
+  bila bisa diubah jadi data + aturan — angka Gemini tetap tidak
+  dipakai (tidak bisa dilacak ke perhitungan).
+
+## Bedah jujur Gemini — evaluasi terverifikasi (user 2026-11-23 12:51 WIB)
+
+Gemini mengirim bedah jujur 4 bagian. Main agent memverifikasi
+klaim-klaim faktualnya dari data mesin SEBELUM melipatnya ke mesin:
+
+- **Claxton OUT (CHI) vs Jokic — TERVERIFIKASI.** Official NBA Injury
+  Report + ESPN (2 sumber, artefak mesin): Nic Claxton OUT, CHI,
+  "Illness". Sinyal #1 Gemini benar. (Keraguan awal main agent —
+  Claxton adalah pemain Nets — SALAH; di musim 2026-27 dia di Bulls
+  menurut data resmi.)
+- **Garis tertinggi 236,5 + pace cepat — BENAR** (pasar 236,5; pace
+  CHI 103,22 musim / 101,15 last10 vs klaim Gemini ~103,9 — substansi
+  benar, angka persis beda sumber).
+- **H2H 248–257 — TIDAK TERVERIFIKASI** (H2H mesin kosong untuk laga
+  ini, h2h_last5 [] — utang: H2H hanya dari gamelog musim berjalan).
+- **Aday Mara OUT (OKC) — TIDAK TERVERIFIKASI** (tidak ada di data
+  cedera mesin, 2 sumber, 2 snapshot termasuk artefak pagi 04:58;
+  tidak ada di boxscore). Jangan dipakai sebagai fakta.
+- **Hitung mundur dari pengali (81,7¢) — ARITMETIKA BENAR**
+  ((1/2,24)^(1/4) ≈ 81,7¢); selisih 2 poin = 0,12 SD BENAR.
+  Cacatnya (garis dari target pengali, bukan dari volatilitas) valid
+  — equilibrium mesin sudah bekerja sebaliknya (volatilitas dulu).
+- **Vegas-anchoring ±3–4 — mesin SUDAH punya versinya** (ambang 5,0
+  + lean-to-market; ambang 5,0 TETAP — perubahan ke 3–4 butuh uji
+  historis DunkAPI). Fakta: median mesin DEN 233 (gap 3,5, di dalam
+  ±3–4); model Gemini 227,1 (gap 9,4, di luar).
+- **Exchange-first + NO BET — mesin SUDAH begitu** (tangga Polymarket
+  riil; fail-closed).
+- **HARD VETO (baru, dari Gemini, DILIPAT ke build vonis):** rim
+  protector utama OUT + garis Vegas tertinggi / high pace → blokir
+  otomatis dari Asuransi, tidak bisa dikalahkan skor EV. Definisi
+  rim protector dari data (blocks/center starter).
+
+## Catatan implementasi build vonis + setan per pemain (koordinator, 2026-11-23 sore WIB)
+
+Config v17. Laporan utama: `LAPORAN-VONIS-SETAN-PEMAIN.md`;
+laporan per pekerja: `LAPORAN-VONIS.md`, `LAPORAN-ASURANSI-BARU.md`,
+`LAPORAN-SETAN-PEMAIN.md`. Suite 1806 tes OK, 0 kredit Odds API.
+
+- **Vonis (`engine/vonis.py`):** sistem demerit (9 indikator) + 4
+  pemicu keras (data tidak cukup, OT tinggi, edge tidak positif,
+  veto rim protector). HIJAU = 0 demerit; MENENGAH_HIJAU = 1–4;
+  KUNING = > 4 atau pemicu keras. Distribusi slate uji 10 baris
+  22 Nov: HIJAU 0 / MENENGAH_HIJAU 2 (DAL, BOS live) / KUNING 8;
+  veto menyala 3 baris (DEN verif via Claxton; OKC live + verif via
+  Chet Holmgren). Veto memblokir KEDUA tiket (vonis KUNING) —
+  pembacaan yang lebih ketat dari "minimal tidak masuk Asuransi";
+  menunggu keberatan. KUNING-karena-data TIDAK dikeluarkan komposer
+  (gate per kaki tetap fail-closed sendiri); menunggu keberatan.
+- **Rim protector:** per tim maksimal 2 pemain rotasi (GP ≥ 3,
+  MP ≥ 15, BLK ≥ 0,8), urut BPG — pemetaan
+  `config/rim_protector_2026-27.json` (30/30 tim, stats.nba.com,
+  23 Nov). Top-1 GAGAL di data (pemimpin blok CHI adalah Jalen
+  Smith 1,1, bukan Claxton 1,0). Segarkan mingguan via
+  `scripts/fetch_rim_protector.py`; tidak ada peringatan basi
+  otomatis (utang).
+- **Tanpa kaki kembar (`engine/ticket_composer.py`):** HIJAU →
+  Asuransi saja; menengah-hijau → Utama saja; KUNING dievaluasi →
+  skip keduanya; tanpa vonis → tanpa preferensi (PENYIMPANGAN
+  terdokumentasi dari brief — menandai semua tanpa-vonis sebagai
+  menengah-hijau akan membuang semua kandidat Asuransi). Disjoint
+  ditegakkan juga di tingkat subset; fail-closed bila target
+  pengali tidak tercapai.
+- **Equilibrium Asuransi safety-first:** mode per tiket di config
+  (`mode_insurance: safety_first`, `mode_main: max_er`); Asuransi
+  = p_final tertinggi di antara garis yang lolos semua gate.
+  Kendala x2 tetap di komposer (tidak ada optimasi gabungan) —
+  kaki @92,5¢ butuh ~10 kaki untuk x2.
+- **Setan per pemain (`engine/setan_pemain.py` +
+  `ingest/pemain_3p.py`):** DEN@CHI total setan 274,14 (deviasi
+  +37,64 vs garis bandar 236,5; +23,07 di atas setan umum); kedua
+  kaki nyata ter-flag rapuh (P setan 13,0%/11,8%); point-in-time
+  273,03 (−1,11). % terbaik liga 54,1% (Cam Spencer, MEM, 61,2
+  percobaan) — level demon sensitif terhadap ambang percobaan
+  minimum (50 INITIAL): ambang 75 → 260,21; ambang 150 → 240,83
+  (tidak lagi rapuh). Vonis rapuh kokoh untuk ambang 25–100.
+  WIRING (ditemukan + diperbaiki koordinator saat integrasi):
+  `skenario_panas` sudah membaca `analysis["setan_pemain"]` tapi
+  tidak ada pemanggil produksi yang mengisinya — kini
+  `engine/nba_analysis.py` Tahap 5c mengambil data pemain (sekali
+  per proses, cache) + menghitung demon per laga + melampirkannya
+  ke artefak; gagal → blok "gagal" + fallback setan umum.
+  Skema `nba_analysis.schema.json` diperluas (properti opsional
+  `setan_pemain`, format_version tetap 1).
+- **Koreksi banjir (data bersih):** 3P 13,54 → 8,50; FT 17,54 →
+  12,52; setan 18,07 tetap. Garis tahan banjir turun ~5–6 poin;
+  hasil skip tidak berubah di 10 baris.
+- **TEMUAN UTAMA (jujur, tidak disembunyikan): Asuransi TETAP
+  tidak terbentuk** di slate uji (EQ Asuransi 0/10; gate banjir
+  1/8 lolos; penghalang kini volume 8 baris + edge 2 baris;
+  volume SATU-SATUNYA penghalang hanya di 1/10 baris — melonggarkan
+  $100 saja tidak akan membentuk Asuransi). EQ Utama 10/10.
+  Vonis tidak melonggarkan apa pun; 0 HIJAU berarti alokasi
+  HIJAU → Asuransi belum pernah teruji di data nyata.
+- **Utang baru:** fetch H2H (vonis tidak bergantung H2H);
+  pemetaan rim protector perlu refresh mingguan tanpa peringatan
+  otomatis; "turunkan target" tidak otomatis di kode (hanya NO
+  BET yang otomatis); setan pemain tidak memodelkan lonjakan
+  JUMLAH percobaan (hanya akurasi).

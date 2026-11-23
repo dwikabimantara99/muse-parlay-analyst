@@ -248,13 +248,15 @@ class TestPlaystyle(unittest.TestCase):
         self.assertEqual(fitting["min_games_total"], 100)
         self.assertEqual(fitting["min_group_n"], 30)
 
-    def test_meta_versi_16(self):
-        # Versi 16: penyempurnaan mesin (equilibrium, skip dari awal,
-        # news, ekor 3P, OT di seleksi — keputusan user 2026-11-23
-        # 10:41 WIB) — di atas versi 15 (skenario setan, deteksi
-        # kerapuhan — BUKAN gate; koreksi user 2026-11-23 09:52 WIB).
+    def test_meta_versi_17(self):
+        # Versi 17: vonis per laga + veto rim protector + tanpa kaki
+        # kembar + equilibrium Asuransi safety-first + setan per
+        # pemain + koreksi banjir ke data bersih (keputusan user
+        # 2026-11-23 12:20/12:33/12:38 WIB) — di atas versi 16
+        # (penyempurnaan mesin: equilibrium, skip dari awal, news,
+        # ekor 3P, OT di seleksi).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 16)
+        self.assertEqual(meta["version"], 17)
         self.assertEqual(meta["last_reviewed"], "2026-11-23")
 
     def test_analis_section(self):
@@ -276,11 +278,26 @@ class TestPlaystyle(unittest.TestCase):
 
     def test_equilibrium_section(self):
         # Section equilibrium (build penyempurnaan 2026-11-23):
-        # titik manis per kaki = max expected return di antara garis
-        # yang lolos semua gate; butuh jangkar pasar Kalshi (P2).
+        # titik manis per kaki di antara garis yang lolos semua gate;
+        # butuh jangkar pasar Kalshi (P2). Mode per tiket (worker B,
+        # keputusan user 12:20 + 12:33 WIB 2026-11-23): Asuransi
+        # safety-first (p_final tertinggi), Utama max-ER.
         eq = self.cfg["equilibrium"]
         self.assertTrue(eq["enabled"])
         self.assertTrue(eq["butuh_anchor_pasar"])
+        self.assertEqual(eq["mode_insurance"], "safety_first")
+        self.assertEqual(eq["mode_main"], "max_er")
+
+    def test_stress_section_geser_bersih(self):
+        # Section stress: geser banjir KOREKSI kontaminasi
+        # (2026-11-23, worker B — disetujui user 12:38 WIB):
+        # p90 data BERSIH n=243 (3P 8,50 / FT 12,52), bukan nilai
+        # tercemar n=247 (13,54 / 17,54). Bukan pelonggaran — lihat
+        # LAPORAN-ATURAN-KERAS.md §6. Setan 18,07 TIDAK berubah.
+        stress = self.cfg["stress"]
+        self.assertEqual(stress["banjir_3p_points"], 8.50)
+        self.assertEqual(stress["banjir_ft_points"], 12.52)
+        self.assertEqual(stress["setan_points"], 18.07)
 
     def test_skip_awal_section(self):
         # Section skip_awal (build penyempurnaan 2026-11-23): ambang
