@@ -1274,3 +1274,42 @@ ambang (untuk iterasi dengan user/Gemini):
 - Artefak 22 Nov mendahului Vegas/FTr — acceptance mengukur gate
   v18 di atas artefak era v17; demerit foul belum teruji di data
   nyata.
+
+## Build v18 SELESAI + TERVERIFIKASI (2026-11-23 15:30 WIB)
+
+Commit e31c487 (main, remote cocok), config v18, 2003/2003 tes,
+ruff + black bersih, 0 kredit. Main agent memverifikasi independen:
+commit/remote/tree, full suite, lint, config, out/ukur_v18.json,
+hitung tangan (x1,36 = (100/88,5)^3 x 0,945 = 1,3633 ✓; x1,85 =
+1,2048 x 1,2422 x 1,3072 x 0,945 = 1,8488 ✓; demon 253,71 =
+233,0-68,09+88,80 ✓; ER DET 0,9916 ✓; OT maks 0,0575 < hard-skip
+0,085 -> DORMAN ✓; peta rim protector 21/30, hilang ATL/DET/GSW/HOU/
+IND/LAC/NYK/ORL/PHX).
+Vonis slate uji: HIJAU 5 / MENENGAH 0 / KUNING 1 / TUNGGU 4
+(v17: 0/2/8). Equilibrium 10/10 kedua tiket (v17: Asuransi 0/10).
+Acceptance Gemini §4: T3 LOLOS (false positive 0/5), T4 LOLOS
+(IND TUNGGU_LINEUP); T1 fungsional (DEN verif KUNING via veto AND,
+live TUNGGU_LINEUP — kedua baris terblokir); T5 reformulasi
+(6,85 dtk/laga; scan jup.ag slate-level tidak bisa di-short-circuit
+per laga); T2 GAGAL JUJUR (tiket tidak terbentuk — maks x1,36
+Asuransi / x1,85 Utama).
+REVISI KOORDINATOR (menunggu keberatan): (1) gate eksekusi =
+likuiditas + spread (bukan volume kumulatif) — bukti DET U239,5
+(bid 79/ask 82, likuiditas $36.580, volume kumulatif $5) terblokir
+gate volume padahal order $15 terisi; gate baru likuiditas ≥ $30
+DAN spread ≤ 5,0¢ (INITIAL) DAN ask nyata; dampak EQ Asuransi
+3/10 -> 10/10. (2) sisa HIJAU mengalir ke Utama (MENENGAH 0/10
+membuat Utama 0 kandidat). (3) Vegas CDF efektif kanonis.
+TEMUAN UTAMA: penghalang v18 kini JUMLAH KAKI, bukan ambang — pola
+Denver (skip_awal) men-skip 4/7 laga live, 3 di antaranya (OKC,
+ORL, IND) MENANG di garis EQ. Syarat pola (4) masih memakai edge
+datar < 3,5% (aturan lama yang dibunuh audit Gemini); syarat (2)
+masih memakai definisi "tipis" volume lama; demon pola masih generik
+(bukan setan per pemain). TINDAK LANJUT: konversi syarat (4) ke EV
++ definisi tipis berbasis likuiditas + demon pemain — butuh
+persetujuan user (perubahan logika skip) atau saran Gemini
+(Gemini §4 mengundang iterasi dengan angka v18).
+BATASAN JUJUR: veto buta di 9 tim (3/10 laga slate 24 Nov: OKC@IND,
+PHX@NOP, LAC@HOU); HIJAU DAL rapuh (DRtg 112,8 vs cutoff 112,9 —
+margin 0,1); demerit foul belum teruji di data nyata (FTr None di
+artefak 22 Nov); OT hard-skip DORMAN (p maks 0,0575 < 0,085).
