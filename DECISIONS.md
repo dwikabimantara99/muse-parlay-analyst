@@ -1534,3 +1534,28 @@ veto-blok hanya teruji fixture); pagar tidak pernah berlaku di slate
 uji (bukti hanya fixture); MENENGAH 0/10 di slate ini; demerit foul
 belum teruji di data nyata (FTr None); OT hard-skip dorman; ambang
 pagar 0,55 INITIAL; veto bergantung data cedera SEGAR.
+
+## v18.1 DIBEKUKAN untuk besok pagi + batas 6 kaki DIPERTAHANKAN (user 2026-11-23 16:44 WIB)
+
+User: "v18.1 oke banget, langsung pakai buat besok pagi (nggak usah
+diubah lagi malam ini)." v18.1 FROZEN — tidak ada perubahan malam ini.
+USULAN 8 KAKI DITOLAK user (untuk sekarang): hitungan 60% vs 52%
+pakai asumsi 0,93^7 (+4,5% edge di ekor 88,5¢ per kaki) yang TIDAK
+REALISTIS — kekeliruan yang sama dengan edge datar di ekor yang
+dibunuh audit Gemini (edge +4,5% di harga 88,5¢ praktis tidak ada
+di pasar NBA yang efisien); di vig pasar nyata + keunggulan model
+yang sama, nambah ke 7–8 kaki justru kena akumulasi spread per kaki
+dan memakan jatah laga Tiket Utama (aturan tanpa kaki kembar).
+Main agent MENGAKUI: perbandingan 0,93^7 vs 0,85^4 dari koordinator
+disampaikan tanpa menangkap asumsi yang tidak realistis itu.
+ITERASI v18.2 (SETELAH hasil live besok — bukan malam ini):
+(1) pindahkan _DP_MAKS_KAKI ke config, TETAP di 6 (atau evaluasi
+ulang setelah ada data ledger); (2) perbaiki kesegaran cedera pakai
+GP >= 3 DAN missed_last10 <= 5 (kasus Haliburton: GP=4 tapi
+missed_last10=10 -> terkecualikan); (3) ganti nama joint_p_final
+jadi joint_p_keputusan; (4) redesain skip_awal supaya KHUSUS
+menangkap ledakan high-total + 3P volume risk + P_setan < 0,55
+(bukan mengulang cek EV/eksekusi — cek itu sudah ditanggung gate
+equilibrium).
+RENCANA BESOK PAGI (Selasa 24 Nov): gas v18.1 pakai data segar +
+recheck pra-tip-off (30–40 menit sebelum tiap kloter tip-off).
