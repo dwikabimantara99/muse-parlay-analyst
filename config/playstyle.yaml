@@ -9,9 +9,9 @@
 # Pengali: desimal (2,35x berarti modal kembali x2,35 kalau menang).
 
 meta:
-  version: 18
+  version: 18.1
   project: muse-parlay-analyst
-  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22 + perbaikan racik analis adaptif (bantalan adaptif, nilai wajar, Asuransi >2,5x, section analis), 2026-11-23 + fondasi harga & pengali (Asuransi x2+, Utama x3+, tanpa price cap) + gate edge Asuransi, 2026-11-23 + skenario setan (deviasi maksimal 3PM, deteksi kerapuhan — BUKAN gate), 2026-11-23 + penyempurnaan mesin (equilibrium, skip dari awal, news, ekor 3P, OT di seleksi), 2026-11-23 + vonis per laga + veto rim protector + tanpa kaki kembar + equilibrium Asuransi safety-first + setan per pemain + koreksi banjir ke data bersih, 2026-11-23 + audit Gemini v17 / proposal v18 (vonis baru + veto AND + OT empiris + timing gate + EV ganti edge datar + gate eksekusi), 2026-11-23"
+  source: "Blueprint Mesin Analis Parlay (Muse), Nov 20 2026 + DECISIONS.md 2026-11-20 & 2026-11-21 + fit NBA Tahap 3 (2026-11-22) + integrasi Langkah 1 (market_line_check, polymarket_ladder, jup markup) + patch langkah 1b perbaikan 2 (bpm_replacement) + perbaikan 3-4 (bantalan Asuransi target peluang, ESPN cedera), 2026-11-22 + Langkah 2 (recheck pra-submit) + adopsi nilai rolling (addendum Langkah 2), 2026-11-22 + Langkah 2 (shrinkage menit+BPM ke musim lalu), 2026-11-22 + Langkah 3 (peracik tiket: Utama maks 5,0x profil user 2026-11-22), 2026-11-22 + Langkah 4 (pantauan live: ambang status + risiko OT + anomali live), 2026-11-22 + Langkah 5 (otak bola: wiring soccer_brain/soccer_analysis, TANPA_XG), 2026-11-22 + Langkah 6 (kalibrasi w + usulan belajar: min_legs_w, section learning), 2026-11-22 + perbaikan racik analis adaptif (bantalan adaptif, nilai wajar, Asuransi >2,5x, section analis), 2026-11-23 + fondasi harga & pengali (Asuransi x2+, Utama x3+, tanpa price cap) + gate edge Asuransi, 2026-11-23 + skenario setan (deviasi maksimal 3PM, deteksi kerapuhan — BUKAN gate), 2026-11-23 + penyempurnaan mesin (equilibrium, skip dari awal, news, ekor 3P, OT di seleksi), 2026-11-23 + vonis per laga + veto rim protector + tanpa kaki kembar + equilibrium Asuransi safety-first + setan per pemain + koreksi banjir ke data bersih, 2026-11-23 + audit Gemini v17 / proposal v18 (vonis baru + veto AND + OT empiris + timing gate + EV ganti edge datar + gate eksekusi), 2026-11-23 + patch v18.1 (skip_awal EV + pagar anti-redundansi + komposer valid_lines + fallback (b) + peta rim protector 30/30 + filter kesegaran cedera + garis referensi tail_fragility + simetri D7), 2026-11-23"
   last_reviewed: "2026-11-23"
 
 # ── §6a. Dua tiket ──────────────────────────────────────────────────────────
@@ -67,6 +67,30 @@ tickets:
     # koordinator; tidak ada lagi pembaca di engine/ — komposer v18
     # memakai gate banjir CDF-langsung; tes
     # test_config_stress_gate_scenario_tidak_dibaca membuktikannya).
+    # ── v18.1 Patch #2 "Perangkap Plafon 88,5¢" (REFERENSI-PATCH-
+    # V18-1-GEMINI.md §1): safety-first dalam band 80–89¢ selalu
+    # memetik plafon (P_final monoton naik terhadap harga) — di T2
+    # v18 ketiga kaki Asuransi terkunci di 88,5¢ (pengali maks
+    # x1,36). Perbaikannya TANPA pelonggaran gate: equilibrium
+    # mengembalikan SEMUA garis valid (valid_lines) dan komposer
+    # memilih kombinasi yang memaksimalkan peluang cair gabungan
+    # (max Π P_final) dalam jendela target [2,00x, 2,50x].
+    expose_all_valid_lines_to_composer: true
+    # Satu-satunya tujuan komposer Asuransi yang didukung v18.1.
+    # Nilai lain -> ConfigError (fail-closed).
+    composer_objective: "max_joint_p_final_within_target_multiplier"
+    # ── Fallback (b), KEPUTUSAN USER 2026-11-23 15:52 WIB
+    # (DECISIONS.md "Pilihan fallback Asuransi (b) + filosofi
+    # pasti menang"): bila tidak ada kombinasi >= 2,00x tanpa
+    # melanggar gate, mesin MELAPORKAN opsi terbaik di
+    # [1,80x, 1,99x] sebagai opsi berlabel (BUKAN tiket) —
+    # lengkap dengan pengali, peluang cair gabungan, detail per
+    # kaki, dan alasan. 1,80x BUKAN target (penolakan user
+    # 13:57 WIB terhadap 1,80x sebagai TARGET tetap berlaku);
+    # fallback hanya opsi terlaporkan, keputusan pasang di
+    # tangan user. Batas atas 1,99x = target_min - 0,01 (di
+    # bawah band target pada presisi sen).
+    target_multiplier_fallback_min: 1.80
     # Syarat wajib §6a: pengali x modal Asuransi >= total modal kedua tiket.
     must_cover_total_stake: true
   main:
@@ -717,16 +741,24 @@ skip_awal:
   #     -> tidak skip via (a).
   # (b) pola_denver — KONJUNGSI 4 syarat (semua harus benar):
   #     (1) flag_setan pada garis acuan (garis tangga termurah dengan
-  #         P normal >= target Asuransi): P normal >= 0,74 tapi
-  #         P setan < 0,74;
-  #     (2) tidak ada garis TIDAK-TIPIS yang tahan banjir pada target
-  #         Asuransi ("rapuh banjir di semua garis wajar" — garis
-  #         wajar = garis yang bisa dibeli, yaitu tidak thin);
-  #     (3) garis acuan thin ("volume tipis" pada garis wajar laga itu);
-  #     (4) edge kecil pada garis acuan (edge implied p_final − harga
-  #         venue < pola_denver.edge_kecil_pct).
-  #     "Volume tipis" juga terkandung di (2): garis tahan-banjir yang
-  #     ada semuanya thin berarti garis yang selamat tidak bisa dibeli.
+  #         P normal >= target Asuransi): P normal >= 0,82 tapi
+  #         P setan < 0,82 — setan per pemain v18 bila blok
+  #         setan_pemain ada, setan generik sebagai fallback;
+  #     (2) tidak ada garis yang LOLOS GATE EKSEKUSI yang tahan
+  #         banjir pada target Asuransi ("rapuh banjir di semua
+  #         garis yang bisa dibeli" — v18.1: cek_eksekusi
+  #         menggantikan flag thin volume kumulatif);
+  #     (3) garis acuan TIDAK lolos gate eksekusi (v18.1: dulu
+  #         "volume tipis" dari flag thin);
+  #     (4) EV kecil pada garis acuan (EV < max_ev_for_weak_flag,
+  #         -1% — v18.1: dulu edge < edge_kecil_pct 3,5%).
+  #     PAGAR ANTI-REDUNDANSI (v18.1): bila laga tidak kena veto
+  #     DAN punya garis lolos semua gate Equilibrium Asuransi, pola
+  #     hanya boleh menyala bila ketiganya benar: garis Asuransi
+  #     rapuh vs setan pemain (P setan < demon_p_fragile_threshold
+  #     ATAU median setan > garis Asuransi) + total pasar >=
+  #     min_market_total_for_pattern + tidak ada garis valid
+  #     (cek_eksekusi + EV >= -1%) yang tahan banjir maupun setan.
   # (c) ot_tinggi — potensi OT tinggi (ambang di section ot_seleksi).
   # Tanpa data yang cukup -> "tidak dievaluasi", BUKAN skip: skip
   # adalah klaim positif soal laga, bukan default saat data hilang
@@ -734,14 +766,40 @@ skip_awal:
   # Kunci ini (false) mematikan skip_awal (perilaku lama persis).
   enabled: true
   pola_denver:
-    # NILAI AWAL (INITIAL) — BELUM DIKALIBRASI. Cermin proposal D12
-    # (gate edge Asuransi 3,5%): kaki DEN yang jebol punya edge
-    # +2,5% (P_model) / +1,5% (p_final, artefak live); kaki selamat
-    # terendah +4,4%. Ambang 3,5% di tengah-tengah — sama seperti
-    # D12, menunggu validasi atas data PAPER + persetujuan user.
-    # KALIBRASI: kumpulkan laga dengan hasil settled; ukur distribusi
-    # edge garis acuan pada laga yang banjir vs tidak; geser ambang
-    # hanya atas persetujuan user.
+    # v18.1 (Patch #1 Gemini — MENGGANTIKAN syarat (4) edge + definisi
+    # thin): syarat (4) kini berbasis EV (gagal bila EV < ambang,
+    # selaras gate EV Asuransi -1%); "non-thin" kini berarti lolos
+    # gate eksekusi (cek_eksekusi: likuiditas >= $30 + spread <= 5¢
+    # + ask nyata), BUKAN flag thin volume kumulatif; flag setan
+    # kini memakai setan per pemain v18 (cap min(50%, 3P% + 12pp),
+    # fallback setan generik bila blok setan_pemain tidak ada).
+    # Pagar anti-redundansi: bila laga tidak kena veto DAN punya
+    # garis lolos semua gate Equilibrium Asuransi, pola hanya boleh
+    # menyala bila ketiga syarat pagar benar (garis Asuransi rapuh
+    # vs setan pemain + total pasar tinggi + tidak ada garis valid
+    # yang tahan banjir maupun setan).
+    use_ev_instead_of_flat_edge: true
+    # EV terburuk (pecahan; -0,01 = EV >= -1%) agar syarat (4)
+    # TIDAK menyala — selaras tickets.insurance.max_negative_ev_pct.
+    max_ev_for_weak_flag: -0.01
+    use_cek_eksekusi_for_thin: true
+    use_demon_per_player_v18: true
+    # P(setan pemain) di bawah ini = garis Asuransi "rapuh" (pagar
+    # syarat 1 + definisi "tahan setan" pagar syarat 3). INITIAL —
+    # BELUM DIKALIBRASI (proposal Gemini §3); rencana kalibrasi:
+    # ukur distribusi P setan pemain pada garis Asuransi di laga
+    # yang banjir vs tidak dari hasil settled; geser hanya atas
+    # persetujuan user.
+    demon_p_fragile_threshold: 0.55
+    # Total pasar minimum agar pola Denver boleh menyala di bawah
+    # pagar (pagar syarat 2) — selaras vonis.veto.total_tinggi_points
+    # (232,0): pola hanya relevan di lingkungan skor tinggi.
+    min_market_total_for_pattern: 232.0
+    # DEPRECATED v18.1 — TIDAK DIBACA bila
+    # use_ev_instead_of_flat_edge true (jalur utama). Dipakai hanya
+    # sebagai fallback bila flag itu false (reversibilitas satu
+    # baris config), dan dibaca scripts/ukur_equilibrium.py untuk
+    # pelaporan. NILAI AWAL (INITIAL) — cermin proposal D12.
     edge_kecil_pct: 3.5
 
 # ── Vonis per laga (keputusan user 2026-11-23 12:38 WIB; ROMBAK v18) ─────
@@ -787,15 +845,25 @@ vonis:
   # tetap menampilkan vonis bila dihitung).
   enabled: true
   # ── (a) Kerapuhan ekor GABUNGAN (1 demerit): P(Under) di banjir
-  # 3P pada garis Asuransi < p_flood_3p_below ATAU di banjir FT <
-  # p_flood_ft_below. Nilai dari proposal Gemini §3 (0,72/0,67 —
-  # di antara gate banjir Asuransi 0,70/0,65 dan ambang v17 0,74);
-  # INITIAL + rencana kalibrasi ledger (ukur win rate kaki per pita
-  # P banjir; geser hanya atas persetujuan user). Setan TIDAK ikut
-  # di sini (flag diagnostik saja, per koreksi user 09:52 WIB).
+  # 3P pada garis REFERENSI < p_flood_3p_below ATAU di banjir FT <
+  # p_flood_ft_below. v18.1 (Patch #5a): garis referensi = garis
+  # tangga TERENDAH dengan harga >=
+  # tail_fragility_reference_price_min (82¢) yang LOLOS gate
+  # eksekusi (cek_eksekusi) — BUKAN garis equilibrium Asuransi
+  # (plafon ~88,5¢) tempat hampir semua laga tampak tahan banjir.
+  # Filter eksekusi WAJIB: tangga artefak memuat garis jauh dengan
+  # harga sampah (mis. U117,5 @82,5¢, ask 99¢, likuiditas $3,80
+  # di DET@ATL live) — tanpa filter, garis referensi jatuh ke
+  # garis yang tidak bisa dibeli. Bila tidak ada garis yang
+  # memenuhi, fallback ke garis Asuransi + dicatat di indikator.
   tail_fragility:
     p_flood_3p_below: 0.72
     p_flood_ft_below: 0.67
+  # Harga venue minimum (pecahan; 0,82 = 82¢) garis referensi
+  # tail_fragility (v18.1, proposal Gemini §3 — INITIAL; rencana
+  # kalibrasi ledger: ukur win rate kaki per pita P banjir di
+  # garis referensi dari hasil settled).
+  tail_fragility_reference_price_min: 0.82
   # ── (b) Total tinggi: garis bandar (main_total_line) >= nilai ini
   # -> demerit. TETAP 235,0 (v17, FIT slate 22 Nov: DEN 236,5/237,5
   # di atas, tertinggi berikutnya OKC 231,5). Klaim "total tinggi =
@@ -989,6 +1057,41 @@ vonis:
     # engine/vonis.py::_lolos_jalur_usg).
     mp_min_rotasi: 10.0  # = setan_pemain.ambang_menit_rotasi (definisi rotasi mesin)
     bpm_min_jalur_usg: 0.0  # BPM 0 = rata-rata liga menurut konstruksi BPM
+    # SIMETRI D7 (v18.1, Patch #5b — proposal Gemini §3): filter
+    # menit minimal yang SAMA (15,0) untuk KEDUA jalur bintang
+    # TUNGGU_LINEUP (USG >= 0,24 DAN BPM >= +2,0). Jalur BPM v18
+    # tidak punya filter menit sama sekali; jalur USG memakai
+    # mp_min_rotasi 10,0. Nilai 15,0 dari proposal Gemini §3
+    # (INITIAL + kalibrasi ledger: seberapa sering Questionable
+    # bintang akhirnya OUT vs main per pita menit). mp_min_rotasi
+    # (10,0) TETAP dipakai definisi "pemain berdampak via USG" di
+    # LUAR timing gate (rem alami + aturan gap besar) — hanya
+    # timing gate yang memakai 15,0 simetris.
+    min_minutes_pg_all_paths: 15.0
+
+# ── Hard veto (v18.1, Patch #3) ────────────────────────────────────────────
+# Section ini HANYA berisi tier fallback pemetaan rim protector.
+# Definisi PRIMER rim protector tetap di vonis.veto.rim_protector
+# (position_filter, min_mp_per_game 18,0, min_blk_per_game 1,0,
+# min_games 3, max_per_team 2) — pemisahan ini sesuai spesifikasi
+# patch v18.1 (REFERENSI-PATCH-V18-1-GEMINI.md §3); konsolidasi ke
+# satu section adalah keputusan desain yang menunggu keberatan
+# (lihat LAPORAN-V18-1-C.md).
+hard_vetoes:
+  rim_protector_veto:
+    # Tier fallback (v18.1): tim yang menghasilkan 0 pemain primer
+    # mendapat top-1 big (posisi sama, GP >= min_games primer)
+    # dengan ambang di bawah ini, berlabel tier "fallback" di JSON.
+    # Diagnosa v18.1: 9 tim hilang BUKAN karena mapping/normalisasi
+    # melainkan karena big rotasi terbaik mereka hanya 0,8-0,9
+    # blok/laga. Ambang 0,7 dari proposal Gemini §3 (INITIAL —
+    # belum dikalibrasi; rencana: ukur seberapa sering rim
+    # protector fallback OUT berkorelasi dengan jebolnya Under di
+    # ledger PAPER, lalu putuskan ambang final atas persetujuan
+    # user). Fallback TIDAK melonggarkan filter posisi/min_games.
+    fallback_tier_enabled: true
+    fallback_min_minutes_pg: 18.0
+    fallback_min_bpg: 0.7
 
 # ── Peluang OT dipakai di seleksi (keputusan user 2026-11-23 10:22 WIB; ROMBAK v18) ───
 ot_seleksi:
@@ -1071,6 +1174,19 @@ calibration:
   shrinkage:
     mode: "setengah_jarak"
     fraction: 0.5
+  # ── v18.1 (Patch #4): filter kesegaran _sebab_cedera_baru ──
+  # Pemain OUT hanya dihitung penyebab gap cedera baru bila
+  # games_played musim berjalan >= nilai ini. Pemain GP < 3
+  # (termasuk GP == 0 — absen sejak awal musim, mis. Haliburton)
+  # sudah 100% terserap harga pasar Vegas sehingga TIDAK boleh
+  # membatalkan shrinkage. GP dari inputs pemain artefak
+  # (field "games_played", BBRef via nba_brain); GP tidak tersedia
+  # -> TIDAK segar (fail-closed ke arah shrinkage berjalan) +
+  # dicatat. Nilai 3 dari proposal Gemini §3 (INITIAL — selaras
+  # vonis.veto.rim_protector.min_games = 3; rencana kalibrasi:
+  # ukur akurasi median pasca-susut pada laga dengan bintang OUT
+  # per pita GP dari hasil settled).
+  fresh_injury_min_gp_season: 3
 
 # ── §9. Belajar dari hasil (Tahap 3 Langkah 6) ─────────────────────────────
 learning:

@@ -14,32 +14,42 @@ Tiga pemicu (SATU pemicu positif cukup untuk skip):
     punya equilibrium, laga itu masih punya kaki yang masuk akal —
     tidak skip via (a). Keputusan desain (menunggu keberatan).
 (b) pola_denver — KONJUNGSI 4 syarat, semua harus benar (definisi
-    eksplisit — bukan perasaan):
+    eksplisit — bukan perasaan), v18.1:
     (1) flag_setan pada garis acuan: P normal >= target Asuransi
-        tapi P setan < target (kaki lolos normal, jebol di deviasi
-        maksimal — pola DEN@CHI);
-    (2) tidak ada garis TIDAK-TIPIS yang tahan banjir pada target
-        Asuransi ("rapuh banjir di semua garis wajar" — garis wajar
-        = garis yang bisa dibeli, yaitu tidak thin);
-    (3) garis acuan thin ("volume tipis" pada garis wajar laga itu);
-    (4) edge kecil pada garis acuan: edge implied (p_final − harga
-        venue) < skip_awal.pola_denver.edge_kecil_pct (INITIAL 3,5 —
-        cermin proposal D12).
+        tapi P setan EFEKTIF < target — setan per pemain v18
+        (total_setan_pemain - median) bila blok setan_pemain ada,
+        fallback setan generik + catatan bila tidak ada;
+    (2) tidak ada garis yang LOLOS GATE EKSEKUSI yang tahan banjir
+        pada target Asuransi ("rapuh banjir di semua garis yang
+        bisa dibeli" — cek_eksekusi menggantikan flag thin volume
+        kumulatif);
+    (3) garis acuan TIDAK lolos gate eksekusi (dulu: "volume
+        tipis" dari flag thin);
+    (4) EV kecil pada garis acuan: EV = p_final x (100/harga) - 1
+        < skip_awal.pola_denver.max_ev_for_weak_flag (-1% —
+        selaras gate EV Asuransi). Mode legacy (flag
+        use_ev_instead_of_flat_edge false) kembali ke edge <
+        edge_kecil_pct 3,5% (reversibilitas satu baris config).
 
-    CATATAN v18: syarat (4) DIPERTAHANKAN berbasis edge, BUKAN
-    diubah ke EV — alasan: (i) mengubahnya butuh ubah tes pola
-    Denver + test_config.py (di luar ruang lingkup worker A v18);
-    (ii) di dalam konjungsi 4-syarat, edge adalah sinyal lemah,
-    bukan gerbang — cacat edge-datar (pelajaran v18) paling
-    menggigit di gerbang, dan gerbang Asuransi SUDAH diganti ke
-    EV (max_negative_ev_pct). Konversi ke EV dicatat sebagai
-    tindak lanjut: EV = p_final x (100/harga) - 1 vs ambang
-    DISKON price_labels.diskon_min_ev_pct (+2%). KELEMAHAN JUJUR:
-    pada harga tinggi edge menyusut mekanis, jadi syarat (4)
-    hampir selalu benar untuk garis acuan mahal — konjungsi
-    efektif jadi 3 syarat di sana.
-    "Volume tipis" juga terkandung di (2): garis tahan-banjir yang
-    ada semuanya thin berarti garis yang selamat tidak bisa dibeli.
+    CATATAN v18.1: konversi syarat (4) ke EV (tindak lanjut yang
+    dicatat di v18) SUDAH dilakukan — kelemahan jujur v18 (edge
+    datar hampir selalu benar di garis acuan mahal sehingga
+    konjungsi efektif jadi 3 syarat) diperbaiki: di garis mahal,
+    EV yang membedakan kaki murah dari kaki mahal.
+    PAGAR ANTI-REDUNDANSI (v18.1): bila laga TIDAK kena Hard Veto
+    DAN punya >= 1 garis yang lolos 6 gate Equilibrium Asuransi
+    (peluang + p_market + banjir 3P + banjir FT + EV + eksekusi —
+    TANPA lantai harga), pola hanya boleh menyala bila KETIGANYA
+    benar: (1) garis Asuransi rapuh vs setan pemain (P setan <
+    demon_p_fragile_threshold 0,55 INITIAL ATAU median setan >
+    garis Asuransi), (2) total pasar >=
+    min_market_total_for_pattern 232,0, (3) tidak ada garis valid
+    (cek_eksekusi lolos + EV >= -1%) yang tahan banjir maupun
+    setan. Bila pagar TIDAK berlaku (veto menyala / veto tidak
+    bisa dievaluasi / tidak ada garis lolos gate / data pagar
+    hilang), pola 4-syarat berjalan apa adanya (dengan substitusi
+    EV + cek_eksekusi + setan pemain) — pagar tidak pernah
+    MEMBUAT pola menyala, hanya bisa memblokirnya.
     Garis acuan = garis tangga Under terendah dengan P normal >=
     target Asuransi (engine/equilibrium.cari_garis_acuan) — pada
     tangga monoton naik, ini sekaligus garis termurah.
@@ -82,11 +92,17 @@ import math
 import config as config_mod
 from engine import equilibrium as equilibrium_mod
 from engine import ot_empiris as ot_empiris_mod
+from engine import stress as stress_mod
+from engine import vonis as vonis_mod
 
 # Nama pemicu (token stabil untuk laporan + JSON ukur).
 PEMICU_TIDAK_ADA_EQUILIBRIUM = "tidak_ada_equilibrium"
 PEMICU_POLA_DENVER = "pola_denver"
 PEMICU_OT_TINGGI = "ot_tinggi"
+
+# Gate Equilibrium Asuransi yang dipakai pagar anti-redundansi:
+# 6 gate spek v18.1 — TANPA lantai_harga (bukan bagian daftar spek).
+_GATE_PAGAR = ("peluang", "p_market", "banjir_3p", "banjir_ft", "ev", "eksekusi")
 
 
 def _angka(nilai) -> float | None:
@@ -147,38 +163,323 @@ def potensi_ot_tinggi(
     return hasil["hard_skip"], hasil["p_ot_empiris"], ambang
 
 
-def _evaluasi_pola_denver(analysis: dict, cfg: dict, ktx: dict | None = None) -> dict:
-    """Evaluasi keempat syarat pola Denver (konjungsi).
-
-    Mengembalikan {"dievaluasi", "cocok", "alasan", "syarat": {...},
-    "garis_acuan": {...}} — "syarat" memuat nilai tiap syarat +
-    angka mentahnya supaya keputusan bisa diaudit per syarat.
-    "dievaluasi" False bila garis acuan tidak bisa dihitung atau
-    edge tidak bisa dinilai (tanpa jangkar pasar).
-    """
-    edge_kecil_pct = config_mod.get_value(
-        cfg, "skip_awal", "pola_denver", "edge_kecil_pct"
-    )
-    edge_kecil = _angka(edge_kecil_pct)
-    if edge_kecil is None:
+def _cfg_bool(cfg: dict, *kunci: str) -> bool:
+    """Nilai config boolean (ConfigError bila hilang/bukan bool)."""
+    nilai = config_mod.get_value(cfg, *kunci)
+    if not isinstance(nilai, bool):
         raise config_mod.ConfigError(
-            "playstyle.yaml skip_awal.pola_denver.edge_kecil_pct "
-            f"tidak valid: {edge_kecil_pct!r}"
+            "playstyle.yaml " + ".".join(kunci) + f" harus boolean: {nilai!r}"
         )
-    ambang_edge = edge_kecil / 100.0
+    return nilai
+
+
+def _cfg_angka(cfg: dict, *kunci: str) -> float:
+    """Nilai config angka (ConfigError bila hilang/bukan angka)."""
+    nilai = _angka(config_mod.get_value(cfg, *kunci))
+    if nilai is None:
+        raise config_mod.ConfigError(
+            "playstyle.yaml " + ".".join(kunci) + " tidak valid"
+        )
+    return nilai
+
+
+def _setan_pemain_diaktifkan(cfg: dict) -> bool:
+    """Apakah setan per pemain diaktifkan (cermin
+    stress._setan_pemain_diaktifkan).
+
+    Section hilang -> True (kompatibel dengan config lama); section
+    ada tapi bukan mapping / kunci enabled hilang / enabled bukan
+    bool -> ConfigError (kill-switch tidak boleh ambigu).
+    """
+    section = cfg.get("setan_pemain")
+    if section is None:
+        return True
+    if not isinstance(section, dict):
+        raise config_mod.ConfigError("playstyle.yaml setan_pemain harus mapping")
+    if "enabled" not in section:
+        raise config_mod.ConfigError(
+            "playstyle.yaml setan_pemain.enabled tidak ditemukan"
+        )
+    nilai = section["enabled"]
+    if not isinstance(nilai, bool):
+        raise config_mod.ConfigError(
+            f"playstyle.yaml setan_pemain.enabled harus boolean: {nilai!r}"
+        )
+    return nilai
+
+
+def _geser_setan_efektif(
+    analysis: dict, cfg: dict, ktx: dict, use_demon: bool
+) -> tuple[float, str, float | None, str | None]:
+    """Geser setan efektif pola Denver -> (geser, sumber, total, alasan).
+
+    ``sumber`` "pemain" bila flag v18.1 hidup + kill-switch
+    setan_pemain.enabled hidup + blok analysis["setan_pemain"]
+    membawa total_setan_pemain numerik + median sim ada — geser =
+    total - median (cermin stress.skenario_panas). Selain itu
+    "generik" (ktx["geser_setan"]) + alasan fallback tercatat
+    (artefak lama tanpa blok tidak crash).
+    """
+    geser_generik = ktx["geser_setan"]
+    if not use_demon:
+        return (
+            geser_generik,
+            "generik",
+            None,
+            "setan per pemain dinonaktifkan di config pola Denver "
+            "(use_demon_per_player_v18=false) — memakai setan umum",
+        )
+    if not _setan_pemain_diaktifkan(cfg):
+        return (
+            geser_generik,
+            "generik",
+            None,
+            "setan per pemain dinonaktifkan di config "
+            "(setan_pemain.enabled=false) — memakai setan umum",
+        )
+    data = analysis.get("setan_pemain")
+    if not isinstance(data, dict):
+        return (
+            geser_generik,
+            "generik",
+            None,
+            "data setan per pemain tidak tersedia — memakai setan umum",
+        )
+    total = _angka(data.get("total_setan_pemain"))
+    if total is None:
+        return (
+            geser_generik,
+            "generik",
+            None,
+            "data setan per pemain tanpa total_setan_pemain numerik — "
+            "memakai setan umum",
+        )
+    median = ktx.get("median")
+    if median is None:
+        return (
+            geser_generik,
+            "generik",
+            None,
+            "median total simulasi tidak ada di artefak — geser setan "
+            "per pemain tidak bisa dihitung, memakai setan umum",
+        )
+    return total - median, "pemain", total, None
+
+
+def _evaluasi_pagar(
+    analysis: dict,
+    cfg: dict,
+    ktx: dict,
+    eq_ins: dict | None,
+    geser_setan: float,
+    median_setan: float | None,
+    demon_p_rapuh: float,
+    min_market_total: float,
+) -> dict:
+    """Pagar anti-redundansi v18.1 (hanya bila pola 4-syarat cocok).
+
+    Pagar BERLAKU bila laga dipastikan TIDAK kena Hard Veto DAN
+    punya >= 1 garis yang lolos 6 gate Equilibrium Asuransi.
+    Veto dibaca dari blok analysis["veto"] bila dievaluasi, else
+    dievaluasi langsung via vonis.evaluasi_veto (artefak lama
+    tanpa blok veto). Bila berlaku, pola hanya berdiri bila
+    ketiga syarat pagar benar: (1) garis Asuransi rapuh vs setan
+    (P setan efektif < demon_p_rapuh ATAU median setan > garis
+    Asuransi), (2) total pasar >= min_market_total, (3) tidak ada
+    garis valid (gate eksekusi + EV lolos) yang tahan banjir
+    (gate banjir 3P + FT lolos) maupun setan (P setan efektif >=
+    demon_p_rapuh). Garis Asuransi = garis EQ bila ada, else garis
+    lolos p_final tertinggi. Kondisi yang tak bisa dievaluasi
+    karena data hilang -> pagar tidak dievaluasi (pola berdiri
+    apa adanya). Pagar tidak pernah MEMBUAT pola menyala — hanya
+    bisa memblokirnya.
+    """
+    pagar = {
+        "berlaku": False,
+        "memblokir": False,
+        "alasan": None,
+        "syarat": {},
+        "veto_dievaluasi": None,
+        "veto_menyala": None,
+        "veto_sumber": None,
+        "n_garis_lolos_gate": None,
+        "garis_asuransi": None,
+        "p_setan_garis_asuransi": None,
+        "median_setan": median_setan,
+        "garis_market": ktx.get("garis_market"),
+        "garis_valid_tahan": None,
+    }
+    # 1. Veto: blok artefak bila dievaluasi, else evaluasi live.
+    veto_blok = analysis.get("veto")
+    if isinstance(veto_blok, dict) and veto_blok.get("dievaluasi") is True:
+        veto_dievaluasi = True
+        veto_menyala = bool(veto_blok.get("menyala"))
+        veto_sumber = "blok_artefak"
+    else:
+        hasil_veto = vonis_mod.evaluasi_veto(analysis, cfg)
+        veto_dievaluasi = bool(hasil_veto.get("dievaluasi"))
+        veto_menyala = bool(hasil_veto.get("menyala"))
+        veto_sumber = "evaluasi_live"
+    pagar["veto_dievaluasi"] = veto_dievaluasi
+    pagar["veto_menyala"] = veto_menyala
+    pagar["veto_sumber"] = veto_sumber
+    if not veto_dievaluasi:
+        pagar["alasan"] = (
+            "pagar tidak berlaku: veto tidak bisa dievaluasi "
+            "(tidak bisa dipastikan laga bebas veto)"
+        )
+        return pagar
+    if veto_menyala:
+        pagar["alasan"] = "pagar tidak berlaku: laga kena Hard Veto"
+        return pagar
+    # 2. Garis lolos 6 gate Equilibrium Asuransi.
+    nilai = equilibrium_mod.nilai_semua_garis(analysis, "insurance", cfg, ktx=ktx)
+    if nilai is None:
+        pagar["alasan"] = (
+            "pagar tidak berlaku: garis tangga tidak bisa dinilai "
+            "(tanpa konteks equilibrium)"
+        )
+        return pagar
+    lolos = [n for n in nilai if all(n["gate"].get(g) for g in _GATE_PAGAR)]
+    pagar["n_garis_lolos_gate"] = len(lolos)
+    if not lolos:
+        pagar["alasan"] = (
+            "pagar tidak berlaku: tidak ada garis yang lolos semua "
+            "gate Equilibrium Asuransi"
+        )
+        return pagar
+    pagar["berlaku"] = True
+    # Garis Asuransi: EQ bila ada, else garis lolos p_final tertinggi.
+    garis_eq = None
+    if eq_ins is not None and eq_ins.get("ada"):
+        garis_eq = _angka(eq_ins.get("garis"))
+    if garis_eq is None:
+        garis_eq = max(lolos, key=lambda n: n["p_final"])["line"]
+    pagar["garis_asuransi"] = garis_eq
+    # (1) Garis Asuransi rapuh vs setan.
+    p_setan_eq = stress_mod.p_under_digeser(ktx["cdf"], garis_eq, geser_setan)
+    pagar["p_setan_garis_asuransi"] = round(p_setan_eq, 6)
+    rapuh = bool(
+        p_setan_eq < demon_p_rapuh
+        or (median_setan is not None and median_setan > garis_eq)
+    )
+    # (2) Total pasar tinggi.
+    garis_market = ktx.get("garis_market")
+    if garis_market is None:
+        pagar["berlaku"] = False
+        pagar["alasan"] = "pagar tidak dievaluasi: garis pasar tidak ada di artefak"
+        return pagar
+    pasar_tinggi = bool(garis_market >= min_market_total)
+    # (3) Tidak ada garis valid yang tahan banjir maupun setan.
+    # "Valid" = gate eksekusi + EV lolos; "tahan banjir" = gate
+    # banjir 3P + FT lolos (ambang dari config, lewat gate);
+    # "tahan setan" = P setan efektif >= demon_p_rapuh.
+    garis_valid_tahan = None
+    for n in nilai:
+        gate = n["gate"]
+        if not (gate.get("ev") and gate.get("eksekusi")):
+            continue
+        if not (gate.get("banjir_3p") and gate.get("banjir_ft")):
+            continue
+        p_setan_garis = stress_mod.p_under_digeser(ktx["cdf"], n["line"], geser_setan)
+        if p_setan_garis >= demon_p_rapuh:
+            garis_valid_tahan = n["line"]
+            break
+    pagar["garis_valid_tahan"] = garis_valid_tahan
+    pagar["syarat"] = {
+        "garis_asuransi_rapuh_setan": rapuh,
+        "total_pasar_tinggi": pasar_tinggi,
+        "tidak_ada_garis_valid_tahan": garis_valid_tahan is None,
+    }
+    pagar["memblokir"] = not all(pagar["syarat"].values())
+    if pagar["memblokir"]:
+        gagal = [k for k, v in pagar["syarat"].items() if not v]
+        pagar["alasan"] = (
+            "pagar memblokir pola (syarat pagar gagal: " + ", ".join(gagal) + ")"
+        )
+    else:
+        pagar["alasan"] = "pagar berlaku, ketiga syarat pagar benar — pola berdiri"
+    return pagar
+
+
+def _evaluasi_pola_denver(
+    analysis: dict,
+    cfg: dict,
+    ktx: dict | None = None,
+    eq_ins: dict | None = None,
+) -> dict:
+    """Evaluasi keempat syarat pola Denver v18.1 (konjungsi) + pagar.
+
+    Mengembalikan {"dievaluasi", "cocok", "cocok_tanpa_pagar",
+    "alasan", "syarat", "ambang_edge", "ambang_ev", "garis_acuan",
+    "detail", "pagar"} — "syarat" memuat nilai tiap syarat (kunci
+    syarat (4) "ev_kecil" di mode EV, "edge_kecil" di mode legacy);
+    "garis_acuan" adalah hasil cari_garis_acuan DITAMBAH kunci
+    v18.1 (p_setan_efektif, setan_sumber, ev, eksekusi_lolos,
+    eksekusi_alasan, n_tahan_banjir_bisa_dibeli); "detail" angka
+    audit (geser/sumber setan, EV acuan, jumlah garis tahan
+    banjir yang bisa dibeli); "pagar" hasil _evaluasi_pagar
+    (hanya dievaluasi bila keempat syarat cocok). "cocok" False
+    bila pagar berlaku + memblokir; "cocok_tanpa_pagar" mencatat
+    konjungsi mentahnya. "dievaluasi" False bila garis acuan
+    tidak bisa dihitung, p_final/harga acuan tidak ada (EV tidak
+    bisa dinilai — tanpa jangkar pasar), atau config rusak.
+    """
+    use_ev = _cfg_bool(cfg, "skip_awal", "pola_denver", "use_ev_instead_of_flat_edge")
+    use_cek = _cfg_bool(cfg, "skip_awal", "pola_denver", "use_cek_eksekusi_for_thin")
+    use_demon = _cfg_bool(cfg, "skip_awal", "pola_denver", "use_demon_per_player_v18")
+    max_ev = _cfg_angka(cfg, "skip_awal", "pola_denver", "max_ev_for_weak_flag")
+    demon_p_rapuh = _cfg_angka(
+        cfg, "skip_awal", "pola_denver", "demon_p_fragile_threshold"
+    )
+    min_market_total = _cfg_angka(
+        cfg, "skip_awal", "pola_denver", "min_market_total_for_pattern"
+    )
+    ambang = _cfg_angka(cfg, "tickets", "insurance", "min_leg_prob")
+    if not -1.0 <= max_ev <= 1.0:
+        raise config_mod.ConfigError(
+            "playstyle.yaml skip_awal.pola_denver.max_ev_for_weak_flag "
+            f"di luar [-1, 1]: {max_ev}"
+        )
+    if not 0.0 < demon_p_rapuh < 1.0:
+        raise config_mod.ConfigError(
+            "playstyle.yaml skip_awal.pola_denver.demon_p_fragile_threshold "
+            f"di luar (0, 1): {demon_p_rapuh}"
+        )
+    if min_market_total < 0:
+        raise config_mod.ConfigError(
+            "playstyle.yaml skip_awal.pola_denver.min_market_total_for_pattern "
+            f"negatif: {min_market_total}"
+        )
+    ambang_edge = None
+    if not use_ev:
+        edge_kecil_pct = _cfg_angka(cfg, "skip_awal", "pola_denver", "edge_kecil_pct")
+        ambang_edge = edge_kecil_pct / 100.0
+    if ktx is None:
+        ktx = equilibrium_mod.siapkan_konteks(analysis, "insurance", cfg)
     acuan = equilibrium_mod.cari_garis_acuan(analysis, cfg, ktx=ktx)
+    kunci_s4 = "ev_kecil" if use_ev else "edge_kecil"
     hasil = {
         "dievaluasi": False,
         "cocok": False,
+        "cocok_tanpa_pagar": False,
         "alasan": None,
         "syarat": {
             "flag_setan": None,
             "tidak_ada_tahan_banjir_nonthin": None,
             "garis_acuan_thin": None,
-            "edge_kecil": None,
+            kunci_s4: None,
         },
         "ambang_edge": ambang_edge,
+        "ambang_ev": max_ev,
         "garis_acuan": acuan,
+        "detail": {},
+        "pagar": {
+            "berlaku": False,
+            "memblokir": False,
+            "alasan": "pola tidak dievaluasi",
+            "syarat": {},
+        },
     }
     if not acuan.get("dihitung"):
         hasil["alasan"] = (
@@ -186,37 +487,168 @@ def _evaluasi_pola_denver(analysis: dict, cfg: dict, ktx: dict | None = None) ->
             f"dihitung ({acuan.get('alasan') or 'tanpa alasan'})"
         )
         return hasil
-    if acuan.get("edge") is None:
+    if acuan.get("p_final") is None:
         hasil["alasan"] = (
-            "pola Denver tidak bisa dinilai: edge garis acuan tidak "
-            "bisa dihitung (tanpa jangkar pasar)"
+            "pola Denver tidak bisa dinilai: p_final garis acuan "
+            "tidak bisa dihitung (tanpa jangkar pasar)"
         )
         return hasil
+    harga = acuan.get("harga_venue_cents")
+    if harga is None or not 0.0 < harga < 100.0:
+        hasil["alasan"] = (
+            "pola Denver tidak bisa dinilai: harga venue garis acuan "
+            f"tidak valid ({harga!r}) — EV tidak bisa dihitung"
+        )
+        return hasil
+    garis = acuan["garis"]
+    p_normal = acuan["p_normal"]
+    tangga = ktx.get("tangga") or []
+    # (1) Flag setan — setan per pemain v18, fallback generik.
+    geser_setan, sumber_setan, total_setan, alasan_fallback = _geser_setan_efektif(
+        analysis, cfg, ktx, use_demon
+    )
+    p_setan_efektif = stress_mod.p_under_digeser(ktx["cdf"], garis, geser_setan)
+    flag_setan = bool(p_normal >= ambang and p_setan_efektif < ambang)
+    median_sim = ktx.get("median")
+    median_setan = (
+        total_setan
+        if sumber_setan == "pemain"
+        else (median_sim + geser_setan if median_sim is not None else None)
+    )
+
+    # (2)/(3) "Bisa dibeli" — cek_eksekusi (v18.1) / flag thin (legacy).
+    def _bisa_dibeli(entri: dict) -> bool:
+        if use_cek:
+            return bool(equilibrium_mod.cek_eksekusi(entri, cfg)["lolos"])
+        return entri.get("thin") is not True
+
+    tahan_banjir = [
+        entri
+        for entri in tangga
+        if stress_mod.p_under_digeser(
+            ktx["cdf"], float(entri["line"]), ktx["geser_banjir_terburuk"]
+        )
+        >= ambang
+    ]
+    tahan_bisa_dibeli = [e for e in tahan_banjir if _bisa_dibeli(e)]
+    s2 = not tahan_bisa_dibeli
+    entri_acuan = None
+    for entri in tangga:
+        if abs(float(entri["line"]) - garis) < 1e-9:
+            entri_acuan = entri
+            break
+    eksekusi_acuan = {"lolos": None, "alasan": None}
+    if entri_acuan is None:
+        # Tidak seharusnya terjadi (acuan diambil dari tangga yang
+        # sama) — fallback ke flag thin + catat, bukan crash.
+        s3 = acuan.get("thin") is True
+        eksekusi_acuan = {
+            "lolos": None,
+            "alasan": "entri_acuan_tidak_ditemukan_di_tangga",
+        }
+    elif use_cek:
+        eksekusi_acuan = equilibrium_mod.cek_eksekusi(entri_acuan, cfg)
+        s3 = not eksekusi_acuan["lolos"]
+    else:
+        s3 = acuan.get("thin") is True
+    # (4) EV kecil (v18.1) / edge kecil (legacy).
+    ev_acuan = acuan["p_final"] * (100.0 / harga) - 1.0
+    s4 = ev_acuan < max_ev if use_ev else acuan["edge"] < ambang_edge
     syarat = {
-        "flag_setan": bool(acuan.get("flag_setan")),
-        "tidak_ada_tahan_banjir_nonthin": not acuan.get("ada_tahan_banjir_nonthin"),
-        "garis_acuan_thin": acuan.get("thin") is True,
-        "edge_kecil": acuan["edge"] < ambang_edge,
+        "flag_setan": flag_setan,
+        "tidak_ada_tahan_banjir_nonthin": s2,
+        "garis_acuan_thin": s3,
+        kunci_s4: s4,
     }
     hasil["syarat"] = syarat
+    acuan = dict(acuan)
+    acuan.update(
+        {
+            "p_setan_efektif": round(p_setan_efektif, 6),
+            "setan_sumber": sumber_setan,
+            "ev": round(ev_acuan, 6),
+            "eksekusi_lolos": eksekusi_acuan["lolos"],
+            "eksekusi_alasan": eksekusi_acuan["alasan"],
+            "n_tahan_banjir_bisa_dibeli": len(tahan_bisa_dibeli),
+        }
+    )
+    hasil["garis_acuan"] = acuan
+    hasil["detail"] = {
+        "geser_setan_efektif": round(geser_setan, 2),
+        "setan_sumber": sumber_setan,
+        "setan_fallback": alasan_fallback,
+        "total_setan_pemain": total_setan,
+        "median_setan": median_setan,
+        "p_setan_efektif": round(p_setan_efektif, 6),
+        "ev_acuan": round(ev_acuan, 6),
+        "n_tahan_banjir": len(tahan_banjir),
+        "n_tahan_banjir_bisa_dibeli": len(tahan_bisa_dibeli),
+        "eksekusi_acuan_alasan": eksekusi_acuan["alasan"],
+    }
     hasil["dievaluasi"] = True
-    hasil["cocok"] = all(syarat.values())
-    if hasil["cocok"]:
-        tahan = acuan.get("garis_tahan_banjir") or {}
-        teks_tahan = ""
-        if tahan.get("line") is not None:
+    hasil["cocok_tanpa_pagar"] = all(syarat.values())
+    hasil["cocok"] = hasil["cocok_tanpa_pagar"]
+    if not hasil["cocok_tanpa_pagar"]:
+        hasil["pagar"] = {
+            "berlaku": False,
+            "memblokir": False,
+            "alasan": "pola tidak cocok — pagar tidak dievaluasi",
+            "syarat": {},
+        }
+        return hasil
+    # Pola cocok -> pagar anti-redundansi.
+    pagar = _evaluasi_pagar(
+        analysis,
+        cfg,
+        ktx,
+        eq_ins,
+        geser_setan,
+        median_setan,
+        demon_p_rapuh,
+        min_market_total,
+    )
+    hasil["pagar"] = pagar
+    if pagar["berlaku"] and pagar["memblokir"]:
+        hasil["cocok"] = False
+        hasil["alasan"] = "pola Denver cocok tapi DIPAGAR anti-redundansi: " + (
+            pagar["alasan"] or "tanpa alasan"
+        )
+        return hasil
+    tahan = acuan.get("garis_tahan_banjir") or {}
+    teks_tahan = ""
+    if tahan.get("line") is not None:
+        if use_cek:
+            teks_tahan = (
+                f"; garis tahan-banjir U{tahan['line']:g} gagal gate " "eksekusi"
+            )
+        else:
             teks_tahan = (
                 f"; garis tahan-banjir U{tahan['line']:g} "
                 f"{'tipis' if tahan.get('thin') else 'tidak ditemukan yang tebal'}"
             )
-        hasil["alasan"] = (
-            "pola Denver: kaki lolos normal tapi jebol di deviasi "
-            f"maksimal (P normal {acuan['p_normal'] * 100:.1f}% vs "
-            f"P setan {acuan['p_setan'] * 100:.1f}%), tidak ada garis "
-            f"tidak-tipis yang tahan banjir{teks_tahan}, garis acuan "
-            f"U{acuan['garis']:g} volume tipis, dan edge kecil "
-            f"({acuan['edge'] * 100:+.1f}% < {edge_kecil:.1f}%)"
+    if use_cek:
+        teks_acuan = f", garis acuan U{garis:g} tidak bisa dibeli" + (
+            f" ({eksekusi_acuan['alasan']})" if eksekusi_acuan["alasan"] else ""
         )
+    else:
+        teks_acuan = f", garis acuan U{garis:g} volume tipis"
+    if use_ev:
+        teks_s4 = f", dan EV kecil ({ev_acuan * 100:+.1f}% < " f"{max_ev * 100:+.1f}%)"
+    else:
+        teks_s4 = (
+            f", dan edge kecil ({acuan['edge'] * 100:+.1f}% < "
+            f"{ambang_edge * 100:.1f}%)"
+        )
+    hasil["alasan"] = (
+        "pola Denver: kaki lolos normal tapi jebol di deviasi "
+        f"maksimal (P normal {p_normal * 100:.1f}% vs "
+        f"P setan {p_setan_efektif * 100:.1f}%"
+        + (" (per pemain)" if sumber_setan == "pemain" else "")
+        + "), tidak ada garis yang bisa dibeli yang tahan banjir"
+        + teks_tahan
+        + teks_acuan
+        + teks_s4
+    )
     return hasil
 
 
@@ -261,8 +693,16 @@ def evaluasi_skip_awal(
         "pola_denver": {
             "dievaluasi": False,
             "cocok": False,
+            "cocok_tanpa_pagar": False,
             "alasan": None,
             "syarat": {},
+            "detail": {},
+            "pagar": {
+                "berlaku": False,
+                "memblokir": False,
+                "alasan": "pola tidak dievaluasi",
+                "syarat": {},
+            },
         },
         "equilibrium": {
             "insurance": None,
@@ -312,8 +752,8 @@ def evaluasi_skip_awal(
         "alasan_tidak_dihitung": eq_main.get("alasan_tidak_dihitung"),
         "alasan_tidak_ada": eq_main.get("alasan_tidak_ada"),
     }
-    # (b) pola Denver.
-    pola = _evaluasi_pola_denver(analysis, cfg, ktx=ktx)
+    # (b) pola Denver (eq_ins diteruskan untuk pagar anti-redundansi).
+    pola = _evaluasi_pola_denver(analysis, cfg, ktx=ktx, eq_ins=eq_ins)
     hasil["pola_denver"] = pola
     # "Dievaluasi" = minimal satu dari (a)/(b)/(c) bisa dinilai.
     # OT selalu bisa dinilai bila spread (|median margin|) ada;

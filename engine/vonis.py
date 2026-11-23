@@ -28,10 +28,16 @@ Bila tidak satu pun ada -> vonis KUNING data_tidak_cukup.
 
 DEMERIT v18 (6 — tiap indikator lemah = 1 demerit):
   (a) tail_fragility — kerapuhan ekor GABUNGAN (1 poin, bukan 2):
-      P(Under) di banjir 3P pada garis Asuransi <
+      P(Under) di banjir 3P pada GARIS REFERENSI <
       vonis.tail_fragility.p_flood_3p_below (0,72) ATAU di banjir FT
-      < vonis.tail_fragility.p_flood_ft_below (0,67). Banjir + setan
-      mengukur hal yang sama (menggeser CDF yang sama) — v17
+      < vonis.tail_fragility.p_flood_ft_below (0,67). v18.1 (Patch
+      #5a): garis referensi = garis tangga terendah dengan harga >=
+      vonis.tail_fragility_reference_price_min (0,82) yang LOLOS
+      gate eksekusi — BUKAN garis Asuransi (plafon EQ ~88,5¢)
+      tempat hampir semua laga tampak tahan banjir (akar
+      MENENGAH_HIJAU 0/10 di v18). Bila tidak ada garis yang
+      memenuhi, fallback ke garis Asuransi + dicatat. Banjir +
+      setan mengukur hal yang sama (menggeser CDF yang sama) — v17
       menghitung ganda. Setan (umum maupun per pemain) TIDAK lagi
       memberi demerit: ia flag diagnostik (P setan tetap dicatat di
       indikator sebagai info).
@@ -138,13 +144,18 @@ TIMING GATE (TUNGGU_LINEUP): bila ada bintang Questionable (status
 QUESTIONABLE dengan USG >= vonis.tunggu_lineup.usg_bintang (0,24)
 ATAU BPM >= vonis.tunggu_lineup.bpm_bintang (+2,0)), vonis adalah
 "tunggu_lineup" — laga ditahan sampai injury report final ~30
-menit sebelum tip-off (bukan HIJAU/KUNING). Jalur USG
-dikualifikasi (_lolos_jalur_usg): pemain harus rotasi (mp >=
-mp_min_rotasi 10,0) dan tidak net-negatif (BPM >=
-bpm_min_jalur_usg 0,0 bila diketahui) — tanpa kualifikasi ini,
-pemain garbage-time (RayJ Dennis USG 26,7% BPM -3,2) memblokir
-laga. Precedence di
-nilai_vonis: veto (KUNING) > tunggu_lineup > demerit — veto yang
+menit sebelum tip-off (bukan HIJAU/KUNING). SIMETRI D7 (v18.1
+Patch #5b): KEDUA jalur memakai filter menit yang SAMA — mp >=
+vonis.tunggu_lineup.min_minutes_pg_all_paths (15,0); mp tidak ada
+-> jalur tidak lolos. Jalur USG dikualifikasi (_lolos_jalur_usg):
+pemain harus rotasi (mp >= 15,0 di timing gate) dan tidak
+net-negatif (BPM >= bpm_min_jalur_usg 0,0 bila diketahui) — tanpa
+kualifikasi ini, pemain garbage-time (RayJ Dennis USG 26,7% BPM
+-3,2) memblokir laga. Jalur BPM dikualifikasi cerminannya
+(_lolos_jalur_bpm). CATATAN: mp_min_rotasi (10,0) tetap dipakai
+definisi "pemain berdampak via USG" di LUAR timing gate (rem alami
+(3) + aturan gap besar) — hanya timing gate yang memakai 15,0.
+Precedence di nilai_vonis: veto (KUNING) > tunggu_lineup > demerit — veto yang
 sudah menyala tidak bisa diselamatkan kabar lineup. Komposer
 (worker B) menangani nilai vonis "tunggu_lineup". USG dari
 ingest/pemain_usg.py (cache satu-proses); bila fetch USG gagal ->
@@ -609,6 +620,87 @@ def _lolos_jalur_usg(
     return True, None
 
 
+def _lolos_jalur_bpm(
+    bpm: float | None,
+    mp: float | None,
+    ambang_bpm: float,
+    mp_min: float,
+) -> tuple[bool, str | None]:
+    """Apakah pemain lolos sebagai "berdampak" lewat jalur BPM?
+
+    Cermin _lolos_jalur_usg (simetri D7, v18.1 Patch #5b): BPM di
+    bawah ambang / tidak ada -> (False, None) — bukan kandidat BPM
+    sama sekali. mp tidak ada -> (False, "mp_tidak_ada"): BPM
+    tanpa menit tidak bisa ditafsirkan (sampel kecil bisa
+    menipu — pemain yang main 2 menit dengan BPM +5 bukan
+    bintang). mp < mp_min -> (False, "bukan_rotasi"). v18: jalur
+    BPM TIDAK punya filter menit — celah yang ditutup patch ini.
+    """
+    if bpm is None or bpm < ambang_bpm:
+        return False, None
+    if mp is None:
+        return False, "mp_tidak_ada"
+    if mp < mp_min:
+        return False, "bukan_rotasi"
+    return True, None
+
+
+def _garis_referensi_tail_fragility(
+    ktx: dict,
+    garis_asuransi: float,
+    harga_min: float,
+    geser_3p: float,
+    geser_ft: float,
+    cfg: dict,
+) -> dict:
+    """Garis referensi demerit tail_fragility (v18.1 Patch #5a).
+
+    Garis tangga TERENDAH dengan harga venue >= ``harga_min``
+    (pecahan, mis. 0,82 = 82¢) yang LOLOS gate eksekusi
+    (equilibrium.cek_eksekusi) — garis standar tempat kerapuhan
+    ekor dibaca, bukan plafon equilibrium Asuransi (~88,5¢).
+    Filter eksekusi WAJIB: tangga artefak memuat garis jauh dengan
+    harga sampah (mis. U117,5 @82,5¢, ask 99¢, likuiditas $3,80)
+    — tanpa filter, referensi jatuh ke garis yang tidak bisa
+    dibeli. Bila tidak ada garis yang memenuhi, fallback ke garis
+    Asuransi (dicatat — bukan diam-diam).
+
+    P banjir 3P/FT dihitung langsung dari CDF (bukan dari
+    hasil_stress — garis referensi belum tentu ada di kaki hasil
+    stress, dan CDF adalah sumber yang sama). Mengembalikan
+    {"line", "harga_venue_cents", "sumber" ("tangga" /
+    "garis_asuransi"), "fallback_ke_equilibrium", "p_banjir_3p",
+    "p_banjir_ft"}.
+    """
+    harga_min_cents = harga_min * 100.0
+    for entri in ktx["tangga"]:
+        harga = _harga_venue(entri)
+        if harga is None or harga < harga_min_cents:
+            continue
+        if not equilibrium_mod.cek_eksekusi(entri, cfg)["lolos"]:
+            continue
+        garis = float(entri["line"])
+        return {
+            "line": garis,
+            "harga_venue_cents": harga,
+            "sumber": "tangga",
+            "fallback_ke_equilibrium": False,
+            "p_banjir_3p": stress_mod.p_under_digeser(ktx["cdf"], garis, geser_3p),
+            "p_banjir_ft": stress_mod.p_under_digeser(ktx["cdf"], garis, geser_ft),
+        }
+    entri_asuransi = _entri_tangga(ktx["tangga"], garis_asuransi)
+    return {
+        "line": garis_asuransi,
+        "harga_venue_cents": (
+            _harga_venue(entri_asuransi) if entri_asuransi is not None else None
+        ),
+        "sumber": "garis_asuransi",
+        "fallback_ke_equilibrium": True,
+        "p_banjir_3p": stress_mod.p_under_digeser(ktx["cdf"], garis_asuransi, geser_3p),
+        "p_banjir_ft": stress_mod.p_under_digeser(ktx["cdf"], garis_asuransi, geser_ft),
+    }
+
+
 def _peta_bpm(analysis: dict) -> dict[str, float]:
     """BPM pemain artefak ({nama_ternormalisasi: bpm}).
 
@@ -711,11 +803,17 @@ def cek_tunggu_lineup(analysis: dict, cfg: dict | None = None, usg_pemain=None) 
     vonis.tunggu_lineup.usg_bintang (0,24) ATAU BPM >=
     vonis.tunggu_lineup.bpm_bintang (+2,0). BPM dari inputs pemain
     artefak; USG dari ingest/pemain_usg (bila fetch gagal ->
-    fallback BPM saja + dicatat di "usg_catatan"). JALUR USG
-    DIKUALIFIKASI (lihat _lolos_jalur_usg): USG tinggi saja tidak
-    cukup — pemain harus rotasi (mp >= mp_min_rotasi) dan tidak
-    net-negatif (BPM >= bpm_min_jalur_usg bila diketahui), supaya
-    pemain garbage-time tidak memblokir laga.
+    fallback BPM saja + dicatat di "usg_catatan"). SIMETRI D7
+    (v18.1 Patch #5b): KEDUA jalur memakai filter menit minimal
+    yang SAMA — mp >=
+    vonis.tunggu_lineup.min_minutes_pg_all_paths (15,0); mp tidak
+    ada -> jalur tidak lolos. JALUR USG DIKUALIFIKASI (lihat
+    _lolos_jalur_usg): USG tinggi saja tidak cukup — pemain harus
+    rotasi (mp >= 15,0 di timing gate, BUKAN mp_min_rotasi 10,0
+    yang dipakai definisi pemain berdampak di luar timing gate)
+    dan tidak net-negatif (BPM >= bpm_min_jalur_usg bila
+    diketahui), supaya pemain garbage-time tidak memblokir laga.
+    Jalur BPM dikualifikasi cerminannya (_lolos_jalur_bpm).
 
     Mengembalikan {"tunggu", "bintang", "alasan", "dievaluasi",
     "diperiksa", "usg_sumber", "usg_catatan", "ambang"} — "bintang"
@@ -729,6 +827,13 @@ def cek_tunggu_lineup(analysis: dict, cfg: dict | None = None, usg_pemain=None) 
     cfg = _muat_cfg(cfg)
     usg_bintang = _ambang(cfg, "vonis", "tunggu_lineup", "usg_bintang")
     bpm_bintang = _ambang(cfg, "vonis", "tunggu_lineup", "bpm_bintang")
+    # Simetri D7 (v18.1): satu filter menit untuk kedua jalur.
+    mp_semua_jalur = _ambang(cfg, "vonis", "tunggu_lineup", "min_minutes_pg_all_paths")
+    if mp_semua_jalur < 0:
+        raise config_mod.ConfigError(
+            "playstyle.yaml vonis.tunggu_lineup.min_minutes_pg_all_paths "
+            f"harus >= 0: {mp_semua_jalur!r}"
+        )
     hasil: dict = {
         "tunggu": False,
         "bintang": [],
@@ -737,7 +842,11 @@ def cek_tunggu_lineup(analysis: dict, cfg: dict | None = None, usg_pemain=None) 
         "diperiksa": [],
         "usg_sumber": None,
         "usg_catatan": None,
-        "ambang": {"usg_bintang": usg_bintang, "bpm_bintang": bpm_bintang},
+        "ambang": {
+            "usg_bintang": usg_bintang,
+            "bpm_bintang": bpm_bintang,
+            "min_minutes_pg_all_paths": mp_semua_jalur,
+        },
     }
     entri = _entri_cedera(analysis)
     if entri is None:
@@ -757,7 +866,12 @@ def cek_tunggu_lineup(analysis: dict, cfg: dict | None = None, usg_pemain=None) 
         return hasil
     peta_bpm = _peta_bpm(analysis)
     peta_mp = _peta_mp(analysis)
-    mp_min, bpm_min_usg = _ambang_dampak_usg(cfg)
+    # mp_min_rotasi (10,0) TIDAK dipakai timing gate lagi (v18.1 —
+    # kedua jalur memakai min_minutes_pg_all_paths 15,0); hanya
+    # bpm_min_jalur_usg yang dipakai di sini. mp_min_rotasi tetap
+    # dipakai definisi pemain berdampak di luar timing gate (rem
+    # alami + aturan gap besar).
+    _mp_min_rotasi, bpm_min_usg = _ambang_dampak_usg(cfg)
     # Tahap 1: BPM saja (tanpa fetch) — pemain yang sudah lolos
     # lewat BPM tidak butuh USG.
     butuh_usg: list[dict] = []
@@ -765,16 +879,18 @@ def cek_tunggu_lineup(analysis: dict, cfg: dict | None = None, usg_pemain=None) 
         nama = e.get("player")
         kunci = _normalisasi_nama(nama)
         bpm = peta_bpm.get(kunci)
-        lolos_bpm = bpm is not None and bpm >= bpm_bintang
+        mp = peta_mp.get(kunci)
+        lolos_bpm, ditolak_bpm = _lolos_jalur_bpm(bpm, mp, bpm_bintang, mp_semua_jalur)
         item = {
             "player": nama,
             "team": e.get("team_tricode"),
             "status": e.get("status"),
             "usg": None,
             "bpm": bpm,
-            "mp_per_game": peta_mp.get(kunci),
+            "mp_per_game": mp,
             "bintang": bool(lolos_bpm),
             "lewat": "bpm" if lolos_bpm else None,
+            "bpm_ditolak": ditolak_bpm,
             "usg_ditolak": None,
         }
         hasil["diperiksa"].append(item)
@@ -809,7 +925,7 @@ def cek_tunggu_lineup(analysis: dict, cfg: dict | None = None, usg_pemain=None) 
                     item["bpm"],
                     item["mp_per_game"],
                     usg_bintang,
-                    mp_min,
+                    mp_semua_jalur,
                     bpm_min_usg,
                 )
                 item["usg_ditolak"] = ditolak
@@ -842,7 +958,8 @@ def cek_tunggu_lineup(analysis: dict, cfg: dict | None = None, usg_pemain=None) 
     else:
         hasil["alasan"].append(
             "tidak ada bintang Questionable "
-            f"(USG >= {usg_bintang * 100:.0f}% atau BPM >= +{bpm_bintang:.1f})"
+            f"(USG >= {usg_bintang * 100:.0f}% atau BPM >= +{bpm_bintang:.1f}, "
+            f"dengan mp >= {mp_semua_jalur:g} menit/laga)"
         )
     return hasil
 
@@ -1464,6 +1581,8 @@ def nilai_vonis(
     # satu sumber kebenaran per angka).
     p_flood_3p = _ambang(cfg, "vonis", "tail_fragility", "p_flood_3p_below")
     p_flood_ft = _ambang(cfg, "vonis", "tail_fragility", "p_flood_ft_below")
+    # v18.1 (Patch #5a): harga minimum garis referensi tail_fragility.
+    harga_min_ref = _ambang(cfg, "vonis", "tail_fragility_reference_price_min")
     total_tinggi = _ambang(cfg, "vonis", "total_tinggi_points")
     ekor_jauh = _ambang(cfg, "vonis", "ekor_gemuk", "min_offset_points")
     ekor_harga_rendah = _ambang(cfg, "vonis", "ekor_gemuk", "max_price_cents")
@@ -1482,6 +1601,11 @@ def nilai_vonis(
             "playstyle.yaml vonis.tail_fragility di luar 0-1: "
             f"{p_flood_3p}/{p_flood_ft}"
         )
+    if not 0.0 < harga_min_ref <= 1.0:
+        raise config_mod.ConfigError(
+            "playstyle.yaml vonis.tail_fragility_reference_price_min "
+            f"di luar (0, 1]: {harga_min_ref}"
+        )
     for nama, nilai in (
         ("hijau_max_demerits", hijau_max),
         ("menengah_max_demerits", menengah_max),
@@ -1495,6 +1619,7 @@ def nilai_vonis(
     ambang = {
         "p_flood_3p_below": round(p_flood_3p, 4),
         "p_flood_ft_below": round(p_flood_ft, 4),
+        "tail_fragility_reference_price_min": round(harga_min_ref, 4),
         "total_tinggi_points": total_tinggi,
         "ekor_min_offset_points": ekor_jauh,
         "ekor_max_price_cents": ekor_harga_rendah,
@@ -1697,6 +1822,16 @@ def nilai_vonis(
     if not isinstance(nama_banjir, str):
         nama_banjir = ktx["banjir_terburuk"]
     p_banjir_terburuk = min(p_banjir_3p, p_banjir_ft)
+    # --- Garis referensi tail_fragility (v18.1 Patch #5a): demerit
+    # (a) dibaca di garis ini, BUKAN di garis Asuransi (plafon EQ).
+    # P banjir di garis Asuransi (p_banjir_3p/ft di atas) tetap
+    # dipakai alasan HIJAU + indikator — hanya demerit yang pindah.
+    ref_tail = _garis_referensi_tail_fragility(
+        ktx, garis_asuransi, harga_min_ref, geser_3p, geser_ft, cfg
+    )
+    p_banjir_3p_ref = ref_tail["p_banjir_3p"]
+    p_banjir_ft_ref = ref_tail["p_banjir_ft"]
+    garis_ref = ref_tail["line"]
     edge_garis = p_final - harga_asuransi / 100.0
     edge_kandidat.append((edge_garis, f"garis Asuransi U{garis_asuransi:g}"))
     edge_terbaik, edge_sumber = max(edge_kandidat, key=lambda pas: pas[0])
@@ -1764,21 +1899,28 @@ def nilai_vonis(
             "laga praktis imbang, babak tambahan menambah ~20 poin dan "
             "membunuh kaki Under"
         )
-    # (a) Kerapuhan ekor gabungan (1 demerit).
-    if p_banjir_3p < p_flood_3p or p_banjir_ft < p_flood_ft:
+    # (a) Kerapuhan ekor gabungan (1 demerit) — v18.1: dinilai di
+    # GARIS REFERENSI (~82¢), bukan di garis Asuransi (plafon EQ
+    # ~88,5¢ tempat hampir semua laga tampak tahan banjir).
+    if p_banjir_3p_ref < p_flood_3p or p_banjir_ft_ref < p_flood_ft:
         demerit.append(DEMERIT_TAIL_FRAGILITY)
         bagian = []
-        if p_banjir_3p < p_flood_3p:
+        if p_banjir_3p_ref < p_flood_3p:
             bagian.append(
-                f"banjir 3P {p_banjir_3p * 100:.1f}% < {p_flood_3p * 100:.0f}%"
+                f"banjir 3P {p_banjir_3p_ref * 100:.1f}% < {p_flood_3p * 100:.0f}%"
             )
-        if p_banjir_ft < p_flood_ft:
+        if p_banjir_ft_ref < p_flood_ft:
             bagian.append(
-                f"banjir FT {p_banjir_ft * 100:.1f}% < {p_flood_ft * 100:.0f}%"
+                f"banjir FT {p_banjir_ft_ref * 100:.1f}% < {p_flood_ft * 100:.0f}%"
             )
+        penanda_ref = (
+            "garis Asuransi (tidak ada garis referensi yang bisa dibeli)"
+            if ref_tail["fallback_ke_equilibrium"]
+            else "garis referensi"
+        )
         alasan.append(
-            "rapuh banjir: peluang Under di garis "
-            f"U{garis_asuransi:g} — {' dan '.join(bagian)}"
+            "rapuh banjir: peluang Under di "
+            f"{penanda_ref} U{garis_ref:g} — {' dan '.join(bagian)}"
         )
     # (b) Total tinggi.
     if total_tinggi_kena is True:
@@ -1934,6 +2076,17 @@ def nilai_vonis(
             "n_tahan_banjir": tahan["n_tahan_banjir"],
             "n_tahan_banjir_nonthin": tahan["n_tahan_banjir_nonthin"],
             "ada": ada_tahan_nonthin,
+        },
+        # v18.1 (Patch #5a): garis tempat demerit tail_fragility
+        # dibaca (garis tangga terendah >= harga minimum yang lolos
+        # gate eksekusi; fallback ke garis Asuransi bila tidak ada).
+        "garis_referensi_tail_fragility": {
+            "line": ref_tail["line"],
+            "harga_venue_cents": ref_tail["harga_venue_cents"],
+            "sumber": ref_tail["sumber"],
+            "fallback_ke_equilibrium": ref_tail["fallback_ke_equilibrium"],
+            "p_banjir_3p": round(p_banjir_3p_ref, 6),
+            "p_banjir_ft": round(p_banjir_ft_ref, 6),
         },
         "edge_terbaik": round(edge_terbaik, 6),
         "edge_terbaik_sumber": edge_sumber,

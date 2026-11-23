@@ -656,7 +656,9 @@ def _muat_vegas():
         return None
 
 
-def _sebab_cedera_baru(artefak: dict, cfg: dict) -> tuple[bool, list[str], bool]:
+def _sebab_cedera_baru(
+    artefak: dict, cfg: dict
+) -> tuple[bool, list[str], bool, list[dict]]:
     """Apakah ada sebab cedera baru terverifikasi (untuk Vegas)?
 
     Definisi wiring v18 (keputusan worker C — menunggu keberatan;
@@ -667,25 +669,49 @@ def _sebab_cedera_baru(artefak: dict, cfg: dict) -> tuple[bool, list[str], bool]
     (2,0 — ambang "bintang" yang sama dengan timing gate, dipakai
     ulang, bukan angka baru). USG tidak dipakai di sini (butuh fetch
     ingest/pemain_usg — di luar builder; BPM saja sebagai proksi).
-    Mengembalikan (ada, [nama bintang OUT], dievaluasi). "Dievaluasi"
-    False bila data pemain inputs tidak ada / ambang BPM tidak bisa
-    dibaca — pemanggil memakai ada=False (penyusutan berjalan sesuai
-    default B) + mencatatnya di missing. BATAS JUJUR: kesegaran
-    ("baru") TIDAK bisa dibuktikan dari satu snapshot — artefak
-    tidak mencatat kapan cedera dilaporkan; definisi ini memakai OUT
-    terkonfirmasi sebagai proksi. Definisi "baru" yang tepat
-    (membandingkan cedera lama vs baru) hanya ada di recheck.
+
+    v18.1 (Patch #4): filter KESEGARAN — pemain OUT hanya dihitung
+    bila games_played musim berjalan (inputs pemain, field
+    "games_played" dari BBRef via nba_brain) >=
+    calibration.fresh_injury_min_gp_season (3). Pemain GP < 3
+    (termasuk GP == 0 — absen sejak awal musim) sudah terserap
+    harga pasar sehingga tidak membatalkan shrinkage. GP tidak
+    tersedia / bukan angka -> TIDAK segar (fail-closed ke arah
+    shrinkage berjalan) + dicatat di "dikecualikan".
+
+    Mengembalikan (ada, [nama bintang OUT segar], dievaluasi,
+    [dikecualikan]) — "dikecualikan" list {"player",
+    "games_played" (None bila tidak tersedia), "alasan":
+    "gp_di_bawah_minimum" / "gp_tidak_tersedia"} untuk bintang OUT
+    terkonfirmasi yang gagal filter kesegaran. "Dievaluasi" False
+    bila data pemain inputs tidak ada / ambang BPM atau ambang GP
+    tidak bisa dibaca — pemanggil memakai ada=False (penyusutan
+    berjalan sesuai default B) + mencatatnya di missing. BATAS
+    JUJUR: kesegaran ("baru") TIDAK bisa dibuktikan dari satu
+    snapshot — artefak tidak mencatat kapan cedera dilaporkan;
+    definisi ini memakai OUT terkonfirmasi + GP sebagai proksi.
+    Definisi "baru" yang tepat (membandingkan cedera lama vs baru)
+    hanya ada di recheck. Tidak ada field "out for season"
+    terstruktur di data cedera — GP adalah satu-satunya
+    operasionalisasi kesegaran di jalur ini.
     """
     try:
         ambang_bpm = float(
             config_mod.get_value(cfg, "vonis", "tunggu_lineup", "bpm_bintang")
         )
     except (config_mod.ConfigError, TypeError, ValueError):
-        return False, [], False
+        return False, [], False, []
+    try:
+        ambang_gp = float(
+            config_mod.get_value(cfg, "calibration", "fresh_injury_min_gp_season")
+        )
+    except (config_mod.ConfigError, TypeError, ValueError):
+        return False, [], False, []
     inputs = artefak.get("inputs") if isinstance(artefak, dict) else None
     if not isinstance(inputs, dict):
-        return False, [], False
+        return False, [], False, []
     bpm_pemain: dict[str, float] = {}
+    gp_pemain: dict[str, float | None] = {}
     ada_data_pemain = False
     for sisi in ("home", "away"):
         blok = inputs.get(sisi)
@@ -700,8 +726,9 @@ def _sebab_cedera_baru(artefak: dict, cfg: dict) -> tuple[bool, list[str], bool]
             bpm = _angka(entri.get("bpm"))
             if isinstance(nama, str) and nama and bpm is not None:
                 bpm_pemain[nama] = bpm
+                gp_pemain[nama] = _angka(entri.get("games_played"))
     if not ada_data_pemain:
-        return False, [], False
+        return False, [], False, []
     cedera = artefak.get("injuries") if isinstance(artefak, dict) else None
     entri_cedera = (
         cedera.get("entries")
@@ -709,6 +736,7 @@ def _sebab_cedera_baru(artefak: dict, cfg: dict) -> tuple[bool, list[str], bool]
         else []
     )
     bintang_out: list[str] = []
+    dikecualikan: list[dict] = []
     for entri in entri_cedera:
         if not isinstance(entri, dict):
             continue
@@ -726,8 +754,27 @@ def _sebab_cedera_baru(artefak: dict, cfg: dict) -> tuple[bool, list[str], bool]
             and nama in bpm_pemain
             and bpm_pemain[nama] >= ambang_bpm
         ):
-            bintang_out.append(nama)
-    return bool(bintang_out), sorted(bintang_out), True
+            gp = gp_pemain.get(nama)
+            if gp is None:
+                dikecualikan.append(
+                    {
+                        "player": nama,
+                        "games_played": None,
+                        "alasan": "gp_tidak_tersedia",
+                    }
+                )
+            elif gp < ambang_gp:
+                dikecualikan.append(
+                    {
+                        "player": nama,
+                        "games_played": gp,
+                        "alasan": "gp_di_bawah_minimum",
+                    }
+                )
+            else:
+                bintang_out.append(nama)
+    dikecualikan.sort(key=lambda d: d["player"])
+    return bool(bintang_out), sorted(bintang_out), True, dikecualikan
 
 
 def _panggil_sesuaikan_median(
@@ -772,7 +819,8 @@ def _terapkan_vegas(
     {"diterapkan": bool, "median_mentah": float, "median_baru":
     float | None, "geser": float | None, "alasan": str | None,
     "sebab_cedera_baru": {"ada": bool, "pemain": [...],
-    "dievaluasi": bool}, "sumber": "engine.vegas"}. None bila
+    "dievaluasi": bool, "dikecualikan_gp": [...]}, "sumber":
+    "engine.vegas"}. None bila
     kill-switch calibration.apply_shrinkage_pre_verdict False /
     modul belum ada / garis pasar tidak ada / panggilan gagal —
     pemanggil memakai median mentah + mencatat missing.
@@ -795,7 +843,9 @@ def _terapkan_vegas(
             None,
             "vegas_tidak_dievaluasi: engine.vegas belum tersedia (worker B v18)",
         )
-    ada_sebab, pemain_sebab, sebab_dievaluasi = _sebab_cedera_baru(artefak, cfg)
+    ada_sebab, pemain_sebab, sebab_dievaluasi, dikecualikan_gp = _sebab_cedera_baru(
+        artefak, cfg
+    )
     catatan_sebab = None
     if not sebab_dievaluasi:
         catatan_sebab = (
@@ -819,6 +869,9 @@ def _terapkan_vegas(
             "ada": ada_sebab,
             "pemain": pemain_sebab,
             "dievaluasi": sebab_dievaluasi,
+            # v18.1 (Patch #4): bintang OUT terkonfirmasi yang gagal
+            # filter kesegaran GP — [{player, games_played, alasan}].
+            "dikecualikan_gp": dikecualikan_gp,
         },
         "sumber": "engine.vegas",
     }

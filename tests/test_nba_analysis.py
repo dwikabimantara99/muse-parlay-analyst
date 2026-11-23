@@ -85,12 +85,16 @@ def _blok_tim(tricode, nama, off, deff, pace, cedera=None):
                 "bpm": 4.0,
                 "mp_per_game": 32.0,
                 "team_tricode": tricode,
+                # v18.1 (Patch #4): GP musim berjalan — pemain
+                # fixture dianggap sudah main 12 laga (segar).
+                "games_played": 12,
             },
             {
                 "player": "Bintang Dua",
                 "bpm": 2.0,
                 "mp_per_game": 28.0,
                 "team_tricode": tricode,
+                "games_played": 12,
             },
         ],
         "injuries": cedera or [],

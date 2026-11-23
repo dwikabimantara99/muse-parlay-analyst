@@ -740,6 +740,10 @@ def cmd_racik(args: argparse.Namespace) -> int:
         "game_date": tanggal,
         "insurance": hasil.get("insurance"),
         "insurance_reason": hasil.get("insurance_reason"),
+        # v18.1 Patch #2 fallback (b): opsi berlabel, BUKAN tiket —
+        # dicatat di file racikan supaya tidak hilang (tidak pernah
+        # dicatat ke ledger sebagai tiket: tanpa ticket_id/type).
+        "insurance_fallback_option": hasil.get("insurance_fallback_option"),
         "main": hasil.get("main"),
         "main_reason": hasil.get("main_reason"),
         "warnings": hasil.get("warnings", []),

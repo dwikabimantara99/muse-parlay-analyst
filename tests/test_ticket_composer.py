@@ -388,7 +388,7 @@ class TestRacikStandar(unittest.TestCase):
         # config kini 18 (gate Asuransi/Utama v18: EV + banjir dua
         # ambang + p_market + gate eksekusi volume; edge datar 3,5%
         # DIHAPUS — lihat komentar playstyle.yaml).
-        self.assertEqual(CFG["meta"]["version"], 18)
+        self.assertEqual(CFG["meta"]["version"], 18.1)
         self.assertEqual(CFG["tickets"]["main"]["multiplier_max"], 5.0)
         self.assertEqual(CFG["tickets"]["main"]["target_multiplier_max"], 3.5)
         self.assertEqual(CFG["tickets"]["insurance"]["multiplier_min"], 2.0)
@@ -2975,19 +2975,30 @@ class TestGateBanjirAsuransi(unittest.TestCase):
         self.assertIsNotNone(hasil["insurance"])
 
     def test_racik_penuh_dengan_kaki_naik_garis(self):
-        # End-to-end: 10 laga, semua kaki Asuransi naik garis ke
-        # 246,5 @88,5¢ (titik equilibrium safety-first DALAM band
-        # 80–89¢ — p_final tertinggi di antara garis yang lolos
-        # semua gate dalam band); 7 kaki -> pengali 2,22 (target
-        # 2,0–2,5; 6 kaki hanya 1,97, 8 kaki 2,51 sudah di atas
-        # maks). Tiket mencatat climb alasan "equilibrium" di tiap
-        # kakinya (dulu "banjir" — equilibrium menggantikan
-        # mekanisme climb banjir).
+        # End-to-end: 10 laga, titik equilibrium safety-first DALAM
+        # band 80–89¢ adalah 246,5 @88,5¢ (p_final tertinggi di
+        # antara garis yang lolos semua gate dalam band).
+        # PERUBAHAN v18.1 Patch #2 (optimasi gabungan — REFERENSI-
+        # PATCH-V18-1-GEMINI.md §1): komposer TIDAK lagi memakai
+        # satu garis plafon per laga — ia memilih kombinasi dari
+        # SEMUA garis valid (1 garis per laga, 2–6 kaki) yang
+        # memaksimalkan peluang cair gabungan. Di fixture ini
+        # optimumnya 6 kaki: 5×88,5¢ + 1×86,5¢ -> pengali 2,01
+        # (peluang cair gabungan 0,9634). Perilaku v18 (7 kaki
+        # @88,5¢ = 2,22) TIDAK LAGI MUNGKIN: kombinasi dibatasi
+        # 2–6 kaki (spesifikasi Patch #2 — 7 kaki @88,5¢ memang
+        # punya peluang gabungan sedikit lebih tinggi, 0,9669, tapi
+        # di luar batas kaki yang ditetapkan; lihat
+        # LAPORAN-V18-1-B.md §keputusan-desain). Tiket mencatat
+        # climb alasan "equilibrium" di tiap kakinya (dari garis
+        # artefak 240,5 ke garis varian — BUKAN dirangkai dari
+        # climb equilibrium: kaki 86,5¢ naik 2 rungs ke 244,5,
+        # kaki 88,5¢ naik 3 rungs ke 246,5).
         # PERUBAHAN v18 (band harga): sebelumnya (safety-first
         # tanpa band) garis paling aman 250,5 @92,5¢ butuh 10 kaki
         # untuk mencapai x2; kini band 80–89¢ memilih 246,5 @88,5¢
-        # sehingga 7 kaki cukup — konsekuensi jujur preferensi
-        # band, didokumentasikan di LAPORAN-GATE-V18.md.
+        # — konsekuensi jujur preferensi band, didokumentasikan di
+        # LAPORAN-GATE-V18.md.
         tangga = _tangga_banjir(
             [
                 (232.5, 74.0, 500.0, False),
@@ -3023,24 +3034,43 @@ class TestGateBanjirAsuransi(unittest.TestCase):
         )
         tiket = hasil["insurance"]
         self.assertIsNotNone(tiket)
-        self.assertEqual(len(tiket["legs"]), 7)
-        self.assertAlmostEqual(tiket["multiplier"], 2.225, places=2)
+        self.assertEqual(len(tiket["legs"]), 6)
+        self.assertAlmostEqual(tiket["multiplier"], 2.01, places=2)
+        # Peluang cair gabungan optimum: 0,9952^5 × 0,9866 = 0,9634.
+        self.assertAlmostEqual(tiket["metrics"]["p_win"], 0.9634, places=3)
+        harga = sorted(k["jup_price_cents"] for k in tiket["legs"])
+        self.assertEqual(harga, [86.5, 88.5, 88.5, 88.5, 88.5, 88.5])
         for kaki in tiket["legs"]:
             # Format seleksi tiket NBA: "Under 246.5 (TIM@TIM)".
-            self.assertTrue(
-                kaki["selection"].startswith("Under 246.5"),
-                kaki["selection"],
-            )
-            self.assertEqual(
-                kaki["climb"],
-                {
-                    "from_line": 240.5,
-                    "to_line": 246.5,
-                    "rungs": 3,
-                    "reason": "equilibrium",
-                },
-            )
-            self.assertEqual(kaki["jup_price_cents"], 88.5)
+            if kaki["jup_price_cents"] == 88.5:
+                self.assertTrue(
+                    kaki["selection"].startswith("Under 246.5"),
+                    kaki["selection"],
+                )
+                self.assertEqual(
+                    kaki["climb"],
+                    {
+                        "from_line": 240.5,
+                        "to_line": 246.5,
+                        "rungs": 3,
+                        "reason": "equilibrium",
+                    },
+                )
+            else:
+                self.assertEqual(kaki["jup_price_cents"], 86.5)
+                self.assertTrue(
+                    kaki["selection"].startswith("Under 244.5"),
+                    kaki["selection"],
+                )
+                self.assertEqual(
+                    kaki["climb"],
+                    {
+                        "from_line": 240.5,
+                        "to_line": 244.5,
+                        "rungs": 2,
+                        "reason": "equilibrium",
+                    },
+                )
 
 
 class TestEquilibriumSkipIntegrasi(unittest.TestCase):
@@ -3065,36 +3095,42 @@ class TestEquilibriumSkipIntegrasi(unittest.TestCase):
         if self.analyses is None:
             self.skipTest("out/analysis_live_2026-11-22.json tidak ada (runtime)")
 
-    def test_skip_den_artefak_nyata_di_komposer(self):
-        # DEN@CHI live di-skip dari kedua tiket di komposer (pola
-        # Denver) — tidak ada kandidat DEN di tiket mana pun, dan
-        # entri skip tercatat dengan pemicu + alasan. (v18: DEN
-        # membawa DUA pemicu — tidak_ada_equilibrium (tidak ada
-        # garis tangga yang lolos semua gate v18, terutama volume)
-        # + pola_denver; tes mengasersi pola_denver ADA, bukan
-        # satu-satunya.)
+    def test_den_artefak_nyata_tidak_skip_awal_tapi_tunggu_lineup_v18_1(self):
+        # v18.1 (MEMBALIK test_skip_den_artefak_nyata_di_komposer):
+        # DEN@CHI live TIDAK lagi di-skip dari awal (pola Denver
+        # tidak cocok — lihat tests/test_skip_awal_v18_1.py) sehingga
+        # skipped_matches KOSONG; tapi DEN tetap tidak masuk tiket
+        # mana pun — via TUNGGU_LINEUP (Norman Powell Questionable),
+        # tercatat di coret + blok "LAGA YANG MENUNGGU LINEUP" di
+        # ringkasan. ORL@WAS (target Patch #1) kini JADI kandidat
+        # kedua tiket.
         self._butuh_artefak()
         hasil = ticket_composer.compose_tickets(
             self.analyses, None, CFG, stake_total=20, now=SEKARANG
         )
-        di_skip = {
-            entri["match_id"]: entri for entri in hasil.get("skipped_matches") or []
-        }
-        self.assertIn("DEN@CHI_2026-11-22", di_skip)
-        entri_den = di_skip["DEN@CHI_2026-11-22"]
-        self.assertIn("pola_denver", entri_den["pemicu"])
-        self.assertIn("pola Denver", entri_den["alasan"])
-        # Tidak ada kaki DEN di kandidat mana pun.
+        self.assertEqual(hasil.get("skipped_matches"), [])
+        self.assertNotIn("LAGA YANG DI-SKIP DARI AWAL", hasil["summary"])
         per_laga = ticket_composer._terbaru_per_laga(self.analyses, "generated_at")
-        kandidat, _coret = ticket_composer._kumpulkan_kandidat(per_laga, {}, CFG)
+        kandidat, coret = ticket_composer._kumpulkan_kandidat(per_laga, {}, CFG)
         for tiket in ("insurance", "main"):
             self.assertNotIn(
                 "DEN@CHI_2026-11-22",
                 [k["match_id"] for k in kandidat[tiket]],
             )
-        # Blok skip tampil di ringkasan.
-        self.assertIn("LAGA YANG DI-SKIP DARI AWAL", hasil["summary"])
+            self.assertIn(
+                "ORL@WAS_2026-11-22",
+                [k["match_id"] for k in kandidat[tiket]],
+            )
+            self.assertTrue(
+                any(
+                    c.startswith("DEN@CHI_2026-11-22: TUNGGU_LINEUP")
+                    for c in coret[tiket]
+                )
+            )
+        # Blok tunggu-lineup tampil di ringkasan.
+        self.assertIn("LAGA YANG MENUNGGU LINEUP", hasil["summary"])
         self.assertIn("DEN@CHI_2026-11-22", hasil["summary"])
+        self.assertIn("Norman Powell", hasil["summary"])
 
     def test_flag_dimatikan_perilaku_lama_persis(self):
         # A/B v18: dengan ketiga flag dimatikan (equilibrium,
@@ -3132,22 +3168,17 @@ class TestEquilibriumSkipIntegrasi(unittest.TestCase):
                 ("DET@ATL_2026-11-22", 237.5),
             ],
         )
-        # Aturan baru: DET + DAL + BOS hadir lewat equilibrium;
-        # 4 laga di-skip pola_denver.
+        # Aturan baru v18.1: DET + DAL + BOS + ORL hadir lewat
+        # equilibrium; TIDAK ADA laga yang di-skip dari awal
+        # (pola_denver 0/7 live — DEN/IND/OKC tetap tidak masuk
+        # tiket, tapi via TUNGGU_LINEUP, bukan skip_awal).
         hasil_baru = ticket_composer.compose_tickets(
             self.analyses, None, CFG, stake_total=20, now=SEKARANG
         )
-        self.assertEqual(len(hasil_baru.get("skipped_matches") or []), 4)
-        self.assertEqual(
-            sorted(s["match_id"] for s in hasil_baru.get("skipped_matches") or []),
-            [
-                "DEN@CHI_2026-11-22",
-                "IND@NYK_2026-11-22",
-                "OKC@MIA_2026-11-22",
-                "ORL@WAS_2026-11-22",
-            ],
+        self.assertEqual(hasil_baru.get("skipped_matches"), [])
+        kandidat_baru, coret_baru = ticket_composer._kumpulkan_kandidat(
+            per_laga, {}, CFG
         )
-        kandidat_baru, _ = ticket_composer._kumpulkan_kandidat(per_laga, {}, CFG)
         main_baru = {k["match_id"]: k for k in kandidat_baru["main"]}
         self.assertIn("DET@ATL_2026-11-22", main_baru)
         self.assertEqual(main_baru["DET@ATL_2026-11-22"]["line"], 241.5)
@@ -3162,6 +3193,25 @@ class TestEquilibriumSkipIntegrasi(unittest.TestCase):
         self.assertEqual(main_baru["BOS@GSW_2026-11-22"]["line"], 223.5)
         self.assertIn("DAL@UTA_2026-11-22", main_baru)
         self.assertEqual(main_baru["DAL@UTA_2026-11-22"]["line"], 240.5)
+        # v18.1: ORL kini kandidat kedua tiket (dulu di-skip pola).
+        self.assertIn("ORL@WAS_2026-11-22", ins_baru)
+        self.assertEqual(ins_baru["ORL@WAS_2026-11-22"]["line"], 241.5)
+        self.assertIn("ORL@WAS_2026-11-22", main_baru)
+        self.assertEqual(main_baru["ORL@WAS_2026-11-22"]["line"], 235.5)
+        # DEN/IND/OKC tidak masuk kandidat — via TUNGGU_LINEUP.
+        for match_id in (
+            "DEN@CHI_2026-11-22",
+            "IND@NYK_2026-11-22",
+            "OKC@MIA_2026-11-22",
+        ):
+            self.assertNotIn(match_id, main_baru)
+            self.assertNotIn(match_id, ins_baru)
+            self.assertTrue(
+                any(
+                    c.startswith(f"{match_id}: TUNGGU_LINEUP")
+                    for c in coret_baru["insurance"]
+                )
+            )
 
     def test_kaki_equilibrium_leg_id_tidak_berubah(self):
         # Kaki equilibrium DET@ATL memakai leg_id kaki artefak

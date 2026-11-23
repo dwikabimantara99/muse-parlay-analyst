@@ -20,8 +20,9 @@ sigma 5 — nilai diukur, dibekukan) HIJAU dengan 1 demerit gap_besar
 (gap model-vs-pasar +13,9% di garis Asuransi U238,5 — CDF sempit
 sigma 5 vs harga tangga; P banjir 3P 97,7% / FT 88,4%, P setan
 53,3%, edge terbaik +8,2%, OT empiris 3,35% pada spread 15,0,
-veto tidak dievaluasi — IND + NYK tidak terpetakan di pemetaan
-rim protector v18).
+veto dievaluasi dan tidak menyala — v18.1: IND + NYK terpetakan
+(tier fallback) sehingga rem paint_utuh ikut menyala; di v18 veto
+tidak dievaluasi karena kedua tim belum terpetakan).
 
 Tes artefak nyata memakai out/analysis_live_2026-11-22.json +
 out/analysis_verif_tahap4_2026-11-22.json (file runtime, gitignored)
@@ -196,14 +197,20 @@ def _analisis(
 
 
 def _analisis_sehat(match_id="IND@NYK_2026-11-22"):
-    """Fixture laga sehat (HIJAU, 1 demerit gap_besar — nilai diukur).
+    """Fixture laga sehat (v18.1: MENENGAH_HIJAU, 2 demerit — nilai
+    diukur).
 
     Median 220 sigma 5, garis bandar 221,5, spread 15,0, pace
     kandang 94,54 (rem pace_lambat) + selaras pasar (gap 1,5 poin,
     total 221,5 <= 228). Garis Asuransi = equilibrium Asuransi
-    U238,5 @88,5¢. Veto tidak dievaluasi (IND + NYK tidak
-    terpetakan di pemetaan v18); FTr/DRtg tidak ada (indikator
-    terkait tidak_dievaluasi).
+    U238,5 @88,5¢. v18.1 (Patch #5a): demerit kedua adalah
+    tail_fragility di garis REFERENSI U232,5 @82,5¢ (banjir FT
+    50,0% < 67% — CDF sempit sigma 5 membuat garis 82¢ ini rapuh
+    banjir; di garis Asuransi banjir tetap 97,7%/88,4%). v18.1:
+    veto DIEVALUASI (IND + NYK terpetakan tier fallback) dan
+    tidak menyala — rem paint_utuh ikut menyala; di v18 veto
+    tidak dievaluasi (kedua tim belum terpetakan). FTr/DRtg tidak
+    ada (indikator terkait tidak_dievaluasi).
     """
     tangga = _tangga(
         [
@@ -399,18 +406,23 @@ class TestVonisArtefakNyata(unittest.TestCase):
         self.assertAlmostEqual(hasil["indikator"]["p_ot_empiris"], 0.05695, places=5)
         self.assertAlmostEqual(hasil["indikator"]["ot_probability"], 0.0289, places=4)
 
-    def test_orl_live_hijau_nol_demerit(self):
-        # v18: ORL@WAS BUKAN lagi KUNING-edge (pemicu keras edge
-        # DIHAPUS) — HIJAU dengan 0 demerit + 2 rem. REVISI
-        # KOORDINATOR: tail_fragility HILANG — garis Asuransi kini
-        # equilibrium U241,5 (banjir 74,5%/67,4% di atas ambang
-        # demerit 72%/67%).
+    def test_orl_live_hijau_satu_demerit_referensi(self):
+        # v18.1 (Patch #5a — MEMBALIK test_orl_live_hijau_nol_demerit):
+        # ORL@WAS tetap HIJAU, tapi kini membawa 1 demerit
+        # tail_fragility: di garis Asuransi EQ U241,5 banjir
+        # 74,5%/67,4% (di atas ambang demerit 72%/67%), tapi di
+        # garis REFERENSI U237,5 @84,0¢ banjir 67,5%/59,6% (di
+        # bawah ambang). Inilah pemulihan yang dimaksud Patch #5a:
+        # laga tanggung kembali tercatat rapuh, bukan 0 demerit.
         hasil = vonis_mod.nilai_vonis(self.live["ORL@WAS_2026-11-22"], None, CFG)
         self.assertEqual(hasil["vonis"], "hijau")
-        self.assertEqual(hasil["indikator"]["demerit"], [])
+        self.assertEqual(hasil["indikator"]["demerit"], ["tail_fragility"])
         self.assertEqual(
             hasil["indikator"]["rem_alami"]["terpenuhi"],
             ["pace_lambat", "selaras_pasar"],
+        )
+        self.assertEqual(
+            hasil["indikator"]["garis_referensi_tail_fragility"]["line"], 237.5
         )
 
     def test_dal_live_hijau_veto_tidak_menyala(self):
@@ -489,18 +501,23 @@ class TestVonisArtefakNyata(unittest.TestCase):
 class TestVonisSintetis(unittest.TestCase):
     """Vonis pada fixture sintetis (perilaku per indikator)."""
 
-    def test_laga_sehat_hijau_satu_demerit_gap(self):
-        # Fixture sehat v18: HIJAU dengan 1 demerit gap_besar
-        # (gap +13,9% > 8% — CDF sempit vs harga tangga) + 2 rem.
-        # HIJAU v18 mengizinkan <=1 demerit (v17: 0 demerit).
+    def test_laga_sehat_menengah_dua_demerit_v18_1(self):
+        # v18.1 (Patch #5a — MEMBALIK
+        # test_laga_sehat_hijau_satu_demerit_gap): fixture sehat
+        # kini MENENGAH_HIJAU dengan 2 demerit — gap_besar (gap
+        # +13,9% > 8%) + tail_fragility di garis REFERENSI U232,5
+        # @82,5¢ (banjir FT 50,0% < 67%; di garis Asuransi banjir
+        # tetap 97,7%/88,4% — nilai beku di bawah tidak berubah).
+        # + 3 rem.
         hasil = vonis_mod.nilai_vonis(_analisis_sehat(), None, CFG)
-        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertEqual(hasil["vonis"], "menengah_hijau")
         ind = hasil["indikator"]
-        self.assertEqual(ind["demerit"], ["gap_besar"])
-        self.assertEqual(ind["n_demerit"], 1)
+        self.assertEqual(ind["demerit"], ["tail_fragility", "gap_besar"])
+        self.assertEqual(ind["n_demerit"], 2)
         self.assertIsNone(ind["pemicu_keras"])
         self.assertEqual(
-            ind["rem_alami"]["terpenuhi"], ["pace_lambat", "selaras_pasar"]
+            ind["rem_alami"]["terpenuhi"],
+            ["pace_lambat", "paint_utuh_blowout_atau_ftr_rendah", "selaras_pasar"],
         )
         self.assertGreaterEqual(ind["p_banjir_3p"], 0.72)
         self.assertGreaterEqual(ind["p_banjir_ft"], 0.67)
@@ -510,7 +527,8 @@ class TestVonisSintetis(unittest.TestCase):
         self.assertGreaterEqual(ind["edge_terbaik"], 0.08)  # info saja
         self.assertEqual(ind["garis_asuransi"]["line"], 238.5)
         self.assertEqual(ind["garis_asuransi"]["sumber"], "equilibrium Asuransi")
-        self.assertIn("semua indikator sehat", hasil["alasan"][0])
+        self.assertEqual(ind["garis_referensi_tail_fragility"]["line"], 232.5)
+        self.assertIn("rapuh banjir", " ".join(hasil["alasan"]))
         self.assertIn("foul_tinggi", ind["tidak_dinilai"])  # FTr tidak ada
 
     def test_ekor_gemuk_varian_thin(self):
@@ -547,13 +565,15 @@ class TestVonisSintetis(unittest.TestCase):
     def test_volume_bukan_demerit_v18(self):
         # DIHAPUS v17 -> v18: volume tipis BUKAN demerit lagi
         # (volume hanya info + gate komposer, bukan vonis). Semua
-        # garis thin -> tetap HIJAU, tanpa demerit volume_tipis.
+        # garis thin -> vonis tidak berubah dari baseline fixture
+        # (v18.1: MENENGAH_HIJAU, 2 demerit gap + tail), tanpa
+        # demerit volume_tipis.
         analisis = _analisis_sehat()
         for entri in analisis["market"]["totals"]:
             entri["thin"] = True
             entri["volume_usd"] = 5.0
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
-        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertEqual(hasil["vonis"], "menengah_hijau")
         self.assertNotIn("volume_tipis", hasil["indikator"]["demerit"])
         self.assertTrue(hasil["indikator"]["garis_asuransi"]["thin"])
 
@@ -588,7 +608,10 @@ class TestVonisSintetis(unittest.TestCase):
         ]
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
         self.assertNotIn("gap_besar", hasil["indikator"]["demerit"])
-        self.assertEqual(hasil["indikator"]["demerit"], [])
+        # v18.1: tail_fragility di garis referensi TETAP ada
+        # (independen dari investigasi gap) -> 1 demerit, HIJAU.
+        self.assertEqual(hasil["indikator"]["demerit"], ["tail_fragility"])
+        self.assertEqual(hasil["vonis"], "hijau")
         self.assertEqual(len(hasil["indikator"]["investigasi"]), 1)
         self.assertIn("Bintang Out", hasil["indikator"]["investigasi"][0])
 
@@ -686,8 +709,10 @@ class TestVonisSintetis(unittest.TestCase):
 
     def test_hasil_stress_dipakai_bila_garis_cocok(self):
         # Hasil stress yang memuat garis Asuransi (238,5) DIPAKAI:
-        # P banjir suntik 0,50/0,60 (< ambang) -> demerit
-        # tail_fragility muncul.
+        # P banjir suntik 0,50/0,60 dilaporkan di indikator. v18.1:
+        # demerit tail_fragility kini dinilai di garis REFERENSI
+        # (U232,5) — bukan dari P suntik ini — tapi asersi demerit
+        # tetap berlaku karena referensi juga rapuh.
         analisis = _analisis_sehat()
         hasil_stress = {
             "banjir_terburuk": "banjir_3p",
@@ -710,10 +735,16 @@ class TestVonisSintetis(unittest.TestCase):
         self.assertIn("tail_fragility", hasil["indikator"]["demerit"])
 
     def test_hasil_stress_rusak_tidak_crash(self):
+        # Stress rusak -> fallback CDF, vonis sama dengan baseline
+        # tanpa stress (v18.1: MENENGAH_HIJAU).
         hasil = vonis_mod.nilai_vonis(
             _analisis_sehat(), {"kaki": [{"line": "bukan-angka"}]}, CFG
         )
-        self.assertEqual(hasil["vonis"], "hijau")
+        baseline = vonis_mod.nilai_vonis(_analisis_sehat(), None, CFG)
+        self.assertEqual(hasil["vonis"], baseline["vonis"])
+        self.assertEqual(
+            hasil["indikator"]["demerit"], baseline["indikator"]["demerit"]
+        )
         self.assertFalse(hasil["indikator"]["hasil_stress_dipakai"])
 
     def test_entri_match_dibuka(self):
@@ -977,14 +1008,16 @@ class TestFailClosed(unittest.TestCase):
         self.assertEqual(hasil["indikator"]["pemicu_keras"], "data_tidak_cukup")
         self.assertIn("spread", hasil["alasan"][0])
 
-    def test_tanpa_ot_sim_tetap_hijau(self):
+    def test_tanpa_ot_sim_tidak_mengubah_vonis(self):
         # v18: ot_probability sim BUKAN lagi data wajib (hanya info).
-        # Menghapusnya tidak mengubah vonis; p_ot_empiris tetap
-        # dihitung dari spread.
+        # Menghapusnya tidak mengubah vonis (v18.1: baseline
+        # fixture MENENGAH_HIJAU); p_ot_empiris tetap dihitung
+        # dari spread.
         analisis = _analisis_sehat()
         del analisis["simulation"]["score_distribution"]["ot_probability"]
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
-        self.assertEqual(hasil["vonis"], "hijau")
+        baseline = vonis_mod.nilai_vonis(_analisis_sehat(), None, CFG)
+        self.assertEqual(hasil["vonis"], baseline["vonis"])
         self.assertIsNone(hasil["indikator"]["ot_probability"])
         self.assertAlmostEqual(hasil["indikator"]["p_ot_empiris"], 0.0335, places=4)
 
@@ -998,11 +1031,12 @@ class TestFailClosed(unittest.TestCase):
 
     def test_tanpa_garis_bandar_indikator_sekunder_tidak_dinilai(self):
         # main_total_line hilang -> ekor + total tidak dinilai (TANPA
-        # demerit); laga sehat tetap HIJAU.
+        # demerit); vonis tetap baseline fixture (v18.1:
+        # MENENGAH_HIJAU, 2 demerit gap + tail).
         analisis = _analisis_sehat()
         analisis["market"]["main_total_line"] = None
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
-        self.assertEqual(hasil["vonis"], "hijau")
+        self.assertEqual(hasil["vonis"], "menengah_hijau")
         self.assertIn("ekor_gemuk", hasil["indikator"]["tidak_dinilai"])
         self.assertIn("total_tinggi", hasil["indikator"]["tidak_dinilai"])
         self.assertIsNone(hasil["indikator"]["ekor_gemuk"])
@@ -1169,7 +1203,9 @@ class TestVeto(unittest.TestCase):
         self.assertFalse(veto["dievaluasi"])
         self.assertFalse(veto["menyala"])
         hasil = vonis_mod.nilai_vonis(analisis, None, CFG)
-        self.assertEqual(hasil["vonis"], "hijau")
+        # v18.1: baseline fixture MENENGAH_HIJAU (2 demerit gap +
+        # tail); veto tetap tercatat tidak_dinilai.
+        self.assertEqual(hasil["vonis"], "menengah_hijau")
         self.assertIn("veto_rim_protector", hasil["indikator"]["tidak_dinilai"])
 
 
@@ -1388,7 +1424,7 @@ class TestConfigDanPemetaan(unittest.TestCase):
         self.assertEqual(CFG["ot_seleksi"]["mode"], "empiris")
         self.assertEqual(CFG["ot_seleksi"]["base_rate_ot"], 0.0575)
         self.assertEqual(CFG["ot_seleksi"]["hard_skip_ot_prob"], 0.085)
-        self.assertEqual(CFG["meta"]["version"], 18)
+        self.assertEqual(CFG["meta"]["version"], 18.1)
 
     def test_file_pemetaan_valid(self):
         self.assertTrue(PEMETAAN.exists(), "file pemetaan CHECK-IN hilang")
@@ -1396,9 +1432,11 @@ class TestConfigDanPemetaan(unittest.TestCase):
         self.assertEqual(dokumen["format"], "rim_protector")
         self.assertEqual(dokumen["season"], "2026-27")
         self.assertEqual(dokumen["position_source"], "Basketball-Reference")
-        # v18: 21 dari 30 tim terpetakan (9 tim tanpa big yang lolos
-        # ambang BLK >= 1,0 + filter posisi — v17: 30/30).
-        self.assertEqual(len(dokumen["teams"]), 21)
+        # v18.1 (Patch #3): 30 dari 30 tim terpetakan — 9 tim yang
+        # kosong di v18 (21/30) kini terisi tier fallback (BLK >=
+        # 0,7, top-1 big). Lantai BLK mengikuti tier: primer >= 1,0,
+        # fallback >= 0,7.
+        self.assertEqual(len(dokumen["teams"]), 30)
         chi = {p["player"]: p for p in dokumen["teams"]["CHI"]}
         self.assertIn("Nic Claxton", chi)
         self.assertEqual(chi["Nic Claxton"]["blk_per_game"], 1.0)
@@ -1413,7 +1451,9 @@ class TestConfigDanPemetaan(unittest.TestCase):
             self.assertLessEqual(len(daftar), 2, tim)
             for entri in daftar:
                 self.assertIn(entri["pos"], ["C", "PF", "F-C", "C-F"])
-                self.assertGreaterEqual(entri["blk_per_game"], 1.0)
+                self.assertIn(entri.get("tier"), ("primary", "fallback"))
+                lantai_blk = 1.0 if entri["tier"] == "primary" else 0.7
+                self.assertGreaterEqual(entri["blk_per_game"], lantai_blk)
                 self.assertGreaterEqual(entri["mp_per_game"], 18.0)
                 self.assertGreaterEqual(entri["games_played"], 3)
 

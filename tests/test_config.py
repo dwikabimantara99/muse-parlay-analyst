@@ -264,7 +264,7 @@ class TestPlaystyle(unittest.TestCase):
         # check + short-circuit + laporan 3 lapis (audit Gemini
         # v17 + keputusan user 2026-11-23 13:57/13:59 WIB).
         meta = self.cfg["meta"]
-        self.assertEqual(meta["version"], 18)
+        self.assertEqual(meta["version"], 18.1)
         self.assertEqual(meta["last_reviewed"], "2026-11-23")
 
     def test_analis_section(self):

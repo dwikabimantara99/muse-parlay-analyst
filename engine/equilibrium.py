@@ -118,6 +118,15 @@ p_model/p_market/p_final/EV/label dihitung di garis baru — ini
 MEMPERBAIKI interaksi gate banjir × gate edge (§5 laporan aturan
 keras): kaki yang naik garis tidak lagi memakai p_final garis lama.
 
+SEMUA GARIS VALID (v18.1 Patch #2 "Perangkap Plafon 88,5¢",
+REFERENSI-PATCH-V18-1-GEMINI.md §1): ``garis_valid_asuransi``
+mengembalikan SELURUH garis dalam band Asuransi (80–89¢) yang
+lolos 100% gate Asuransi — bukan hanya garis plafon safety-first.
+Komposer memilih kombinasi optimal lintas garis valid itu (max Π
+P_final dalam jendela pengali target) sehingga Asuransi tidak lagi
+terkunci di plafon. ``cari_equilibrium`` TIDAK berubah perilakunya
+(garis plafon tetap menjadi default_eq untuk laporan individu).
+
 TIDAK DIHITUNG vs TIDAK ADA: tanpa CDF / tanpa tangga / tanpa jangkar
 pasar -> ``dihitung=False`` -> komposer memakai kaki artefak apa
 adanya (fallback). Equilibrium adalah peningkatan seleksi, bukan gate
@@ -909,6 +918,54 @@ def nilai_semua_garis(
         if dinilai is not None:
             nilai.append({k: v for k, v in dinilai.items() if k != "entri"})
     return nilai
+
+
+def garis_valid_asuransi(
+    analysis: dict, cfg: dict | None = None, ktx: dict | None = None
+) -> list[dict] | None:
+    """Semua garis Asuransi yang lolos 100% gate DALAM band (v18.1 #2).
+
+    Perangkap Plafon 88,5¢ (REFERENSI-PATCH-V18-1-GEMINI.md §1
+    Patch #2): safety-first dalam band 80–89¢ SELALU memetik garis
+    plafon (P_final monoton naik terhadap harga) — di T2 v18 ketiga
+    kaki Asuransi terkunci di 88,5¢ sehingga pengali maks hanya
+    x1,36. Fungsi ini mengembalikan SELURUH garis dalam band
+    Asuransi (``tickets.insurance.preferred_price_band``, 80–89¢)
+    yang lolos 100% gate Asuransi v18 (peluang + p_market + banjir
+    3P/FT + EV + lantai harga + eksekusi) supaya komposer bisa
+    memilih kombinasi optimal lintas garis — TANPA melonggarkan
+    satu pun gate. Garis plafon safety-first TETAP menjadi
+    ``default_eq`` ``cari_equilibrium`` untuk laporan individu
+    (fungsi itu tidak berubah perilakunya).
+
+    Dibangun di atas ``nilai_semua_garis`` (tidak ada duplikasi
+    logika gate). Tiap entri adalah salinan hasil ``_nilai_garis``
+    (tanpa kunci "entri") + alias "garis" (= "line") — memuat
+    minimal: garis, harga_venue_cents, p_final, p_market, ev_pct,
+    p_banjir_3p, p_banjir_ft (plus p_model, expected_return,
+    price_label, bukti eksekusi, dan dict gate — bahan komposer
+    membangun ulang kaki di garis itu). Urutan: garis naik (urutan
+    tangga). Mengembalikan [] bila dihitung tapi tidak ada garis
+    valid, atau None bila konteks tidak bisa disiapkan (tanpa CDF /
+    tangga / jangkar pasar — sama seperti ``nilai_semua_garis``).
+    Config rusak -> ConfigError. Artefak bukan dict -> ValueError.
+    """
+    nilai = nilai_semua_garis(analysis, "insurance", cfg, ktx=ktx)
+    if nilai is None:
+        return None
+    cfg = _muat_cfg(cfg)
+    band_bawah, band_atas = _cfg_band(cfg, "insurance")
+    valid = []
+    for entri in nilai:
+        if not entri["lolos_semua"]:
+            continue
+        harga = entri["harga_venue_cents"]
+        if not (band_bawah <= harga <= band_atas):
+            continue
+        salinan = dict(entri)
+        salinan["garis"] = entri["line"]
+        valid.append(salinan)
+    return valid
 
 
 def cari_equilibrium(

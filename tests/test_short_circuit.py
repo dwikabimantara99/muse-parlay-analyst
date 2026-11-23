@@ -486,7 +486,13 @@ class TestVegasWiring(_BasisShortCircuit):
 class TestSebabCederaBaru(unittest.TestCase):
     """Definisi wiring _sebab_cedera_baru (unit)."""
 
-    CFG = {"vonis": {"tunggu_lineup": {"bpm_bintang": 2.0}}}
+    # v18.1 (Patch #4): CFG minimal kini memuat ambang GP; pemain
+    # fixture membawa games_played >= 3 agar lolos filter kesegaran
+    # (tanpa GP, pemain TIDAK segar -> bukan sebab).
+    CFG = {
+        "vonis": {"tunggu_lineup": {"bpm_bintang": 2.0}},
+        "calibration": {"fresh_injury_min_gp_season": 3},
+    }
 
     def _artefak(self, cedera, pemain):
         return {
@@ -508,9 +514,9 @@ class TestSebabCederaBaru(unittest.TestCase):
     def test_bintang_out_terkonfirmasi_true(self):
         artefak = self._artefak(
             [self._out("Bintang", 2)],
-            [{"player": "Bintang", "bpm": 4.5}],
+            [{"player": "Bintang", "bpm": 4.5, "games_played": 12}],
         )
-        ada, nama, dievaluasi = na._sebab_cedera_baru(artefak, self.CFG)
+        ada, nama, dievaluasi, _ = na._sebab_cedera_baru(artefak, self.CFG)
         self.assertTrue(ada)
         self.assertEqual(nama, ["Bintang"])
         self.assertTrue(dievaluasi)
@@ -518,17 +524,17 @@ class TestSebabCederaBaru(unittest.TestCase):
     def test_out_satu_sumber_bukan_sebab(self):
         artefak = self._artefak(
             [self._out("Bintang", 1)],
-            [{"player": "Bintang", "bpm": 4.5}],
+            [{"player": "Bintang", "bpm": 4.5, "games_played": 12}],
         )
-        ada, _, _ = na._sebab_cedera_baru(artefak, self.CFG)
+        ada, _, _, _ = na._sebab_cedera_baru(artefak, self.CFG)
         self.assertFalse(ada)
 
     def test_out_bukan_bintang_bukan_sebab(self):
         artefak = self._artefak(
             [self._out("Bangku", 2)],
-            [{"player": "Bangku", "bpm": 0.5}],
+            [{"player": "Bangku", "bpm": 0.5, "games_played": 12}],
         )
-        ada, _, _ = na._sebab_cedera_baru(artefak, self.CFG)
+        ada, _, _, _ = na._sebab_cedera_baru(artefak, self.CFG)
         self.assertFalse(ada)
 
     def test_questionable_bukan_sebab(self):
@@ -541,18 +547,19 @@ class TestSebabCederaBaru(unittest.TestCase):
                     "availability_n_sources": 2,
                 }
             ],
-            [{"player": "Bintang", "bpm": 4.5}],
+            [{"player": "Bintang", "bpm": 4.5, "games_played": 12}],
         )
-        ada, _, _ = na._sebab_cedera_baru(artefak, self.CFG)
+        ada, _, _, _ = na._sebab_cedera_baru(artefak, self.CFG)
         self.assertFalse(ada)
 
     def test_tanpa_data_pemain_tidak_dievaluasi(self):
-        ada, nama, dievaluasi = na._sebab_cedera_baru(
+        ada, nama, dievaluasi, dikecualikan = na._sebab_cedera_baru(
             {"inputs": {}, "injuries": {"entries": []}}, self.CFG
         )
         self.assertFalse(ada)
         self.assertEqual(nama, [])
         self.assertFalse(dievaluasi)
+        self.assertEqual(dikecualikan, [])
 
 
 class TestGeserDistribusi(unittest.TestCase):

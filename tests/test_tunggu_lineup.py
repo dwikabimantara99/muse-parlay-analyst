@@ -127,8 +127,12 @@ class TestCekTungguLineup(unittest.TestCase):
         self.assertEqual(hasil["diperiksa"][0]["usg_ditolak"], "bukan_rotasi")
 
     def test_usg_tinggi_tapi_bpm_negatif_bukan_bintang(self):
-        # RayJ Dennis (nyata, DET@ATL): USG 26,7%, 11,5 mnt (rotasi)
-        # tapi BPM -3,2 (net-negatif) -> bukan bintang.
+        # RayJ Dennis (nyata, DET@ATL): USG 26,7%, 11,5 mnt tapi
+        # BPM -3,2 (net-negatif) -> bukan bintang. v18.1 (Patch
+        # #5b): dengan ambang menit simetris 15,0, Dennis DITOLAK
+        # lebih dulu sebagai bukan_rotasi (11,5 < 15,0) — sebelum
+        # lantai BPM sempat diperiksa. Hasil sama (bukan bintang),
+        # alasan penolakan berubah.
         analisis = _analisis(
             [_q("RayJ Dennis", "ATL")],
             [_pemain("RayJ Dennis", -3.2, "ATL", mp=11.5)],
@@ -137,7 +141,7 @@ class TestCekTungguLineup(unittest.TestCase):
             analisis, CFG, usg_pemain={"RayJ Dennis": 0.267}
         )
         self.assertFalse(hasil["tunggu"])
-        self.assertEqual(hasil["diperiksa"][0]["usg_ditolak"], "bpm_negatif")
+        self.assertEqual(hasil["diperiksa"][0]["usg_ditolak"], "bukan_rotasi")
 
     def test_usg_tinggi_tanpa_data_menit_tidak_lolos(self):
         # Tanpa mp_per_game di artefak, jalur USG tidak aktif (USG
@@ -476,6 +480,9 @@ class TestArtefakNyata(unittest.TestCase):
         # KUALIFIKASI JALUR USG (nyata): RayJ Dennis ATL Questionable
         # dengan USG 26,7% — tapi BPM -3,2 -> bukan bintang, DET
         # tidak tunggu_lineup. USG disuntik (deterministik).
+        # v18.1 (Patch #5b): dengan ambang menit simetris 15,0,
+        # Dennis DITOLAK lebih dulu sebagai bukan_rotasi (11,5 <
+        # 15,0) — sebelum lantai BPM sempat diperiksa.
         analisis = self.live["DET@ATL_2026-11-22"]
         hasil = vonis.cek_tunggu_lineup(
             analisis, CFG, usg_pemain={"RayJ Dennis": 0.267}
@@ -483,7 +490,7 @@ class TestArtefakNyata(unittest.TestCase):
         self.assertFalse(hasil["tunggu"])
         self.assertEqual(hasil["bintang"], [])
         diperiksa = {d["player"]: d for d in hasil["diperiksa"]}
-        self.assertEqual(diperiksa["RayJ Dennis"]["usg_ditolak"], "bpm_negatif")
+        self.assertEqual(diperiksa["RayJ Dennis"]["usg_ditolak"], "bukan_rotasi")
 
     def test_orl_tidak_tunggu_pemain_pinggiran(self):
         # KUALIFIKASI JALUR USG (nyata): Felix Okpara WAS Questionable

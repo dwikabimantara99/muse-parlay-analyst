@@ -51,6 +51,18 @@ vonis.rim_protector ke vonis.veto.rim_protector):
   seri (selisih < 1e-9) -> menit lebih besar -> nama abjad
   (deterministik). Baris TOT (agregat pemain pindah tim) dilewati —
   baris per timnya ada terpisah.
+- TIER FALLBACK (v18.1, Patch #3 — ambang dari
+  hard_vetoes.rim_protector_veto di config/playstyle.yaml): bila
+  suatu tim menghasilkan 0 pemain pada filter primer, diambil top-1
+  big tim itu (posisi sama, GP >= min_games, MP >=
+  fallback_min_minutes_pg, BLK >= fallback_min_bpg) dan diberi
+  label tier "fallback" pada entrinya; entri primer berlabel tier
+  "primary". Diagnosa v18.1 (LAPORAN-V18-1-C.md): 9 tim hilang
+  BUKAN karena mapping tricode/normalisasi (join posisi berhasil,
+  PHO->PHX terbukti jalan) melainkan karena big rotasi terbaik
+  mereka hanya 0,8-0,9 blok/laga — di bawah ambang primer 1,0.
+  Fallback TIDAK melonggarkan filter posisi (guard tetap
+  dikeluarkan), min_games, atau ambang menit.
 - Pemain dengan GP di bawah ambang TIDAK BISA diidentifikasi dari
   data musim berjalan (perannya belum terbentuk di statistik) —
   keterbatasan yang didokumentasikan (mis. Jalen Duren DET, 2 laga):
@@ -409,6 +421,9 @@ def turunkan_pemetaan(
     min_blk: float,
     max_per_team: int,
     position_filter: list[str] | tuple[str, ...] | None = None,
+    fallback_enabled: bool = False,
+    fallback_min_mp: float = 18.0,
+    fallback_min_blk: float = 0.7,
 ) -> tuple[dict[str, list[dict]], list[dict]]:
     """Pilih rim protector per tim (maks max_per_team, urut BPG).
 
@@ -420,14 +435,26 @@ def turunkan_pemetaan(
     abjad (deterministik). Tim tanpa pemain yang memenuhi syarat
     tidak muncul di pemetaan (veto tidak bisa menilai tim itu).
 
+    TIER FALLBACK (v18.1): bila fallback_enabled dan suatu tim
+    menghasilkan 0 pemain primer, diambil top-1 big tim itu yang
+    lolos ambang fallback (GP >= min_games — SAMA dengan primer,
+    MP >= fallback_min_mp, BLK >= fallback_min_blk). Fallback
+    TIDAK melonggarkan filter posisi, min_games, atau ambang menit.
+    Entri primer berlabel tier "primary", entri fallback "fallback"
+    (transparansi: engine/vonis.py hanya membaca player +
+    blk_per_game, jadi label ini tidak mengubah perilaku veto).
+
     Mengembalikan (pemetaan, tanpa_posisi): "tanpa_posisi" adalah
-    pemain yang lolos ambang blok/menit tapi posisinya tidak
-    diketahui (pos None) sehingga dikeluarkan — jejak audit.
-    Pemain yang posisinya diketahui tapi di luar filter (guard/
-    wing) dikeluarkan tanpa dicatat (itu fungsi filter).
+    pemain yang lolos ambang blok/menit (primer ATAU fallback —
+    kolom "tier" menandai ambang mana yang dilolosinya) tapi
+    posisinya tidak diketahui (pos None) sehingga dikeluarkan —
+    jejak audit. Pemain yang posisinya diketahui tapi di luar
+    filter (guard/wing) dikeluarkan tanpa dicatat (itu fungsi
+    filter).
     """
     saringan = set(position_filter or [])
-    per_tim: dict[str, list[dict]] = {}
+    per_tim_primer: dict[str, list[dict]] = {}
+    per_tim_fallback: dict[str, list[dict]] = {}
     tanpa_posisi: list[dict] = []
     for entri in pemain:
         gp = _angka(entri.get("games_played"))
@@ -437,7 +464,16 @@ def turunkan_pemetaan(
         nama = entri.get("player")
         if not tim or not nama or gp is None or mp is None or blk is None:
             continue
-        if gp < min_games or mp < min_mp or blk < min_blk:
+        if gp >= min_games and mp >= min_mp and blk >= min_blk:
+            tier = "primary"
+        elif (
+            fallback_enabled
+            and gp >= min_games
+            and mp >= fallback_min_mp
+            and blk >= fallback_min_blk
+        ):
+            tier = "fallback"
+        else:
             continue
         pos = (entri.get("pos") or "").strip() or None
         if saringan:
@@ -446,6 +482,7 @@ def turunkan_pemetaan(
                     {
                         "player": nama,
                         "team": tim,
+                        "tier": tier,
                         "blk_per_game": round(blk, 4),
                         "mp_per_game": round(mp, 4),
                         "games_played": int(gp),
@@ -454,19 +491,26 @@ def turunkan_pemetaan(
                 continue
             if pos not in saringan:
                 continue
-        per_tim.setdefault(tim, []).append(
+        tujuan = per_tim_primer if tier == "primary" else per_tim_fallback
+        tujuan.setdefault(tim, []).append(
             {
                 "player": nama,
                 "pos": pos,
+                "tier": tier,
                 "blk_per_game": round(blk, 4),
                 "mp_per_game": round(mp, 4),
                 "games_played": int(gp),
             }
         )
     hasil: dict[str, list[dict]] = {}
-    for tim, daftar in per_tim.items():
+    for tim, daftar in per_tim_primer.items():
         daftar.sort(key=lambda e: (-e["blk_per_game"], -e["mp_per_game"], e["player"]))
         hasil[tim] = daftar[:max_per_team]
+    for tim, daftar in per_tim_fallback.items():
+        if tim in hasil:
+            continue  # tim dengan pemain primer tidak dapat fallback
+        daftar.sort(key=lambda e: (-e["blk_per_game"], -e["mp_per_game"], e["player"]))
+        hasil[tim] = daftar[:1]  # fallback top-1
     return hasil, tanpa_posisi
 
 
@@ -489,6 +533,27 @@ def main(argv: list[str] | None = None) -> int:
     min_blk = float(rp["min_blk_per_game"])
     max_per_team = int(rp["max_per_team"])
     position_filter = list(rp["position_filter"])
+    # Tier fallback v18.1 (Patch #3): kunci di section terpisah
+    # hard_vetoes.rim_protector_veto (bukan vonis.veto) — sesuai
+    # spesifikasi patch v18.1 (REFERENSI-PATCH-V18-1-GEMINI.md §3).
+    fallback_enabled = bool(
+        config_mod.get_value(
+            cfg, "hard_vetoes", "rim_protector_veto", "fallback_tier_enabled"
+        )
+    )
+    fallback_min_mp = float(
+        config_mod.get_value(
+            cfg,
+            "hard_vetoes",
+            "rim_protector_veto",
+            "fallback_min_minutes_pg",
+        )
+    )
+    fallback_min_blk = float(
+        config_mod.get_value(
+            cfg, "hard_vetoes", "rim_protector_veto", "fallback_min_bpg"
+        )
+    )
     try:
         pemain, sumber = fetch_pemain_blok(args.season)
     except RuntimeError as exc:
@@ -509,7 +574,21 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         gabung_posisi(pemain, posisi)
     pemetaan, tanpa_posisi = turunkan_pemetaan(
-        pemain, min_games, min_mp, min_blk, max_per_team, position_filter
+        pemain,
+        min_games,
+        min_mp,
+        min_blk,
+        max_per_team,
+        position_filter,
+        fallback_enabled=fallback_enabled,
+        fallback_min_mp=fallback_min_mp,
+        fallback_min_blk=fallback_min_blk,
+    )
+    n_fallback = sum(
+        1
+        for daftar in pemetaan.values()
+        for entri in daftar
+        if entri.get("tier") == "fallback"
     )
     dokumen = {
         "format": "rim_protector",
@@ -534,6 +613,23 @@ def main(argv: list[str] | None = None) -> int:
                 "di config/playstyle.yaml section "
                 "vonis.veto.rim_protector."
             ),
+            "fallback": {
+                "enabled": fallback_enabled,
+                "min_mp_per_game": fallback_min_mp,
+                "min_blk_per_game": fallback_min_blk,
+                "max_per_team": 1,
+                "n_tim_fallback": n_fallback,
+                "penjelasan": (
+                    "Tier fallback v18.1 (Patch #3): tim yang "
+                    "menghasilkan 0 pemain primer mendapat top-1 big "
+                    "dengan GP >= min_games, MP >= "
+                    "fallback.min_mp_per_game, BLK >= "
+                    "fallback.min_blk_per_game, berlabel tier "
+                    "'fallback' (entri primer berlabel 'primary'). "
+                    "Ambang di config/playstyle.yaml section "
+                    "hard_vetoes.rim_protector_veto."
+                ),
+            },
         },
         "tanpa_posisi": tanpa_posisi,
         "teams": pemetaan,
@@ -545,11 +641,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"Sumber: {sumber} ({len(pemain)} pemain, musim {args.season})")
     print(f"Posisi: {sumber_posisi} (filter {position_filter})")
-    print(f"Tim terpetakan: {len(pemetaan)} dari 30")
+    print(f"Tim terpetakan: {len(pemetaan)} dari 30 ({n_fallback} fallback)")
     for tim in sorted(pemetaan):
         daftar = ", ".join(
             f"{p['player']} ({p.get('pos')}, {p['blk_per_game']} blok/laga, "
-            f"{p['mp_per_game']} mnt, {p['games_played']} laga)"
+            f"{p['mp_per_game']} mnt, {p['games_played']} laga, "
+            f"{p.get('tier')})"
             for p in pemetaan[tim]
         )
         print(f"  {tim}: {daftar}")

@@ -3,7 +3,11 @@
 Tiga pemicu (satu cukup untuk skip dari KEDUA tiket):
 (a) tidak_ada_equilibrium — equilibrium tidak ada di kedua tiket;
 (b) pola_denver — konjungsi 4 syarat (flag setan + tidak ada garis
-    tidak-tipis yang tahan banjir + garis acuan thin + edge kecil);
+    yang bisa dibeli yang tahan banjir + garis acuan gagal gate
+    eksekusi + EV kecil) — v18.1: syarat (4) EV (bukan edge),
+    "non-thin" = lolos cek_eksekusi (bukan flag thin), flag setan
+    memakai setan per pemain bila blok ada; + pagar anti-redundansi
+    (lihat tests/test_skip_awal_v18_1.py).
 (c) ot_tinggi — probabilitas OT EMPIRIS (engine/ot_empiris.py,
     dari spread |median margin|) >= ambang
     ot_seleksi.hard_skip_ot_prob (0,085 INITIAL, v18). Pemicu keras
@@ -29,6 +33,7 @@ from pathlib import Path
 
 import config
 from engine import skip_awal
+from engine import vonis as vonis_mod
 
 CFG = config.load_playstyle()
 ROOT = Path(__file__).resolve().parent.parent
@@ -49,15 +54,19 @@ def _cdf_normal(median, sigma, garis_min, garis_max, langkah=2.0):
 
 
 def _tangga(baris):
-    """Tangga totals dari daftar (garis, harga, volume, thin).
+    """Tangga totals dari daftar (garis, harga, volume, thin[, ubah]).
 
     Harga jup.ag = harga Polymarket + 0,5¢ (markup tipikal).
     Kuotasi default hidup (bid harga-1 / ask harga+0,5) +
     likuiditas $30.000 — garis fixture lolos gate eksekusi v18
-    kecuali tes mengubahnya eksplisit (revisi koordinator).
+    kecuali elemen ke-5 (dict ubah, mis. {"liquidity": 5.0})
+    mengubahnya eksplisit (revisi koordinator + v18.1).
     """
-    return [
-        {
+    hasil = []
+    for baris_satu in baris:
+        garis, harga, volume, thin = baris_satu[:4]
+        ubah = baris_satu[4] if len(baris_satu) > 4 else {}
+        entri = {
             "line": garis,
             "side": "under",
             "price_cents": harga,
@@ -68,8 +77,9 @@ def _tangga(baris):
             "ask_cents": harga + 0.5,
             "liquidity": 30000.0,
         }
-        for garis, harga, volume, thin in baris
-    ]
+        entri.update(ubah)
+        hasil.append(entri)
+    return hasil
 
 
 def _kaki(match_id, ticket, line, p_model, p_market, harga, **ubah):
@@ -158,20 +168,16 @@ def _cfg_ambang_ot_rendah():
 def _analisis_pola_denver(match_id="DEN@CHI_2026-11-22", ot=0.02, margin=None):
     """Fixture pola Denver: keempat syarat benar (median 233, sigma 19,2).
 
-    v18: garis acuan 252,5 @78,0¢ thin (P normal 84,5%, P setan
-    53,0%, edge +2,1%) — target Asuransi naik 0,74 -> 0,82
-    sehingga acuan naik dari 246,5 ke 252,5; garis 252,5 dibuat
-    thin + harganya dinaikkan dari 76¢ ke 78¢ supaya syarat (3)
-    dan (4) tetap benar. Garis tahan banjir 264,5–270,5 (4 garis)
-    semuanya thin. Equilibrium ADA di kedua tiket (U256,5) — skip
-    hanya via pola (b), bukan via (a). OT 2,0% (di bawah ambang)
-    — bukan via (c).
-
-    KALIBRASI ULANG (koreksi banjir 2026-11-23, worker B): dengan
-    geser bersih (banjir FT 12,52, bukan 17,54), garis tahan
-    banjir pertama turun dari 264,5 ke 258,5 — garis 258,5–262,5
-    ikut dibuat thin supaya syarat (2) fixture tetap benar
-    (tidak ada garis tidak-tipis yang tahan banjir).
+    v18.1: garis acuan 252,5 @84,5¢ jup (P normal 84,5%, P setan
+    generik 53,0% — tanpa blok setan_pemain, p_final ~0,807 ->
+    EV ~-4,5% < -1%) — harganya dinaikkan dari 78¢ ke 84¢ supaya
+    syarat (4) EV tetap benar. Garis acuan + garis tahan banjir
+    264,5–270,5 (4 garis) gagal gate eksekusi (likuiditas $5);
+    flag thin dipertahankan (bahan asersi cari_garis_acuan lama:
+    n_tahan_banjir_nonthin == 0). Equilibrium ADA di kedua tiket
+    (U262,5) — skip hanya via pola (b), bukan via (a). OT 2,0%
+    (di bawah ambang) — bukan via (c). Pagar TIDAK berlaku: veto
+    tidak bisa dievaluasi (tanpa data cedera).
     """
     tangga = _tangga(
         [
@@ -182,16 +188,16 @@ def _analisis_pola_denver(match_id="DEN@CHI_2026-11-22", ot=0.02, margin=None):
             (246.5, 72.0, 20.0, True),
             (248.5, 72.0, 500.0, False),
             (250.5, 74.0, 500.0, False),
-            (252.5, 78.0, 20.0, True),
+            (252.5, 84.0, 20.0, True, {"liquidity": 5.0}),
             (254.5, 78.0, 500.0, False),
             (256.5, 80.0, 500.0, False),
             (258.5, 82.0, 10.0, True),
             (260.5, 84.0, 10.0, True),
             (262.5, 86.0, 10.0, True),
-            (264.5, 94.0, 10.0, True),
-            (266.5, 95.0, 10.0, True),
-            (268.5, 96.0, 10.0, True),
-            (270.5, 97.0, 10.0, True),
+            (264.5, 94.0, 10.0, True, {"liquidity": 5.0}),
+            (266.5, 95.0, 10.0, True, {"liquidity": 5.0}),
+            (268.5, 96.0, 10.0, True, {"liquidity": 5.0}),
+            (270.5, 97.0, 10.0, True, {"liquidity": 5.0}),
         ]
     )
     return _analisis(
@@ -235,7 +241,7 @@ class TestPolaDenverKonjungsi(unittest.TestCase):
                 "flag_setan": True,
                 "tidak_ada_tahan_banjir_nonthin": True,
                 "garis_acuan_thin": True,
-                "edge_kecil": True,
+                "ev_kecil": True,
             },
         )
         acuan = pola["garis_acuan"]
@@ -243,18 +249,22 @@ class TestPolaDenverKonjungsi(unittest.TestCase):
         self.assertTrue(acuan["thin"])
         self.assertAlmostEqual(acuan["p_normal"], 0.84485, places=4)
         self.assertAlmostEqual(acuan["p_setan"], 0.53, places=2)
-        self.assertLess(acuan["edge"], 0.035)
+        self.assertLess(acuan["ev"], -0.01)
         self.assertEqual(acuan["n_tahan_banjir"], 4)
         self.assertEqual(acuan["n_tahan_banjir_nonthin"], 0)
+        self.assertEqual(acuan["n_tahan_banjir_bisa_dibeli"], 0)
 
     def test_syarat2_mati_ada_garis_tahan_tebal(self):
-        # Satu garis tahan banjir dibuat tidak thin -> syarat (2)
-        # mati -> pola tidak cocok -> tidak di-skip.
+        # v18.1: satu garis tahan banjir dipulihkan likuiditasnya
+        # ($30.000 — lolos gate eksekusi) -> syarat (2) mati ->
+        # pola tidak cocok -> tidak di-skip. (Di v18, yang diubah
+        # flag thin; kini yang dinilai gate eksekusi.)
         analisis = _analisis_pola_denver()
         for entri in analisis["market"]["totals"]:
             if entri["line"] == 266.5:
                 entri["thin"] = False
                 entri["volume_usd"] = 500.0
+                entri["liquidity"] = 30000.0
         hasil = skip_awal.evaluasi_skip_awal(analisis, CFG)
         self.assertFalse(
             hasil["pola_denver"]["syarat"]["tidak_ada_tahan_banjir_nonthin"]
@@ -263,28 +273,30 @@ class TestPolaDenverKonjungsi(unittest.TestCase):
         self.assertFalse(hasil["skip"])
 
     def test_syarat3_mati_garis_acuan_tebal(self):
-        # Garis acuan (v18: 252,5) dibuat tidak thin -> syarat (3)
-        # mati -> pola tidak cocok -> tidak di-skip.
+        # v18.1: garis acuan (252,5) dipulihkan likuiditasnya
+        # ($30.000 — lolos gate eksekusi) -> syarat (3) mati ->
+        # pola tidak cocok -> tidak di-skip.
         analisis = _analisis_pola_denver()
         for entri in analisis["market"]["totals"]:
             if entri["line"] == 252.5:
                 entri["thin"] = False
                 entri["volume_usd"] = 500.0
+                entri["liquidity"] = 30000.0
         hasil = skip_awal.evaluasi_skip_awal(analisis, CFG)
         self.assertFalse(hasil["pola_denver"]["syarat"]["garis_acuan_thin"])
         self.assertFalse(hasil["pola_denver"]["cocok"])
         self.assertFalse(hasil["skip"])
 
-    def test_syarat4_mati_edge_besar(self):
-        # Harga garis acuan (v18: 252,5) diturunkan ke 60¢ -> edge
-        # +20,1% (>= 3,5%) -> syarat (4) mati -> pola tidak cocok.
+    def test_syarat4_mati_ev_besar(self):
+        # v18.1: harga garis acuan (252,5) diturunkan ke 60¢ -> EV
+        # +33% (>= -1%) -> syarat (4) mati -> pola tidak cocok.
         analisis = _analisis_pola_denver()
         for entri in analisis["market"]["totals"]:
             if entri["line"] == 252.5:
                 entri["price_cents"] = 60.0
                 entri["jup_estimated_cents"] = 60.5
         hasil = skip_awal.evaluasi_skip_awal(analisis, CFG)
-        self.assertFalse(hasil["pola_denver"]["syarat"]["edge_kecil"])
+        self.assertFalse(hasil["pola_denver"]["syarat"]["ev_kecil"])
         self.assertFalse(hasil["pola_denver"]["cocok"])
         self.assertFalse(hasil["skip"])
 
@@ -303,7 +315,10 @@ class TestPolaDenverKonjungsi(unittest.TestCase):
         tangga = _tangga(
             [
                 (230.5, 70.0, 500.0, False),
-                (250.5, 97.0, 10.0, True),
+                # v18.1: 250,5 @99,5¢ jup (ask 99,5¢ -> gagal gate
+                # eksekusi; EV -1,9% < -1%) supaya syarat (2)-(4)
+                # tetap benar di logika baru.
+                (250.5, 99.0, 10.0, True),
             ]
         )
         analisis = _analisis(
@@ -321,17 +336,14 @@ class TestPolaDenverKonjungsi(unittest.TestCase):
         self.assertFalse(syarat["flag_setan"])
         self.assertTrue(syarat["tidak_ada_tahan_banjir_nonthin"])
         self.assertTrue(syarat["garis_acuan_thin"])
-        self.assertTrue(syarat["edge_kecil"])
+        self.assertTrue(syarat["ev_kecil"])
         self.assertFalse(hasil["pola_denver"]["cocok"])
-        # REVISI KOORDINATOR v18: laga ini TIDAK di-skip sama
-        # sekali — pola tidak cocok (flag setan mati) DAN
-        # equilibrium ADA (250,5 lolos gate eksekusi baru:
-        # likuiditas $30.000 + spread 1,5¢; volume $10 bukan lagi
-        # penghalang). Ini justru memperkuat poin tes: syarat (1)
-        # sendirian memblokir pola, dan tanpa pola tidak ada skip.
+        # v18.1: laga ini di-skip via (a) — equilibrium TIDAK ada
+        # (250,5 gagal eksekusi; 230,5 gagal peluang) — tapi TIDAK
+        # via pola: syarat (1) sendirian memblokir pola.
         self.assertNotIn("pola_denver", hasil["pemicu"])
-        self.assertEqual(hasil["pemicu"], [])
-        self.assertFalse(hasil["skip"])
+        self.assertEqual(hasil["pemicu"], ["tidak_ada_equilibrium"])
+        self.assertTrue(hasil["skip"])
 
     def test_syarat1_kontrol_cdf_normal_flag_hidup(self):
         # Kontrol tes di atas: tangga jarang yang sama dengan CDF
@@ -345,7 +357,10 @@ class TestPolaDenverKonjungsi(unittest.TestCase):
         tangga = _tangga(
             [
                 (230.5, 70.0, 500.0, False),
-                (250.5, 97.0, 10.0, True),
+                # v18.1: 250,5 @99,5¢ jup (ask 99,5¢ -> gagal gate
+                # eksekusi; EV -17,2% < -1%) supaya syarat (2)-(4)
+                # tetap benar di logika baru.
+                (250.5, 99.0, 10.0, True),
             ]
         )
         analisis = _analisis(
@@ -510,24 +525,10 @@ class TestOT(unittest.TestCase):
 
     def test_pemicu_ganda_pola_dan_ot(self):
         # Fixture pola Denver + OT tinggi (ambang-diturunkan,
-        # spread 0) -> kedua pemicu tercatat. Tangga fixture
-        # dikalibrasi ulang untuk v18: target Asuransi naik
-        # 0,74 -> 0,82 sehingga garis acuan pindah 246,5 -> 252,5 —
-        # garis 252,5 dibuat thin @78,5¢ (edge +2,1% < 3,5%)
-        # supaya keempat syarat pola tetap benar.
+        # spread 0) -> kedua pemicu tercatat. v18.1: fixture
+        # sudah memenuhi keempat syarat pola (acuan 252,5 @84,5¢
+        # jup, EV -4,5%) tanpa manipulasi harga tambahan.
         analisis = _analisis_pola_denver(margin=0.0)
-        for baris in analisis["market"]["totals"]:
-            if baris["line"] == 252.5:
-                baris["price_cents"] = 78.5
-                baris["jup_estimated_cents"] = 79.0
-                baris["volume_usd"] = 20.0
-                baris["thin"] = True
-            elif baris["line"] == 254.5:
-                baris["price_cents"] = 79.0
-                baris["jup_estimated_cents"] = 79.5
-            elif baris["line"] == 256.5:
-                baris["price_cents"] = 81.0
-                baris["jup_estimated_cents"] = 81.5
         hasil = skip_awal.evaluasi_skip_awal(analisis, _cfg_ambang_ot_rendah())
         self.assertTrue(hasil["skip"])
         self.assertEqual(hasil["pemicu"], ["pola_denver", "ot_tinggi"])
@@ -601,15 +602,13 @@ class TestTidakAdaEquilibrium(unittest.TestCase):
     def test_fixture_den_sintetis_tidak_di_skip(self):
         # KONTROL: fixture DEN sintetis komposer (CDF persis
         # normal(233, 19,2), tangga harga rendah) TIDAK memicu pola
-        # — garis acuan tidak thin. v18: garis acuan naik ke 252,5
-        # @82¢ (target Asuransi 0,82) sehingga edge di acuan
-        # +0,95% < 3,5% (syarat (4) kini BENAR — kelemahan jujur
-        # syarat edge di garis acuan mahal, lihat docstring
-        # engine/skip_awal.py); pola tetap tidak cocok karena
-        # syarat (3) mati. Hanya artefak NYATA yang memicu pola;
-        # tes kasus wajib harus memakai artefak nyata, bukan
-        # fixture ini. (Juga membuktikan pola tidak memukul semua
-        # laga.)
+        # — garis acuan tidak thin dan bisa dibeli. v18.1: garis
+        # acuan 252,5 @82¢, EV +1,8% (tidak kecil) — syarat (4)
+        # kini SALAH (di v18 edge +0,95% < 3,5% membuat syarat (4)
+        # benar — kelemahan edge datar yang diperbaiki EV). Hanya
+        # artefak NYATA yang memicu pola; tes kasus wajib harus
+        # memakai artefak nyata, bukan fixture ini. (Juga
+        # membuktikan pola tidak memukul semua laga.)
         match_id = "DET@ATL_2026-11-22"
         baris = []
         garis = 238.5
@@ -636,9 +635,11 @@ class TestTidakAdaEquilibrium(unittest.TestCase):
         self.assertFalse(hasil["skip"])
         syarat = hasil["pola_denver"]["syarat"]
         self.assertFalse(syarat["garis_acuan_thin"])
-        # v18: edge di acuan 252,5 (+0,95%) kini kecil — syarat
-        # (4) benar; pola tetap tidak cocok karena syarat (3).
-        self.assertTrue(syarat["edge_kecil"])
+        # v18.1: EV di acuan 252,5 (+1,8%) TIDAK kecil — syarat
+        # (4) salah. Ini MEMPERBAIKI kelemahan jujur v18 (edge
+        # +0,95% < 3,5% membuat syarat (4) benar di garis mahal);
+        # pola tetap tidak cocok (syarat (3) dan (4) mati).
+        self.assertFalse(syarat["ev_kecil"])
         self.assertFalse(hasil["pola_denver"]["cocok"])
 
 
@@ -716,51 +717,61 @@ class TestArtefakNyata(unittest.TestCase):
         cls.live = _muat_artefak(ARTEFAK_LIVE)
         cls.verif = _muat_artefak(ARTEFAK_VERIF)
 
-    def test_den_live_di_skip_pola_denver(self):
-        # KASUS WAJIB: DEN@CHI live di-skip dengan alasan pola
-        # Denver — keempat syarat benar: flag setan (P normal
-        # 84,3% vs P setan 52,9%), tidak ada garis tidak-tipis yang
-        # tahan banjir (garis tahan banjir 264,5, thin — geser
-        # bersih 12,52, bukan 17,54), garis acuan U254,5 thin,
-        # edge −0,03% < 3,5%. v18: garis acuan naik 248,5 -> 254,5
-        # (target Asuransi 0,82). REVISI KOORDINATOR: pemicu HANYA
-        # pola (equilibrium kini ADA di kedua tiket — gate eksekusi
-        # baru tidak lagi memblokir).
+    def test_den_live_tidak_di_skip_pola_v18_1(self):
+        # v18.1 (MEMBALIK test_den_live_di_skip_pola_denver):
+        # DEN@CHI live TIDAK lagi di-skip via pola Denver — hanya
+        # syarat (1) yang benar: (2) salah (garis tahan banjir
+        # 266,5 lolos cek_eksekusi: likuiditas $23-32 ribu +
+        # spread 3-5¢ — flag thin lama vacuous karena semua garis
+        # tangga artefak live bervolume None), (3) salah (acuan
+        # U254,5 @82,5¢ lolos cek_eksekusi), (4) salah (EV acuan
+        # -0,04% > -1%). KONFLIK dengan target tugas ("DEN wajib
+        # tetap di-skip") — dilaporkan apa adanya, BUKAN ditutup
+        # dengan retune ambang. DEN live tetap terblokir fungsional
+        # via TUNGGU_LINEUP (Norman Powell Questionable).
         hasil = skip_awal.evaluasi_skip_awal(self.live["DEN@CHI_2026-11-22"], CFG)
         self.assertTrue(hasil["dievaluasi"])
-        self.assertTrue(hasil["skip"])
-        self.assertEqual(hasil["pemicu"], ["pola_denver"])
-        self.assertIn("pola Denver", hasil["alasan"])
+        self.assertFalse(hasil["skip"])
+        self.assertEqual(hasil["pemicu"], [])
         pola = hasil["pola_denver"]
-        self.assertTrue(pola["cocok"])
-        self.assertTrue(all(pola["syarat"].values()))
+        self.assertFalse(pola["cocok"])
+        self.assertEqual(
+            pola["syarat"],
+            {
+                "flag_setan": True,
+                "tidak_ada_tahan_banjir_nonthin": False,
+                "garis_acuan_thin": False,
+                "ev_kecil": False,
+            },
+        )
         acuan = pola["garis_acuan"]
         self.assertEqual(acuan["garis"], 254.5)
-        self.assertTrue(acuan["thin"])
         self.assertAlmostEqual(acuan["p_normal"], 0.84326, places=4)
-        self.assertAlmostEqual(acuan["p_setan"], 0.529406, places=4)
-        self.assertAlmostEqual(acuan["edge"], -0.000321, places=4)
-        self.assertEqual(acuan["n_tahan_banjir_nonthin"], 0)
+        self.assertAlmostEqual(acuan["p_setan_efektif"], 0.529406, places=4)
+        self.assertAlmostEqual(acuan["ev"], -0.0004, places=3)
 
-    def test_den_verif_di_skip_pola_denver(self):
-        # v18: acuan 252,5 (dulu 246,5 — target Asuransi 0,82).
-        # REVISI KOORDINATOR: pemicu HANYA pola (equilibrium kini
-        # ADA di kedua tiket).
+    def test_den_verif_tidak_di_skip_pola_tapi_veto_menyala(self):
+        # v18.1 (MEMBALIK test_den_verif_di_skip_pola_denver):
+        # DEN@CHI verif TIDAK di-skip via pola — tapi veto rim
+        # protector MENYALA (Nic Claxton OUT) sehingga laga
+        # terblokir di vonis (KUNING), bukan di skip_awal.
         hasil = skip_awal.evaluasi_skip_awal(self.verif["DEN@CHI_2026-11-22"], CFG)
-        self.assertTrue(hasil["skip"])
-        self.assertEqual(hasil["pemicu"], ["pola_denver"])
-        acuan = hasil["pola_denver"]["garis_acuan"]
-        self.assertEqual(acuan["garis"], 252.5)
-        self.assertTrue(acuan["thin"])
-        self.assertAlmostEqual(acuan["p_normal"], 0.84474, places=4)
-        self.assertAlmostEqual(acuan["p_setan"], 0.53154, places=4)
+        self.assertFalse(hasil["skip"])
+        self.assertEqual(hasil["pemicu"], [])
+        self.assertFalse(hasil["pola_denver"]["cocok"])
+        veto = vonis_mod.evaluasi_veto(self.verif["DEN@CHI_2026-11-22"], CFG)
+        self.assertTrue(veto["dievaluasi"])
+        self.assertTrue(veto["menyala"])
+        self.assertIn("Nic Claxton", [o["player"] for o in veto["pelindung_out"]])
 
     def test_den_ot_tidak_tinggi_kejujuran(self):
         # KEJUJURAN: DEN@CHI yang benar-benar masuk OT punya
         # ot_prob sim hanya 2,36% (live) / 2,13% (verif) — dan
         # p_ot EMPIRIS 4,93% (live, spread 8,0) / 4,30% (verif,
         # spread 11,0) — keduanya di bawah ambang 8,5%. Aturan OT
-        # TIDAK menangkap Denver; Denver ditangkap pola_denver.
+        # TIDAK menangkap Denver; di v18 Denver ditangkap
+        # pola_denver, di v18.1 pola tidak lagi menangkapnya
+        # (lihat test_den_live_tidak_di_skip_pola_v18_1).
         for analisis in (
             self.live["DEN@CHI_2026-11-22"],
             self.verif["DEN@CHI_2026-11-22"],
@@ -779,15 +790,15 @@ class TestArtefakNyata(unittest.TestCase):
 
     def test_okc_verif_tidak_di_skip(self):
         # KONTROL NORMAL (kasus wajib 2): OKC@MIA verif TIDAK
-        # di-skip — garis tahan banjir tidak thin ADA (U250,5
-        # @89,5¢) dan edge di garis acuan tidak kecil.
+        # di-skip — garis tahan banjir yang bisa dibeli ADA (5
+        # garis) dan EV di garis acuan tidak kecil (+6,6%).
         hasil = skip_awal.evaluasi_skip_awal(self.verif["OKC@MIA_2026-11-22"], CFG)
         self.assertTrue(hasil["dievaluasi"])
         self.assertFalse(hasil["skip"])
         self.assertEqual(hasil["pemicu"], [])
         syarat = hasil["pola_denver"]["syarat"]
         self.assertFalse(syarat["tidak_ada_tahan_banjir_nonthin"])
-        self.assertFalse(syarat["edge_kecil"])
+        self.assertFalse(syarat["ev_kecil"])
 
     def test_det_live_tidak_skip_via_ot(self):
         # KASUS WAJIB v18: DET@ATL live TIDAK di-skip — sama sekali.
@@ -808,72 +819,37 @@ class TestArtefakNyata(unittest.TestCase):
         self.assertFalse(hasil["ot"]["tinggi"])
 
     def test_dal_dan_bos_live_tidak_di_skip(self):
-        # REVISI KOORDINATOR v18 (MEMBALIK
-        # test_dal_dan_bos_live_skip_tanpa_equilibrium_bukan_pola):
-        # DAL@UTA + BOS@GSW live TIDAK di-skip — pola tidak cocok
-        # (edge di garis acuan DAL +4,18% / BOS +5,38% >= 3,5%)
-        # DAN equilibrium kini ADA di kedua tiket (gate eksekusi
-        # baru tidak memblokir). Laga "bagus" yang bisa dibeli
-        # tidak di-skip.
+        # v18.1: DAL@UTA + BOS@GSW live TIDAK di-skip — pola tidak
+        # cocok (EV di garis acuan DAL +6,0% / BOS +8,2% >= -1%)
+        # DAN equilibrium ADA di kedua tiket. Laga "bagus" yang
+        # bisa dibeli tidak di-skip.
         for match_id in ("DAL@UTA_2026-11-22", "BOS@GSW_2026-11-22"):
             with self.subTest(match_id=match_id):
                 hasil = skip_awal.evaluasi_skip_awal(self.live[match_id], CFG)
                 self.assertFalse(hasil["skip"])
                 self.assertEqual(hasil["pemicu"], [])
                 self.assertFalse(hasil["pola_denver"]["cocok"])
-                self.assertFalse(hasil["pola_denver"]["syarat"]["edge_kecil"])
+                self.assertFalse(hasil["pola_denver"]["syarat"]["ev_kecil"])
                 self.assertTrue(hasil["equilibrium"]["insurance"]["ada"])
                 self.assertTrue(hasil["equilibrium"]["main"]["ada"])
 
-    def test_enam_dari_sepuluh_baris_di_skip(self):
-        # Rekap v18 REVISI KOORDINATOR (10 baris): 6 di-skip, 4
-        # tidak (DET live, DAL live, BOS live, OKC verif), 0 via
-        # OT (p_ot maks 0,057 < ambang 0,085 — hard-skip OT
-        # dormant). SEMUA skip via pola_denver SAJA — pemicu (a)
-        # tidak_ada_equilibrium tidak lagi terjadi di slate ini
-        # karena equilibrium kini ada di semua baris (gate eksekusi
-        # likuiditas+spread). v17: 6 di-skip (5 pola + 1 OT DET);
-        # angka 6-nya sama, komposisinya beda (OT DET hilang,
-        # BOS verif + ORL/IND/OKC-live pola masuk).
+    def test_nol_dari_sepuluh_baris_di_skip_v18_1(self):
+        # Rekap v18.1 (MEMBALIK test_enam_dari_sepuluh_baris_di_skip):
+        # 0/10 baris di-skip — TIDAK ADA pemicu sama sekali di slate
+        # ini. v18: 6 di-skip via pola (DEN live+verif, OKC/ORL/IND
+        # live, BOS verif); di v18.1 keenamnya lolos dari pola
+        # (substitusi EV + cek_eksekusi + setan pemain). OT tetap
+        # dormant (p_ot maks 0,057 < ambang 0,085).
         semua = [("live", m, a) for m, a in self.live.items()] + [
             ("verif", m, a) for m, a in self.verif.items()
         ]
         self.assertEqual(len(semua), 10)
-        pemicu_per_baris = {}
         for sumber, match_id, analisis in semua:
-            hasil = skip_awal.evaluasi_skip_awal(analisis, CFG)
-            self.assertNotIn("ot_tinggi", hasil["pemicu"])
-            pemicu_per_baris[(sumber, match_id)] = hasil["pemicu"]
-        di_skip = [k for k, p in pemicu_per_baris.items() if p]
-        self.assertEqual(len(di_skip), 6)
-        self.assertEqual(
-            pemicu_per_baris[("live", "DEN@CHI_2026-11-22")],
-            ["pola_denver"],
-        )
-        self.assertEqual(
-            pemicu_per_baris[("verif", "DEN@CHI_2026-11-22")],
-            ["pola_denver"],
-        )
-        self.assertEqual(
-            pemicu_per_baris[("live", "OKC@MIA_2026-11-22")],
-            ["pola_denver"],
-        )
-        self.assertEqual(
-            pemicu_per_baris[("live", "ORL@WAS_2026-11-22")],
-            ["pola_denver"],
-        )
-        self.assertEqual(
-            pemicu_per_baris[("live", "IND@NYK_2026-11-22")],
-            ["pola_denver"],
-        )
-        self.assertEqual(
-            pemicu_per_baris[("verif", "BOS@GSW_2026-11-22")],
-            ["pola_denver"],
-        )
-        self.assertEqual(pemicu_per_baris[("live", "DET@ATL_2026-11-22")], [])
-        self.assertEqual(pemicu_per_baris[("live", "DAL@UTA_2026-11-22")], [])
-        self.assertEqual(pemicu_per_baris[("live", "BOS@GSW_2026-11-22")], [])
-        self.assertEqual(pemicu_per_baris[("verif", "OKC@MIA_2026-11-22")], [])
+            with self.subTest(sumber=sumber, match_id=match_id):
+                hasil = skip_awal.evaluasi_skip_awal(analisis, CFG)
+                self.assertNotIn("ot_tinggi", hasil["pemicu"])
+                self.assertEqual(hasil["pemicu"], [])
+                self.assertFalse(hasil["pola_denver"]["cocok"])
 
 
 if __name__ == "__main__":

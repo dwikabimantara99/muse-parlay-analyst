@@ -199,7 +199,7 @@ class TestVetoAndSintetis(unittest.TestCase):
 
 
 class TestPemetaanRegenerasi(unittest.TestCase):
-    """Pemetaan JSON hasil regenerate v18 (filter posisi)."""
+    """Pemetaan JSON hasil regenerate v18.1 (filter posisi + fallback)."""
 
     @classmethod
     def setUpClass(cls):
@@ -225,12 +225,17 @@ class TestPemetaanRegenerasi(unittest.TestCase):
         semua = [
             p["player"] for daftar in self.dokumen["teams"].values() for p in daftar
         ]
+        # v18.1: OG Anunoby DIHAPUS dari daftar ini — ia BUKAN guard
+        # (BBRef pos PF) dan sah menjadi entri fallback NYK (0,9
+        # blok/laga, 34,0 mnt — big terbaik NYK menurut aturan).
+        # Keputusan ini menunggu keberatan reviewer (lihat
+        # LAPORAN-V18-1-C.md §Keputusan desain): bila fallback
+        # dibatasi posisi C saja, NYK akan memakai KAT (0,7).
         for guard in (
             "Cade Cunningham",
             "Tyrese Haliburton",
             "Jamal Murray",
             "Kevin Huerter",
-            "OG Anunoby",
         ):
             self.assertNotIn(guard, semua)
 
@@ -239,7 +244,9 @@ class TestPemetaanRegenerasi(unittest.TestCase):
             self.assertLessEqual(len(daftar), 2, tim)
             for entri in daftar:
                 self.assertIn(entri["pos"], ["C", "PF", "F-C", "C-F"], entri)
-                self.assertGreaterEqual(entri["blk_per_game"], 1.0)
+                self.assertIn(entri.get("tier"), ("primary", "fallback"), entri)
+                lantai_blk = 1.0 if entri["tier"] == "primary" else 0.7
+                self.assertGreaterEqual(entri["blk_per_game"], lantai_blk)
                 self.assertGreaterEqual(entri["mp_per_game"], 18.0)
                 self.assertGreaterEqual(entri["games_played"], 3)
 

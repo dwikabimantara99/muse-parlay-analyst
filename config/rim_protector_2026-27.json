@@ -2,7 +2,7 @@
  "format": "rim_protector",
  "format_version": 1,
  "season": "2026-27",
- "fetched_at": "2026-11-23T07:15:31.003523+00:00",
+ "fetched_at": "2026-11-23T08:58:17.314612+00:00",
  "source": "stats.nba.com",
  "position_source": "Basketball-Reference",
  "n_players_fetched": 474,
@@ -17,7 +17,15 @@
    "F-C",
    "C-F"
   ],
-  "penjelasan": "Per tim maksimal max_per_team pemain rotasi (GP >= min_games, MP >= min_mp_per_game) dengan blok bermakna (BLK >= min_blk_per_game) DAN posisi big (pos BBRef ada di position_filter), urut BPG tertinggi (seri -> menit -> nama). Aturan + ambang di config/playstyle.yaml section vonis.veto.rim_protector."
+  "penjelasan": "Per tim maksimal max_per_team pemain rotasi (GP >= min_games, MP >= min_mp_per_game) dengan blok bermakna (BLK >= min_blk_per_game) DAN posisi big (pos BBRef ada di position_filter), urut BPG tertinggi (seri -> menit -> nama). Aturan + ambang di config/playstyle.yaml section vonis.veto.rim_protector.",
+  "fallback": {
+   "enabled": true,
+   "min_mp_per_game": 18.0,
+   "min_blk_per_game": 0.7,
+   "max_per_team": 1,
+   "n_tim_fallback": 9,
+   "penjelasan": "Tier fallback v18.1 (Patch #3): tim yang menghasilkan 0 pemain primer mendapat top-1 big dengan GP >= min_games, MP >= fallback.min_mp_per_game, BLK >= fallback.min_blk_per_game, berlabel tier 'fallback' (entri primer berlabel 'primary'). Ambang di config/playstyle.yaml section hard_vetoes.rim_protector_veto."
+  }
  },
  "tanpa_posisi": [],
  "teams": {
@@ -25,6 +33,7 @@
    {
     "player": "Chet Holmgren",
     "pos": "PF",
+    "tier": "primary",
     "blk_per_game": 3.0,
     "mp_per_game": 29.9,
     "games_played": 3
@@ -32,6 +41,7 @@
    {
     "player": "Aday Mara",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.7,
     "mp_per_game": 22.4,
     "games_played": 16
@@ -41,6 +51,7 @@
    {
     "player": "Alex Sarr",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.2,
     "mp_per_game": 26.6,
     "games_played": 17
@@ -48,6 +59,7 @@
    {
     "player": "Anthony Davis",
     "pos": "PF",
+    "tier": "primary",
     "blk_per_game": 1.1,
     "mp_per_game": 33.8,
     "games_played": 16
@@ -57,6 +69,7 @@
    {
     "player": "Collin Murray-Boyles",
     "pos": "PF",
+    "tier": "primary",
     "blk_per_game": 1.1,
     "mp_per_game": 23.5,
     "games_played": 14
@@ -66,6 +79,7 @@
    {
     "player": "Daniel Gafford",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.6,
     "mp_per_game": 22.1,
     "games_played": 17
@@ -73,6 +87,7 @@
    {
     "player": "P.J. Washington",
     "pos": "PF",
+    "tier": "primary",
     "blk_per_game": 1.1,
     "mp_per_game": 30.8,
     "games_played": 15
@@ -82,6 +97,7 @@
    {
     "player": "Day'Ron Sharpe",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.2,
     "mp_per_game": 23.8,
     "games_played": 15
@@ -91,6 +107,7 @@
    {
     "player": "Donovan Clingan",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 2.1,
     "mp_per_game": 26.0,
     "games_played": 16
@@ -100,6 +117,7 @@
    {
     "player": "Jarrett Allen",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.3,
     "mp_per_game": 26.9,
     "games_played": 14
@@ -107,6 +125,7 @@
    {
     "player": "Evan Mobley",
     "pos": "PF",
+    "tier": "primary",
     "blk_per_game": 1.1,
     "mp_per_game": 32.0,
     "games_played": 12
@@ -116,6 +135,7 @@
    {
     "player": "Giannis Antetokounmpo",
     "pos": "PF",
+    "tier": "primary",
     "blk_per_game": 1.3,
     "mp_per_game": 32.1,
     "games_played": 15
@@ -125,6 +145,7 @@
    {
     "player": "Zach Edey",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.1,
     "mp_per_game": 20.9,
     "games_played": 13
@@ -132,6 +153,7 @@
    {
     "player": "Isaiah Stewart",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.0,
     "mp_per_game": 18.3,
     "games_played": 12
@@ -141,6 +163,7 @@
    {
     "player": "Jalen Smith",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.1,
     "mp_per_game": 25.3,
     "games_played": 14
@@ -148,6 +171,7 @@
    {
     "player": "Nic Claxton",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.0,
     "mp_per_game": 20.4,
     "games_played": 6
@@ -157,6 +181,7 @@
    {
     "player": "Mo Bamba",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.6,
     "mp_per_game": 20.8,
     "games_played": 14
@@ -164,6 +189,7 @@
    {
     "player": "Jaren Jackson Jr.",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.3,
     "mp_per_game": 26.1,
     "games_played": 4
@@ -173,6 +199,7 @@
    {
     "player": "Joel Embiid",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.0,
     "mp_per_game": 32.1,
     "games_played": 14
@@ -182,6 +209,7 @@
    {
     "player": "Myles Turner",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 2.3,
     "mp_per_game": 26.6,
     "games_played": 15
@@ -189,6 +217,7 @@
    {
     "player": "Kel'el Ware",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.1,
     "mp_per_game": 18.8,
     "games_played": 17
@@ -198,6 +227,7 @@
    {
     "player": "Ryan Kalkbrenner",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.1,
     "mp_per_game": 18.2,
     "games_played": 15
@@ -205,6 +235,7 @@
    {
     "player": "Moussa Diabaté",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.0,
     "mp_per_game": 29.6,
     "games_played": 13
@@ -214,6 +245,7 @@
    {
     "player": "Neemias Queta",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.2,
     "mp_per_game": 23.3,
     "games_played": 16
@@ -223,6 +255,7 @@
    {
     "player": "Nikola Jokić",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.0,
     "mp_per_game": 37.1,
     "games_played": 15
@@ -232,6 +265,7 @@
    {
     "player": "Precious Achiuwa",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.0,
     "mp_per_game": 24.5,
     "games_played": 13
@@ -241,6 +275,7 @@
    {
     "player": "Rudy Gobert",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.1,
     "mp_per_game": 29.4,
     "games_played": 16
@@ -250,6 +285,7 @@
    {
     "player": "Victor Wembanyama",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 3.9,
     "mp_per_game": 30.3,
     "games_played": 17
@@ -259,6 +295,7 @@
    {
     "player": "Walker Kessler",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 2.1,
     "mp_per_game": 30.9,
     "games_played": 16
@@ -268,9 +305,100 @@
    {
     "player": "Yves Missi",
     "pos": "C",
+    "tier": "primary",
     "blk_per_game": 1.4,
     "mp_per_game": 22.8,
     "games_played": 7
+   }
+  ],
+  "HOU": [
+   {
+    "player": "Jabari Smith Jr.",
+    "pos": "PF",
+    "tier": "fallback",
+    "blk_per_game": 0.9,
+    "mp_per_game": 33.3,
+    "games_played": 17
+   }
+  ],
+  "LAC": [
+   {
+    "player": "Brook Lopez",
+    "pos": "C",
+    "tier": "fallback",
+    "blk_per_game": 0.9,
+    "mp_per_game": 24.6,
+    "games_played": 15
+   }
+  ],
+  "GSW": [
+   {
+    "player": "Draymond Green",
+    "pos": "PF",
+    "tier": "fallback",
+    "blk_per_game": 0.9,
+    "mp_per_game": 25.6,
+    "games_played": 14
+   }
+  ],
+  "IND": [
+   {
+    "player": "Ivica Zubac",
+    "pos": "C",
+    "tier": "fallback",
+    "blk_per_game": 0.8,
+    "mp_per_game": 24.3,
+    "games_played": 12
+   }
+  ],
+  "DET": [
+   {
+    "player": "Paul Reed",
+    "pos": "C",
+    "tier": "fallback",
+    "blk_per_game": 0.9,
+    "mp_per_game": 26.1,
+    "games_played": 16
+   }
+  ],
+  "NYK": [
+   {
+    "player": "OG Anunoby",
+    "pos": "PF",
+    "tier": "fallback",
+    "blk_per_game": 0.9,
+    "mp_per_game": 34.0,
+    "games_played": 15
+   }
+  ],
+  "PHX": [
+   {
+    "player": "Khaman Maluach",
+    "pos": "C",
+    "tier": "fallback",
+    "blk_per_game": 0.8,
+    "mp_per_game": 18.5,
+    "games_played": 15
+   }
+  ],
+  "ATL": [
+   {
+    "player": "Onyeka Okongwu",
+    "pos": "C",
+    "tier": "fallback",
+    "blk_per_game": 0.8,
+    "mp_per_game": 30.9,
+    "games_played": 17
+   }
+  ],
+  "ORL": [
+   {
+    "player": "Wendell Carter Jr.",
+    "pos": "C",
+    "tier": "fallback",
+    "blk_per_game": 0.9,
+    "mp_per_game": 32.0,
+    "games_played": 16
    }
   ]
  }

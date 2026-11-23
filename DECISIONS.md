@@ -1313,3 +1313,175 @@ BATASAN JUJUR: veto buta di 9 tim (3/10 laga slate 24 Nov: OKC@IND,
 PHX@NOP, LAC@HOU); HIJAU DAL rapuh (DRtg 112,8 vs cutoff 112,9 —
 margin 0,1); demerit foul belum teruji di data nyata (FTr None di
 artefak 22 Nov); OT hard-skip DORMAN (p maks 0,0575 < 0,085).
+
+## Review Gemini hasil v18 + spesifikasi patch v18.1 (diterima 2026-11-23 15:42 WIB)
+
+File: REFERENSI-PATCH-V18-1-GEMINI.md (commit a6a0d93). Gemini
+SETUJU 100% memperbaiki skip_awal (usulan Muse) + 4 temuan tambahan.
+Main agent MEMVERIFIKASI tabel pengali Gemini — SEMUA 16 NILAI +
+jumlah kaki minimal PERSIS (88,5¢: 1,36/1,54/1,74/1,97, butuh 7 kaki
+untuk x2; 86¢: 1,49/1,73/2,01/2,34, 5 kaki; 84¢: 1,59/1,90/2,26/2,69,
+5 kaki; 82¢: 1,71/2,09/2,55/3,11, 4 kaki).
+PATCH #1 (skip_awal): syarat edge < 3,5% -> EV < -1%; "thin" ->
+cek_eksekusi lolos; demon per pemain v18; pagar anti-redundansi —
+skip hanya menyala bila (a) rapuh setan (P_setan < 0,55 atau
+median_setan > garis_asuransi) DAN (b) total pasar ≥ 232,0 DAN
+(c) tidak ada garis valid yang tahan banjir+setan. Target: DEN
+tetap di-skip; OKC/ORL/IND bebas skip.
+PATCH #2 (KRITIS — temuan baru "Perangkap Plafon 88,5¢"):
+safety-first dalam band 80–89¢ SELALU memetik plafon (P_final
+monoton naik terhadap harga) — terbukti di T2 (3 kaki semua 88,5¢).
+Solusi TANPA pelonggaran gate: equilibrium kembalikan SEMUA garis
+valid (valid_lines); komposer pilih kombinasi yang memaksimalkan
+peluang cair gabungan (max Π P_final) dengan pengali bersih di
+[2,00x, 2,50x], fallback terlaporkan [1,80x, 1,99x] bila tidak ada
+kombinasi ≥ 2,00x tanpa melanggar gate.
+PATCH #3 (KRITIS 24 Nov): peta rim protector 21/30 -> 30/30 —
+diagnosa mapping kode tim BBRef vs NBA (PHO/PHX dst) + normalisasi
+nama; tier fallback terukur (top-1 C/PF, min ≥ 18, BLK ≥ 0,7,
+diberi label tier "fallback").
+PATCH #4: filter kesegaran _sebab_cedera_baru — pemain OUT hanya
+dihitung penyebab gap bila GP ≥ 3 musim berjalan (atau main dalam
+14 hari terakhir); cedera jangka panjang (GP == 0, mis. Haliburton)
+tidak membatalkan Vegas shrinkage.
+PATCH #5: pulihkan MENENGAH_HIJAU (evaluasi tail_fragility di garis
+referensi standar ~82¢, bukan plafon 88,5¢) + simetri D7 (filter
+menit mp ≥ 15,0 di kedua jalur USG dan BPM).
+§2: Gemini SETUJU §5.1/§5.2/§5.3/§5.4/§5.5/§5.6/§6(B); §5.7 setuju
++ revisi kecil (mp simetris); §5.8 REVISI (Patch #4); §5.9 REVISI
+SEGERA (Patch #3); §5.10 setuju sementara (prior OT 0,0575 JANGAN
+diubah tanpa data fit; hard-skip tetap dorman).
+KEPUTUSAN USER YANG DIBUTUHKAN (D12): fallback pengali Asuransi
+[1,80x, 1,99x] — user MENOLAK 1,80x sebagai TARGET (13:57 WIB);
+fallback adalah "bila tidak ada kombinasi ≥ 2,00x, tawarkan yang
+terbaik di bawah x2" — tetap mengubah ekonomi (1,80x = $27 dari
+$15, rugi $3 bila Utama hangus vs impas di x2). Opsi: (a) tanpa
+fallback (NO BET bila < 2,00x); (b) fallback sebagai opsi
+terlaporkan (bukan auto-compose). Menunggu jawaban user sebelum
+build v18.1.
+
+## Pilihan fallback Asuransi (b) + filosofi "pasti menang" (user 2026-11-23 15:52 WIB)
+
+User memilih **(b) fallback sebagai opsi terlaporkan** (bukan
+auto-compose, bukan NO BET). Alasannya (kata-katanya sendiri):
+NO BET tidak mungkin hanya karena mesin gagal menemukan kombinasi
+yang mustahil dipenuhi banyak anomali; secara nyata tidak mungkin
+4–5 kaki di harga 82¢ hangus bersamaan. "Pasti menang" BUKAN posisi
+yang mustahil dicapai, tapi posisi yang untuk jebol butuh
+penyimpangan yang cukup tinggi — Asuransi diisi kaki-kaki yang
+secara perhitungan masuk akal DAN tetap aman dan tebal dari
+penyimpangan. Penyimpangan ekstrem memang anomali (diterima sebagai
+risiko — "kalah dengan terhormat"). Bukti: di laga Denver tadi pagi,
+bahkan 99¢ tidak selamat bila dipasang 1 menit sebelum laga — jadi
+pertahanan bukan harga, tapi seleksi + bantalan tebal. User TIDAK
+ingin menghindari pertandingan secara brutal dan kaku, tapi lebih
+memilih PASANG dengan risiko yang ditekan sedemikian rupa.
+CONTOH TIPE LAGA (user): laga CHI tadi pagi sudah ketahuan dari awal
+akan berlangsung pace cepat, pemain bermain panas, sedikit garbage
+time sebab kedua tim main terbuka — mesin harus mengenali TIPE laga
+seperti ini (item masa depan: label tipe laga di laporan; mesin
+sudah punya pace + spread + OT sebagai bahan).
+DESAIN FALLBACK (b): komposer tetap menargetkan [2,00x, 2,50x] untuk
+Tiket Asuransi; bila tidak ada kombinasi ≥ 2,00x tanpa melanggar
+gate, mesin MELAPORKAN opsi terbaik di [1,80x, 1,99x] sebagai opsi
+berlabel (bukan tiket) — lengkap dengan pengali, PELUANG CAIR
+GABUNGAN tiket (joint P_final — angka yang sebenarnya menentukan,
+bukan peluang per kaki), detail per kaki, dan alasan tidak mencapai
+x2. Keputusan pasang atau tidak ada di tangan user.
+BUILD v18.1 DIJALANKAN 15:52 WIB (koordinator): 5 patch Gemini
+(REFERENSI-PATCH-V18-1-GEMINI.md §1) + fallback (b) + 5 acceptance
+test §4 (kriteria 2 disesuaikan: tiket terbentuk ≥ 2,00x ATAU opsi
+fallback terlaporkan [1,80x, 1,99x] dengan joint P + alasan).
+Pertanyaan user "ada yang mau ditanya ke aku atau gemini?" —
+dijawab main agent: tidak ada yang memblokir build; build jalan
+sekarang; bila build memunculkan pertanyaan, akan ditanyakan.
+
+## Build v18.1 SELESAI + TERVERIFIKASI (2026-11-23 sore WIB)
+
+Koordinator (3 worker) + integrasi. Config v18.1 (meta.version 18.1),
+2111/2111 tes (dari 2003 di v18), ruff + black bersih, 0 kredit.
+Acceptance Gemini §4 (scripts/ukur_v18_1.py -> out/ukur_v18_1.json,
+slate uji 10 baris): **4/5** — K1 LOLOS (fungsional), K2 GAGAL literal
+(tiket x2 tidak terbentuk — maks x1,86; opsi fallback [1,80x, 1,99x]
+TERLAPORKAN sesuai keputusan user (b)), K3 LOLOS (peta 30/30), K4
+LOLOS (GP==0 tidak memicu), K5 LOLOS (regresi nol).
+Vonis slate uji: HIJAU 5 / MENENGAH 0 / KUNING 1 / TUNGGU 4 (sama
+dengan v18). Skip_awal: 0/10 (v18: 6/10); skipped_matches komposer [].
+Komposer 10 laga x 9 garis valid: 0,07 dtk.
+Laporan: LAPORAN-V18-1.md (sintesis) + LAPORAN-V18-1-A/B/C.md
+(per worker).
+
+PENUTUP OPEN ITEMS §2 SPEK v18.1 (tanggapan Gemini — DITUTUP):
+§5.1 gate eksekusi likuiditas+spread — SETUJU, diteruskan (kalibrasi
+dari fill nyata jup.ag). §5.2/§5.3 T1 fungsional + T5 reformulasi —
+SETUJU. §5.4 sisa HIJAU ke Utama — SETUJU. §5.5 Vegas CDF efektif +
+shrinkage 0,5 — SETUJU (pantau Brier setelah 50 kaki di ledger).
+§5.6 veto DATA_INCOMPLETE — SETUJU. §5.7 D7 — SETUJU + revisi
+(simetri mp >= 15,0 kedua jalur — Patch #5b). §5.8
+_sebab_cedera_baru — DIREVISI (filter GP >= 3 — Patch #4). §5.9
+peta 21/30 — DIREVISI SEGERA (30/30 — Patch #3). §5.10 hard-skip OT
+0,085 dorman — SETUJU SEMENTARA (prior 0,0575 TIDAK diubah tanpa
+data fit). §6(B) gate eksekusi total_under + bantalan veto parsial
++3 — SETUJU.
+
+TEMUAN UTAMA — POLA DENVER MENYALA 0/10 (K1 lolos FUNGSIONAL saja):
+dengan substitusi harfiah spek, pola TIDAK menyala di satu pun
+baris — termasuk DEN@CHI live (S1 flag setan ✅; S2 ❌ — garis tahan
+banjir 266,5 lolos cek_eksekusi; S3 ❌ — garis acuan lolos
+cek_eksekusi; S4 ❌ — EV acuan −0,04% > −1%). DEN tetap terblokir
+fungsional di kedua baris (live TUNGGU_LINEUP — Powell Questionable;
+verif KUNING via veto AND — Claxton OUT); 0 kaki DEN mencapai
+komposer. AKAR PENYEBAB: syarat (2)/(3)/(4) pola dibangun di atas
+premis era v16 (garis jauh thin + edge datar) yang SUDAH dibatalkan
+pengukuran v18 sendiri (orderbook market-maker dalam: likuiditas
+$23–32 ribu + spread 3–5¢ di semua garis; EV acuan ≈ impas).
+S1 (flag setan) menyala di 10/10 baris — tidak membedakan DEN dari
+laga biasa (ORL memenuhi LEBIH BANYAK syarat pola daripada DEN:
+S1+S2+S4 vs S1 saja). Pagar anti-redundansi tidak pernah dievaluasi
+(pola tidak cocok sejak awal — pagar hanya bisa memblokir, bukan
+membuat menyala). TIDAK ADA ambang yang di-retune untuk memaksakan
+pola menyala (itu overfitting). KEPUTUSAN KOORDINATOR (menunggu
+keberatan + iterasi Gemini): fungsi skip pola Denver kini ditanggung
+lapisan veto + vonis + timing gate + gate equilibrium; pola butuh
+REDESAIN berprinsip (apa yang membedakan DEN sekarang?) — kirim
+pengukuran v18.1 ke Gemini untuk iterasi, sesuai undangannya.
+
+KEPUTUSAN KOORDINATOR LAIN (menunggu keberatan):
+1. BATAS 6 KAKI DIPERTAHANKAN sesuai spek (Gemini §3
+   max_legs_insurance: 6; _DP_MAKS_KAKI = 6 di kode — BUKAN nilai
+   config, perlu dipindah ke config bila diubah). TRADE-OFF NYATA:
+   slate dengan >= 7 laga HIJAU yang garis validnya semua >= 88,5¢
+   tidak bisa membentuk x2 (maks 6×88,5¢ = x1,97), padahal 7 kaki
+   @88,5¢ = x2,22 dan joint P-nya bisa LEBIH TINGGI dari 4 kaki
+   murah (0,93^7 > 0,85^4); band [2,00x, 2,50x] sendiri membatasi
+   kaki maks 8 (di 89¢). REKOMENDASI koordinator: naikkan ke 8
+   (selaras filosofi user menumpuk banyak kaki + perilaku komposer
+   v18 yang mengizinkan 7+ kaki) — menunggu keputusan main agent /
+   user / Gemini. Satu nilai config bila disetujui.
+2. joint_p_final opsi fallback = Π decision_prob (BUKAN Π p_final):
+   untuk kaki condong-ke-market, decision_prob = harga market
+   mentah di garis varian. Terverifikasi: 0,825 × 0,835 × 0,85 ×
+   0,8721 ≈ 0,5107 (terlaporkan) vs Π p_final = 0,5402. Nilai BENAR
+   sesuai aturan (konservatif, searah lean-to-market) — tapi NAMA
+   kuncinya menyesatkan. Tindak lanjut minor: ganti nama jadi
+   joint_p_keputusan atau dokumentasikan definisinya.
+3. Haliburton di artefak live GP=4 (bukan 0) + missed_last10: 10 —
+   filter GP >= 3 TIDAK mengecualikannya di artefak nyata (K4 lolos
+   pada kasus sintetis GP==0). GP >= 3 adalah proksi kesegaran yang
+   lemah; REKOMENDASI: aturan 14-hari / missed_last10 sebagai
+   tindak lanjut (opsi kedua spek Patch #4).
+4. Perbaikan integrasi koordinator: script ukur K4 unpack 3-nilai
+   (kode v18) vs 4-tuple v18.1 (_sebab_cedera_baru) — diperbaiki,
+   K4 lolos setelahnya. Tidak ada perubahan kode produksi untuk ini.
+5. Garis referensi tail_fragility difilter cek_eksekusi (keputusan
+   Worker A): definisi harfiah jatuh ke garis sampah U117,5 @82,5¢
+   (ask 99¢, likuiditas $3,80). Tanpa filter, demerit dinilai di
+   garis khayalan.
+6. Pagar syarat (3) "tahan setan" = P_setan >= 0,55 (cermin ambang
+   rapuh 0,55, INITIAL) — bukan 0,82. Menunggu keberatan.
+
+BATASAN JUJUR v18.1: artefak uji tanpa blok setan_pemain/veto
+(jalur pemain + veto-blok hanya teruji fixture; S1 terukur via
+fallback generik); MENENGAH terbukti via fixture sintetis, 0/10 di
+slate ini; demerit foul belum teruji di data nyata (FTr None di
+artefak); OT hard-skip tetap DORMAN; ambang pagar 0,55 INITIAL.

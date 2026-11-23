@@ -17,11 +17,15 @@ Masukan:
   pernah dikarang — tanpa ``stake_total``, fungsi menolak jalan.
 
 Keluaran: ``{"insurance": tiket|None, "insurance_reason": str|None,
-"main": tiket|None, "main_reason": str|None, "warnings": [...],
+"insurance_fallback_option": opsi|None, "main": tiket|None,
+"main_reason": str|None, "warnings": [...],
 "skipped_matches": [{"match_id", "pemicu", "alasan"}],
 "menunggu_lineup": [{"match_id", "bintang", "alasan"}],
 "summary": "..."}``. Tiket valid terhadap ``schemas/ticket.schema.json``
 (divalidasi di sini; tiket yang gagal validasi menjadi None + alasan).
+``insurance_fallback_option`` adalah OPSI BERLABEL (v18.1 Patch #2,
+keputusan user fallback (b) 2026-11-23 15:52 WIB) — BUKAN tiket:
+tanpa ticket_id/type/stake, tidak pernah masuk ledger sebagai tiket.
 ``summary`` ringkasan Bahasa Indonesia sehari-hari.
 
 Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
@@ -147,6 +151,45 @@ Aturan yang ditegakkan (lihat DECISIONS.md + laporan Langkah 2 §11):
   tahan-banjir yang thin ke garis tebal di atasnya (keputusan lama
   "tidak melompat" digantikan). Kaki BOLA tidak kena equilibrium
   (tidak ada model CDF/tangga yang sama).
+- Optimasi gabungan Asuransi (v18.1 Patch #2 "Perangkap Plafon
+  88,5¢", REFERENSI-PATCH-V18-1-GEMINI.md §1): safety-first dalam
+  band 80–89¢ SELALU memetik plafon (P_final monoton naik terhadap
+  harga) — di T2 v18 ketiga kaki Asuransi terkunci di 88,5¢
+  (pengali maks x1,36). Karena itu komposer Asuransi TIDAK lagi
+  memakai satu garis plafon per laga: dari SEMUA garis valid
+  (``equilibrium.garis_valid_asuransi`` — garis dalam band yang
+  lolos 100% gate Asuransi), komposer memilih kombinasi (1 garis
+  per laga, 2–6 kaki; 1 kaki hanya sebagai jalan terakhir seperti
+  ``_pilih_subset``) yang MEMAKSIMALKAN peluang cair gabungan
+  (max Π P_final, dihitung dalam log: max Σ log P_final — dalam
+  praktik Π decision_prob, yang sama dengan Π P_final kecuali
+  condong-ke-market / recheck-market berlaku) dengan pengali bersih
+  di [2,00x, 2,50x]. Pencarian memakai DP atas bucket log-pengali
+  (langkah 0,001 log) melintasi laga — BUKAN brute force. Setiap
+  garis kombinasi divalidasi keanggotaannya di valid_lines
+  (fail-closed). Laga TANPA garis valid (tanpa equilibrium / garis
+  valid kosong) menyumbang satu varian: kandidat v18-nya (garis
+  yang lolos semua gate komposer). Flag config
+  ``tickets.insurance.expose_all_valid_lines_to_composer`` (false)
+  mengembalikan jalur ``_pilih_subset`` v18 persis (rollback).
+- Fallback Asuransi (b) (v18.1, KEPUTUSAN USER 2026-11-23 15:52
+  WIB — DECISIONS.md "Pilihan fallback Asuransi (b) + filosofi
+  pasti menang"): bila tidak ada kombinasi >= 2,00x tanpa
+  melanggar gate, komposer MELAPORKAN opsi terbaik di [1,80x,
+  1,99x] (batas bawah dari
+  ``tickets.insurance.target_multiplier_fallback_min`` 1,80; batas
+  atas = target_min − 0,01) sebagai OPSI BERLABEL
+  (``insurance_fallback_option``: label OPSI_DI_BAWAH_TARGET,
+  pengali, peluang cair gabungan joint_p_final, detail per kaki,
+  alasan tidak mencapai x2) — BUKAN tiket: tanpa ticket_id/type/
+  stake, tidak masuk insurance_reason sebagai tiket, dan tidak
+  bisa masuk ledger (gagal validasi skema tiket). Bila tidak ada
+  juga kombinasi di [1,80x, 1,99x], opsi None + alasan menyebut
+  pengali maksimum yang tercapai. Opsi TIDAK memesan laga dari
+  Utama (bukan tiket — Utama diracik seolah Asuransi tidak
+  terbentuk); bila opsi berbagi laga dengan Tiket Utama, warnings
+  memuat peringatan tumpang-tindih (pelajaran DEN: satu laga bisa
+  membunuh kedua tiket bila user memasang keduanya).
 - Skip dari awal (keputusan user 2026-11-23 10:22 + 10:41 WIB;
   engine/skip_awal.py): laga NBA yang (a) tidak punya equilibrium di
   KEDUA tiket, atau (b) cocok pola Denver (flag setan + tidak ada
@@ -281,6 +324,31 @@ _DEFAULT_TIEBREAK_ER = 0.015
 # modul ini ditulis — default 3,0 dipakai sampai kuncinya ada
 # (lihat LAPORAN-GATE-V18.md).
 _DEFAULT_BANTALAN_VETO_PARSIAL = 3.0
+
+# --- Optimasi gabungan Asuransi, v18.1 Patch #2 ---
+# Tujuan komposer Asuransi (satu-satunya yang didukung v18.1):
+# maksimalkan peluang cair gabungan (max Π P_final) dalam jendela
+# pengali target. Nilai lain di config -> ConfigError (fail-closed).
+_TUJUAN_KOMPOSER_INS = "max_joint_p_final_within_target_multiplier"
+# Batas bawah pengali opsi fallback (b) bila kunci belum ada di cfg
+# dict (pola default v18 — SAMA PERSIS dengan config v18.1 yang
+# ditulis worker B: keputusan user 2026-11-23 15:52 WIB).
+_DEFAULT_FALLBACK_MIN = 1.80
+# Label opsi fallback (b) — BUKAN tiket (tanpa ticket_id/type).
+_LABEL_OPSI_FALLBACK = "OPSI_DI_BAWAH_TARGET"
+# Langkah diskretisasi bucket log-pengali DP (0,001 log ≈ 0,1%
+# pengali — halus; pemilihan akhir selalu dicek dengan pengali
+# EKSAK dari harga, jadi pembulatan bucket tidak pernah meloloskan
+# kombinasi di luar jendela).
+_DP_LANGKAH_LOG = 0.001
+# Jumlah kaki per kombinasi Asuransi (spesifikasi Patch #2): 2–6.
+# 1 kaki hanya sebagai jalan terakhir (perilaku _pilih_subset —
+# di config live tidak mungkin: 1 kaki maks x1,26 di lantai 75¢).
+_DP_MAKS_KAKI = 6
+_DP_MIN_KAKI_OPSI = 2
+# Jarak batas atas fallback dari target minimum (presisi sen):
+# fallback_max = multiplier_min - 0,01 (1,99 dengan target 2,00).
+_FALLBACK_JARAK_ATAS = 0.01
 
 # Kunci wajib minimal tiket (dipakai bila jsonschema tidak tersedia).
 _KUNCI_WAJIB_TIKET = ("ticket_id", "type", "stake", "multiplier", "legs")
@@ -444,6 +512,66 @@ def _ambang_p_market_ins(cfg: dict) -> float:
         0.0,
         1.0,
     )
+    return nilai
+
+
+def _optimasi_asuransi_aktif(cfg: dict) -> bool:
+    """Flag optimasi gabungan Asuransi v18.1 Patch #2 + validasi tujuan.
+
+    True bila ``tickets.insurance.expose_all_valid_lines_to_composer``
+    true (default True bila kunci belum ada di cfg dict — nilai
+    produksi v18.1) DAN ``composer_objective`` adalah tujuan yang
+    didukung (``max_joint_p_final_within_target_multiplier``;
+    default nilai itu bila kunci belum ada). Tujuan tidak dikenal
+    -> ConfigError (fail-closed: tujuan yang salah diam-diam lebih
+    buruk daripada error keras — pola _mode_equilibrium). Nilai
+    flag bukan bool -> ConfigError.
+    """
+    try:
+        nilai = config_mod.get_value(
+            cfg, "tickets", "insurance", "expose_all_valid_lines_to_composer"
+        )
+    except config_mod.ConfigError:
+        nilai = True
+    if not isinstance(nilai, bool):
+        raise config_mod.ConfigError(
+            "playstyle.yaml tickets.insurance."
+            "expose_all_valid_lines_to_composer harus bool, dapat: "
+            f"{nilai!r}"
+        )
+    try:
+        tujuan = config_mod.get_value(cfg, "tickets", "insurance", "composer_objective")
+    except config_mod.ConfigError:
+        tujuan = _TUJUAN_KOMPOSER_INS
+    if tujuan != _TUJUAN_KOMPOSER_INS:
+        raise config_mod.ConfigError(
+            "playstyle.yaml tickets.insurance.composer_objective harus "
+            f"{_TUJUAN_KOMPOSER_INS!r}, dapat: {tujuan!r}"
+        )
+    return nilai
+
+
+def _ambang_fallback_ins(cfg: dict, mult_min: float) -> float:
+    """Batas bawah pengali opsi fallback (b) Asuransi (v18.1).
+
+    Dibaca dari ``tickets.insurance.target_multiplier_fallback_min``
+    (1,80; keputusan user 2026-11-23 15:52 WIB). Kunci hilang ->
+    default 1,80. Harus 1,0 < fallback_min < mult_min (bila tidak,
+    config tidak konsisten -> ConfigError, bukan diam-diam dipakai).
+    """
+    nilai, _ = _angka_config_atau_default(
+        cfg,
+        ("tickets", "insurance", "target_multiplier_fallback_min"),
+        _DEFAULT_FALLBACK_MIN,
+        1.0,
+        10.0,
+    )
+    if not (1.0 < nilai < mult_min):
+        raise config_mod.ConfigError(
+            "playstyle.yaml tickets.insurance."
+            "target_multiplier_fallback_min harus di antara 1,0 dan "
+            f"multiplier_min ({mult_min:g}), dapat: {nilai}"
+        )
     return nilai
 
 
@@ -1251,6 +1379,11 @@ def _kumpulkan_kandidat(
         }
         ktx_ins: dict | None = None
         ktx_main: dict | None = None
+        # Garis valid Asuransi v18.1 Patch #2 (seluruh garis dalam
+        # band yang lolos 100% gate — bahan optimasi gabungan
+        # komposer). None bila equilibrium nonaktif / konteks tidak
+        # siap (tanpa CDF / tangga / jangkar pasar).
+        valid_lines_ins: list[dict] | None = None
         # Konteks fallback gate banjir (dibangun sekali per laga bila
         # equilibrium + skip_awal nonaktif sehingga ktx di atas None).
         ktx_banjir_jatuh: dict | None = None
@@ -1268,6 +1401,11 @@ def _kumpulkan_kandidat(
                         analisis, tiket_eq, cfg, ktx=ktx_eq
                     )
                     eq_per_tiket[tiket_eq] = hasil_eq
+                # Dihitung sekali per laga dari ktx_ins yang sama
+                # (tanpa hitung ulang CDF/tangga).
+                valid_lines_ins = equilibrium_mod.garis_valid_asuransi(
+                    analisis, cfg, ktx=ktx_ins
+                )
             if skip_aktif:
                 # Equilibrium nonaktif -> stub "tidak dihitung" supaya
                 # pemicu (a) tidak bisa terpicu (tanpa equilibrium,
@@ -1394,6 +1532,14 @@ def _kumpulkan_kandidat(
             # P banjir kaki equilibrium (bila ada) — dipakai
             # peringatan banjir Utama (warning-only, v18).
             p_banjir_eq: dict | None = None
+            # Garis valid laga ini untuk kandidat Asuransi (v18.1
+            # Patch #2) — disaring veto parsial di bawah bila ada.
+            # Salinan daftar (filter tidak mengubah daftar per laga).
+            valid_lines_kandidat = (
+                list(valid_lines_ins)
+                if tiket == "insurance" and valid_lines_ins
+                else None
+            )
             # --- Titik equilibrium (MENGGANTIKAN seleksi garis lama).
             # Berjalan SEBELUM cek meets: equilibrium memilih ulang
             # dari tangga + CDF, jadi kaki meets=false karena seleksi
@@ -1477,6 +1623,27 @@ def _kumpulkan_kandidat(
                         kaki = kaki_veto
                         garis = _angka(kaki.get("line"))
                         label_kaki = _seleksi_kaki(kaki, analisis)
+            # --- VETO PARSIAL +3 pada garis valid (v18.1 Patch #2):
+            # garis valid di bawah batas veto (garis acuan + 3,0)
+            # BUKAN pilihan komposer — disaring dari varian, apa pun
+            # garis equilibriumnya (blok di atas hanya berjalan bila
+            # garis equilibrium kurang; saringan ini berlaku selalu
+            # bila veto parsial menyala untuk laga ini).
+            if (
+                veto_parsial
+                and tiket == "insurance"
+                and analisis.get("format") != "soccer_analysis"
+                and market_type == "total_under"
+                and garis_acuan_normal is not None
+                and valid_lines_kandidat
+            ):
+                batas_veto = garis_acuan_normal + bantalan_parsial
+                valid_lines_kandidat = [
+                    entri
+                    for entri in valid_lines_kandidat
+                    if _angka(entri.get("garis")) is not None
+                    and _angka(entri.get("garis")) >= batas_veto - 1e-9
+                ]
             if not kaki.get("meets"):
                 alasan = kaki.get("reason") or "tidak memenuhi syarat"
                 coret[tiket].append(f"{match_id} ({label_kaki}): {alasan}")
@@ -1678,6 +1845,12 @@ def _kumpulkan_kandidat(
             alasan_perhatian: list[str] = []
             prob_keputusan = p_final
             alasan_prob: str | None = None
+            # Sumber probabilitas keputusan (v18.1 Patch #2 — dipakai
+            # varian garis valid: "p_final" (biasa), "market_recheck"
+            # (probabilitas market dari recheck, per leg_id — sama
+            # untuk semua varian), "market_condong" (harga market
+            # mentah di garis itu — dihitung ulang per varian).
+            sumber_prob = "p_final"
             if recheck is not None:
                 putusan = putusan_recheck.get(leg_id)
                 if putusan is None:
@@ -1715,6 +1888,7 @@ def _kumpulkan_kandidat(
                     nilai_market = _angka(putusan.get("probability_value"))
                     if nilai_market is not None:
                         prob_keputusan = nilai_market
+                        sumber_prob = "market_recheck"
                         alasan_prob = (
                             "probabilitas market (aturan condong-ke-market "
                             "dari recheck)"
@@ -1748,6 +1922,7 @@ def _kumpulkan_kandidat(
                             )
                             continue
                         prob_keputusan = prob_market
+                        sumber_prob = "market_condong"
                         alasan_prob = (
                             "probabilitas market (aturan condong-ke-market: "
                             f"selisih {gap:g} poin, tanpa recheck/alasan konkret)"
@@ -1818,6 +1993,20 @@ def _kumpulkan_kandidat(
                     "price_label": label,
                     "decision_prob": prob_keputusan,
                     "decision_alasan": alasan_prob,
+                    # Sumber probabilitas keputusan (v18.1 Patch #2 —
+                    # lihat sumber_prob di atas).
+                    "decision_prob_sumber": sumber_prob,
+                    # Garis valid Asuransi laga ini (v18.1 Patch #2;
+                    # None untuk Utama / tanpa equilibrium / tanpa
+                    # garis valid) — bahan optimasi gabungan.
+                    "valid_lines": valid_lines_kandidat,
+                    # Kaki artefak SEBELUM equilibrium (v18.1 Patch
+                    # #2): varian garis valid dibangun ulang DARI
+                    # kaki ini (bukan dari kaki equilibrium) supaya
+                    # climb-nya benar (dari garis artefak ke garis
+                    # varian — bukan dirangkai dari climb equilibrium
+                    # yang sudah ada).
+                    "leg_awal": kaki_awal,
                     "recheck_verdict": (
                         putusan.get("verdict") if putusan is not None else None
                     ),
@@ -2034,6 +2223,500 @@ def _pilih_subset(
     return pilihan[1], pengali_maks, dipangkas, terblokir_yakin
 
 
+# ======================================================================
+# Optimasi gabungan Asuransi v18.1 Patch #2 ("Perangkap Plafon 88,5¢")
+# ======================================================================
+
+
+def _varian_dalam_valid_lines(varian: dict, valid_lines: list[dict] | None) -> bool:
+    """Validasi fail-closed: garis varian ada di valid_lines laganya.
+
+    Varian lolos hanya bila ada entri valid_lines dengan garis yang
+    SAMA (toleransi 1e-9) DAN harga venue yang SAMA (toleransi
+    1e-9). Tanpa valid_lines (None/kosong) -> False (tidak ada yang
+    bisa divalidasi — pemanggil memakai jalur kandidat v18, bukan
+    validasi ini).
+    """
+    if not valid_lines:
+        return False
+    garis = _angka(varian.get("line"))
+    harga = _angka(varian.get("harga_jup"))
+    if garis is None or harga is None:
+        return False
+    for entri in valid_lines:
+        garis_entri = _angka(entri.get("garis"))
+        if garis_entri is None:
+            garis_entri = _angka(entri.get("line"))
+        harga_entri = _angka(entri.get("harga_venue_cents"))
+        if (
+            garis_entri is not None
+            and harga_entri is not None
+            and abs(garis_entri - garis) < 1e-9
+            and abs(harga_entri - harga) < 1e-9
+        ):
+            return True
+    return False
+
+
+def _varian_dari_garis_valid(kand: dict, entri: dict, cfg: dict) -> dict | None:
+    """Satu varian kandidat Asuransi dari satu entri garis valid.
+
+    Kaki dibangun ulang di garis entri (via
+    ``equilibrium.rakit_kaki_equilibrium`` dengan hasil-equilibrium
+    sintetis — pola yang sama dengan ``_pilih_garis_veto_parsial``)
+    DARI kaki artefak (``leg_awal`` kandidat — bukan dari kaki
+    equilibrium) supaya climb-nya benar: dari garis artefak ke
+    garis varian, bukan dirangkai dari climb equilibrium yang
+    sudah ada. Bila garis entri SAMA dengan garis artefak, kaki
+    artefak dipakai apa adanya (rakit mengembalikan None untuk
+    garis yang sama).
+    Bukti eksekusi (likuiditas/bid/ask) disalin dari entri tangga
+    supaya varian mandiri (kuotasi adalah sifat GARIS, bukan sifat
+    kaki — kaki lama membawa kuotasi garis lama).
+    decision_prob dihitung ulang sesuai sumbernya (lihat
+    ``decision_prob_sumber`` di ``_kumpulkan_kandidat``): p_final
+    varian (biasa), probabilitas recheck (per leg_id — sama untuk
+    semua varian), atau harga market mentah di garis varian
+    (condong-ke-market — varian yang jatuh di bawah ambang peluang
+    DIBUANG, bukan diloloskan).
+    None bila entri tidak valid / kaki tidak bisa dibangun ulang /
+    varian gagal ambang peluang condong (fail-closed per varian —
+    varian lain tidak terpengaruh).
+    """
+    garis_entri = _angka(entri.get("garis"))
+    if garis_entri is None:
+        garis_entri = _angka(entri.get("line"))
+    harga_entri = _angka(entri.get("harga_venue_cents"))
+    p_final_entri = _angka(entri.get("p_final"))
+    p_model_entri = _angka(entri.get("p_model"))
+    p_market_entri = _angka(entri.get("p_market"))
+    ev_entri = _angka(entri.get("ev_pct"))
+    if (
+        garis_entri is None
+        or harga_entri is None
+        or not 0.0 < harga_entri < 100.0
+        or p_final_entri is None
+        or not 0.0 < p_final_entri <= 1.0
+        or p_model_entri is None
+        or p_market_entri is None
+        or ev_entri is None
+    ):
+        return None
+    kaki_lama = kand.get("leg_awal") or kand["leg"]
+    analisis = kand["analysis"]
+    garis_lama = _angka(kaki_lama.get("line"))
+    if garis_lama is not None and abs(garis_entri - garis_lama) < 1e-9:
+        kaki_baru = dict(kaki_lama)
+    else:
+        hasil_eq = {
+            "ada": True,
+            "ticket": "insurance",
+            "garis": garis_entri,
+            "harga_venue_cents": harga_entri,
+            "price_cents": _angka(entri.get("price_cents")),
+            "jup_estimated_cents": _angka(entri.get("jup_estimated_cents")),
+            "thin": entri.get("thin"),
+            "volume_usd": _angka(entri.get("volume_usd")),
+            "p_model": p_model_entri,
+            "p_market": p_market_entri,
+            "p_final": p_final_entri,
+            "ev_pct": ev_entri,
+            "price_label": entri.get("price_label"),
+            "anchor": {},
+        }
+        kaki_baru = equilibrium_mod.rakit_kaki_equilibrium(
+            kaki_lama, hasil_eq, analisis, cfg
+        )
+        if kaki_baru is None:
+            return None
+    # Bukti eksekusi dari entri tangga (bukan dari kaki lama).
+    likuiditas = _angka(entri.get("likuiditas_usd"))
+    bid = _angka(entri.get("bid_cents"))
+    ask = _angka(entri.get("ask_cents"))
+    if likuiditas is not None:
+        kaki_baru["liquidity_usd"] = likuiditas
+    if bid is not None:
+        kaki_baru["bid_cents"] = bid
+    if ask is not None:
+        kaki_baru["ask_cents"] = ask
+    # Probabilitas keputusan per varian (lihat decision_prob_sumber).
+    sumber = kand.get("decision_prob_sumber") or "p_final"
+    if sumber == "market_recheck":
+        prob_keputusan = kand["decision_prob"]
+    elif sumber == "market_condong":
+        harga_mentah = _angka(entri.get("price_cents"))
+        if harga_mentah is None:
+            harga_mentah = harga_entri
+        prob_keputusan = harga_mentah / 100.0
+        ambang_prob = _ambang(cfg, "tickets", "insurance", "min_leg_prob")
+        if prob_keputusan < ambang_prob:
+            return None
+    else:
+        prob_keputusan = p_final_entri
+    varian = dict(kand)
+    varian.update(
+        {
+            "leg": kaki_baru,
+            "line": garis_entri,
+            "selection": _seleksi_kaki(kaki_baru, analisis),
+            "harga_jup": harga_entri,
+            "p_final": p_final_entri,
+            "p_model": p_model_entri,
+            "p_market": p_market_entri,
+            "ev_pct": ev_entri,
+            "price_label": entri.get("price_label"),
+            "decision_prob": prob_keputusan,
+            "thin": entri.get("thin") is True,
+            "p_banjir_3p": _angka(entri.get("p_banjir_3p")),
+            "p_banjir_ft": _angka(entri.get("p_banjir_ft")),
+            "banjir_warning": False,
+        }
+    )
+    return varian
+
+
+def _varian_kandidat_asuransi(kand: dict, cfg: dict) -> list[dict]:
+    """Varian kandidat Asuransi satu laga (v18.1 Patch #2).
+
+    Bila kandidat membawa valid_lines (garis Asuransi yang lolos
+    100% gate dalam band 80–89¢), satu varian per garis valid
+    (kaki dibangun ulang di garis itu + divalidasi keanggotaannya
+    di valid_lines — fail-closed: varian yang gagal dibangun atau
+    gagal validasi DIBUANG). Bila tidak ada garis valid (tanpa
+    equilibrium / garis valid kosong), satu varian = kandidat itu
+    sendiri (jalur v18 — garis yang lolos semua gate komposer).
+    Bila SEMUA garis valid gagal dibangun (tidak seharusnya
+    terjadi), kandidat v18 dipakai sebagai satu-satunya varian
+    supaya laga tidak hilang diam-diam (garisnya lolos semua gate
+    komposer — pertahanan terakhir, bukan pelonggaran).
+    """
+    valid = kand.get("valid_lines")
+    if not valid:
+        return [kand]
+    varian: list[dict] = []
+    for entri in valid:
+        dibuat = _varian_dari_garis_valid(kand, entri, cfg)
+        if dibuat is None:
+            continue
+        if not _varian_dalam_valid_lines(dibuat, valid):
+            continue
+        varian.append(dibuat)
+    return varian or [kand]
+
+
+def _kunci_dp(
+    log_p: float,
+    mult_net: float,
+    n_kaki: int,
+    sidik: tuple,
+    tengah: float,
+    utamakan_pengali: bool,
+) -> tuple:
+    """Kunci urut satu kombinasi DP (lebih kecil = lebih baik).
+
+    (1) peluang cair gabungan tertinggi (log_p terbesar — sama
+    dengan Π P_final terbesar); (2) tiket: pengali paling dekat ke
+    tengah jendela (perilaku ``_pilih_subset``); opsi fallback:
+    pengali TERBESAR (paling dekat menutup modal —
+    ``utamakan_pengali`` True); (3) kaki lebih banyak; (4) sidik
+    deterministik (pasangan (match_id, garis) terurut) — supaya
+    pilihan tidak bergantung urutan penelusuran (leg_id tidak
+    membedakan varian: leg_id tidak memuat garis).
+    """
+    jarak = -mult_net if utamakan_pengali else abs(mult_net - tengah)
+    return (-log_p, jarak, -n_kaki, sidik)
+
+
+def _pengali_maks_asuransi(
+    varian_per_laga: list[list[dict]], potongan_pct: float
+) -> tuple[float, int]:
+    """Pengali maksimum Asuransi (2–6 kaki) + jumlah kakinya.
+
+    Eksak tanpa DP: faktor tiap kaki (100/harga) > 1, jadi pengali
+    maksimum memakai garis TERMURAH tiap laga dan mengambil
+    _DP_MAKS_KAKI (6) faktor terbesar lintas laga. Dipakai alasan
+    jujur bila tiket tidak terbentuk (bukan perkiraan DP).
+    """
+    termurah = []
+    for varian in varian_per_laga:
+        if varian:
+            termurah.append(min(v["harga_jup"] for v in varian))
+    termurah.sort()
+    ambil = termurah[:_DP_MAKS_KAKI]
+    if not ambil:
+        return 0.0, 0
+    return combo_multiplier(ambil, potongan_pct), len(ambil)
+
+
+def _optimasi_asuransi(
+    kandidat_ins: list[dict],
+    cfg: dict,
+    target: dict,
+    potongan_pct: float,
+) -> dict:
+    """Pilih kombinasi Asuransi optimal lintas garis valid (v18.1 #2).
+
+    DP atas bucket log-pengali (langkah ``_DP_LANGKAH_LOG``) yang
+    melintasi laga: tiap laga menyumbang 0 atau 1 varian (1 garis
+    per laga), total 1–6 kaki (2–6 untuk tiket yang diutamakan;
+    1 kaki hanya jalan terakhir seperti ``_pilih_subset``).
+    Tujuan: maksimalkan peluang cair gabungan (Σ log decision_prob
+    — sama dengan Σ log P_final kecuali condong/recheck-market)
+    dengan pengali bersih di [mult_min, mult_max]. Pemilihan akhir
+    selalu dicek dengan pengali EKSAK dari harga (pembulatan bucket
+    tidak pernah meloloskan kombinasi di luar jendela).
+    Bila tidak ada tiket, cari opsi fallback (b) terbaik di
+    [fallback_min, mult_min − 0,01] (>= 2 kaki) dari tabel DP yang
+    sama (satu kali jalan, dua jendela).
+
+    Mengembalikan {"subset", "pengali", "joint_p", "fallback_option",
+    "pengali_maks", "pengali_maks_kaki", "harga_termurah_cents",
+    "n_laga_valid"}:
+    - subset: list varian tiket (atau None bila tidak ada).
+    - pengali / joint_p: pengali bersih + Π decision_prob subset.
+    - fallback_option: dict opsi (b) (atau None).
+    - pengali_maks (+ kaki): pengali maksimum 1–6 kaki (eksak —
+      lihat ``_pengali_maks_asuransi``).
+    - harga_termurah_cents: harga termurah di antara semua varian
+      (untuk alasan konkret); n_laga_valid: laga yang membawa
+      valid_lines.
+    """
+    mult_min = target["min"]
+    mult_max = target["max"]
+    fallback_min = _ambang_fallback_ins(cfg, mult_min)
+    fallback_max = mult_min - _FALLBACK_JARAK_ATAS
+    potongan = 1.0 - potongan_pct / 100.0
+    log_potongan = math.log(potongan)
+    # Jendela dalam log-pengali KOTOR (sebelum potongan spread):
+    # log_net = log_kotor + log_potongan.
+    lo_tiket = math.log(mult_min) - log_potongan
+    hi_tiket = math.log(mult_max) - log_potongan
+    lo_opsi = math.log(fallback_min) - log_potongan
+    hi_opsi = math.log(fallback_max) - log_potongan
+    tengah_tiket = (mult_min + mult_max) / 2.0
+
+    varian_per_laga = [_varian_kandidat_asuransi(k, cfg) for k in kandidat_ins]
+    n_laga_valid = sum(1 for k in kandidat_ins if k.get("valid_lines"))
+    harga_termurah = None
+    for varian in varian_per_laga:
+        for v in varian:
+            if harga_termurah is None or v["harga_jup"] < harga_termurah:
+                harga_termurah = v["harga_jup"]
+    pengali_maks, pengali_maks_kaki = _pengali_maks_asuransi(
+        varian_per_laga, potongan_pct
+    )
+    dasar = {
+        "subset": None,
+        "pengali": None,
+        "joint_p": None,
+        "fallback_option": None,
+        "pengali_maks": pengali_maks,
+        "pengali_maks_kaki": pengali_maks_kaki,
+        "harga_termurah_cents": harga_termurah,
+        "n_laga_valid": n_laga_valid,
+    }
+    if not varian_per_laga:
+        return dasar
+
+    # Sufiks pengali kotor maksimum per laga (pemangkasan): cabang
+    # yang bahkan dengan garis termurah sisa laga tidak mencapai
+    # jendela opsi tidak perlu ditelusuri — TAPI hanya dipangkas
+    # bila cabang itu juga tidak bisa mencapai jendela tiket
+    # (pemangkasan memakai batas bawah opsi karena opsi adalah
+    # jendela terendah yang masih berguna).
+    maks_per_laga = [
+        max(math.log(100.0 / v["harga_jup"]) for v in varian)
+        for varian in varian_per_laga
+    ]
+    n = len(varian_per_laga)
+    sufiks = [0.0] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        sufiks[i] = sufiks[i + 1] + maks_per_laga[i]
+
+    # Status DP: (bucket_log_kotor, jumlah_kaki) ->
+    # (log_p_sum, log_kotor_eksak, tuple_varian). Satu entri
+    # terbaik per kunci (tie-break kunci DP dengan tengah tiket —
+    # pemilihan akhir diulang lintas bucket dengan kunci penuh).
+    def _bucket(log_kotor: float) -> int:
+        return int(math.floor(log_kotor / _DP_LANGKAH_LOG))
+
+    def _sidik(pilihan: tuple) -> tuple:
+        return tuple(sorted((v["match_id"], v["line"]) for v in pilihan))
+
+    status: dict[tuple[int, int], tuple[float, float, tuple]] = {(0, 0): (0.0, 0.0, ())}
+    for i, varian in enumerate(varian_per_laga):
+        baru = dict(status)
+        for (_bk, jumlah), (log_p, log_kotor, pilihan) in status.items():
+            if jumlah >= _DP_MAKS_KAKI:
+                continue
+            # Cabang ini + semua sisa laga tidak mencapai jendela
+            # opsi -> tidak ada gunanya (tiket maupun opsi).
+            if log_kotor + sufiks[i] < lo_opsi - _EPS:
+                continue
+            for v in varian:
+                log_kotor_baru = log_kotor + math.log(100.0 / v["harga_jup"])
+                # Di atas jendela tiket: menambah kaki hanya
+                # menaikkan pengali — tidak bisa kembali.
+                if log_kotor_baru > hi_tiket + _EPS:
+                    continue
+                pilihan_baru = pilihan + (v,)
+                kunci_baru = (_bucket(log_kotor_baru), jumlah + 1)
+                log_p_baru = log_p + math.log(v["decision_prob"])
+                lama = baru.get(kunci_baru)
+                if lama is None:
+                    baru[kunci_baru] = (log_p_baru, log_kotor_baru, pilihan_baru)
+                    continue
+                # Tie-break dalam bucket: peluang gabungan lebih
+                # besar menang; seri -> sidik deterministik.
+                if log_p_baru > lama[0] + _EPS or (
+                    abs(log_p_baru - lama[0]) <= _EPS
+                    and _sidik(pilihan_baru) < _sidik(lama[2])
+                ):
+                    baru[kunci_baru] = (log_p_baru, log_kotor_baru, pilihan_baru)
+        status = baru
+
+    # Pemilihan akhir dari SEMUA status (bukan hanya satu bucket):
+    # pengali EKSAK dari harga, jendela tiket dulu (>= 2 kaki;
+    # 1 kaki hanya bila tidak ada pilihan lain — perilaku
+    # _pilih_subset), lalu jendela opsi (>= 2 kaki).
+    def _pilih_dalam_jendela(
+        lo: float, hi: float, min_kaki: int, utamakan_pengali: bool, tengah: float
+    ):
+        terbaik = None
+        for (_bucket_k, jumlah), (log_p, log_kotor, pilihan) in status.items():
+            if jumlah < min_kaki:
+                continue
+            if not (lo - _EPS <= log_kotor <= hi + _EPS):
+                continue
+            mult_net = math.exp(log_kotor + log_potongan)
+            # Cek eksak kedua dari harga (bukan dari log yang
+            # terakumulasi) — pengali yang dilaporkan & dirakit
+            # harus SAMA dengan combo_multiplier.
+            mult_eksak = combo_multiplier(
+                [v["harga_jup"] for v in pilihan], potongan_pct
+            )
+            if abs(mult_eksak - mult_net) > 1e-6:
+                mult_net = mult_eksak
+            kunci = _kunci_dp(
+                log_p, mult_net, jumlah, _sidik(pilihan), tengah, utamakan_pengali
+            )
+            if terbaik is None or kunci < terbaik[0]:
+                terbaik = (kunci, pilihan, mult_net, math.exp(log_p))
+        return terbaik
+
+    pilihan_tiket = _pilih_dalam_jendela(lo_tiket, hi_tiket, 2, False, tengah_tiket)
+    if pilihan_tiket is None:
+        pilihan_tiket = _pilih_dalam_jendela(lo_tiket, hi_tiket, 1, False, tengah_tiket)
+    if pilihan_tiket is not None:
+        _kunci, pilihan, mult_net, joint_p = pilihan_tiket
+        dasar["subset"] = list(pilihan)
+        dasar["pengali"] = mult_net
+        dasar["joint_p"] = joint_p
+        return dasar
+
+    # Tidak ada tiket -> opsi fallback (b) terbaik di jendela opsi.
+    pilihan_opsi = _pilih_dalam_jendela(
+        lo_opsi, hi_opsi, _DP_MIN_KAKI_OPSI, True, (fallback_min + fallback_max) / 2.0
+    )
+    if pilihan_opsi is not None:
+        _kunci, pilihan, mult_net, joint_p = pilihan_opsi
+        dasar["fallback_option"] = _rakit_opsi_fallback(
+            list(pilihan),
+            mult_net,
+            joint_p,
+            mult_min,
+            pengali_maks,
+            pengali_maks_kaki,
+            len(varian_per_laga),
+            harga_termurah,
+        )
+    return dasar
+
+
+def _rakit_opsi_fallback(
+    pilihan: list[dict],
+    mult_net: float,
+    joint_p: float,
+    mult_min: float,
+    pengali_maks: float,
+    pengali_maks_kaki: int,
+    n_laga: int,
+    harga_termurah: float | None,
+) -> dict:
+    """Rakit dict opsi fallback (b) — BUKAN tiket.
+
+    Tanpa ticket_id/type/stake (gagal validasi skema tiket +
+    ditolak ledger). Memuat label OPSI_DI_BAWAH_TARGET, pengali,
+    peluang cair gabungan (joint_p_final = Π decision_prob),
+    detail per kaki, dan alasan konkret tidak mencapai x2
+    (pengali maksimum yang bisa dicapai + jumlah kaki + harga
+    termurah yang lolos gate).
+    """
+    kaki_opsi = []
+    for v in pilihan:
+        kaki_opsi.append(
+            {
+                "match_id": v["match_id"],
+                "selection": v.get("selection"),
+                "line": v["line"],
+                "harga_venue_cents": v["harga_jup"],
+                "p_final": v["p_final"],
+                "p_market": v["p_market"],
+                "ev_pct": v["ev_pct"],
+                "p_banjir_3p": v.get("p_banjir_3p"),
+                "p_banjir_ft": v.get("p_banjir_ft"),
+            }
+        )
+    harga_teks = (
+        f"harga termurah yang lolos gate {harga_termurah:g}¢"
+        if harga_termurah is not None
+        else "tidak ada harga termurah yang tercatat"
+    )
+    alasan = (
+        f"tidak ada kombinasi >= x{mult_min:.2f} tanpa melanggar gate "
+        f"(pengali maksimum yang bisa dicapai x{pengali_maks:.2f} "
+        f"dengan {pengali_maks_kaki} kaki dari {n_laga} laga yang "
+        f"lolos; {harga_teks}) — opsi terbaik di bawah target "
+        f"adalah x{mult_net:.2f} dengan peluang cair gabungan "
+        f"{joint_p * 100:.0f}%"
+    )
+    return {
+        "label": _LABEL_OPSI_FALLBACK,
+        "multiplier": round(mult_net, 4),
+        "joint_p_final": round(joint_p, 4),
+        "n_legs": len(pilihan),
+        "legs": kaki_opsi,
+        "alasan": alasan,
+    }
+
+
+def _peringatan_tumpang_tindih_opsi(
+    opsi: dict | None, subset_main: list[dict] | None
+) -> str | None:
+    """Peringatan bila opsi fallback berbagi laga dengan Tiket Utama.
+
+    Opsi BUKAN tiket sehingga tidak memesan laga (Utama diracik
+    seolah Asuransi tidak terbentuk) — tapi bila user memasang
+    opsi itu DAN Utama, satu laga bisa membunuh keduanya
+    (pelajaran DEN 23 Nov). None bila tidak ada opsi / tidak ada
+    Utama / tidak ada laga yang sama.
+    """
+    if opsi is None or not subset_main:
+        return None
+    laga_opsi = {k.get("match_id") for k in opsi.get("legs") or []}
+    laga_main = {k.get("match_id") for k in subset_main}
+    bentrok = sorted(laga_opsi & laga_main)
+    if not bentrok:
+        return None
+    return (
+        "Opsi Asuransi di bawah target berbagi laga "
+        f"{', '.join(bentrok)} dengan Tiket Utama — bila Anda "
+        "memasang opsi itu DAN Tiket Utama, satu laga bisa "
+        "membunuh keduanya (aturan tanpa kaki kembar hanya "
+        "berlaku untuk tiket yang diracik mesin)."
+    )
+
+
 def _tanggal_tiket(subset: list[dict]) -> str:
     """Tanggal tiket: game_date/match_date paling umum di kaki-kakinya (else hari ini UTC)."""
     tanggal = Counter()
@@ -2195,6 +2878,30 @@ def _fmt_uang(nilai: float) -> str:
     if abs(nilai - round(nilai)) < 0.005:
         return f"${nilai:.0f}"
     return f"${nilai:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _ringkasan_opsi_fallback(opsi: dict) -> list[str]:
+    """Blok ringkasan opsi fallback (b) — eksplisit BUKAN tiket."""
+    n_kaki = opsi.get("n_legs")
+    if n_kaki is None:
+        n_kaki = len(opsi.get("legs") or [])
+    baris = [
+        "OPSI ASURANSI DI BAWAH TARGET (BUKAN TIKET — keputusan pasang di tangan Anda)",
+        f"  Pengali x{opsi['multiplier']:.2f} — peluang cair gabungan "
+        f"{opsi['joint_p_final'] * 100:.0f}% — {n_kaki} kaki",
+    ]
+    for kaki in opsi.get("legs") or []:
+        seleksi = kaki.get("selection") or "kaki"
+        harga = kaki.get("harga_venue_cents")
+        p_final = kaki.get("p_final")
+        info = f"  • {seleksi} ({kaki.get('match_id')})"
+        if harga is not None:
+            info += f" — harga {harga:g}¢"
+        if p_final is not None:
+            info += f", peluang {p_final * 100:.0f}%"
+        baris.append(info)
+    baris.append(f"  Alasan: {opsi.get('alasan') or 'tanpa alasan'}")
+    return baris
 
 
 def _ringkasan_tiket(
@@ -2457,13 +3164,16 @@ def compose_tickets(
     ``now``: jam "sekarang" untuk peringatan jendela (datetime/str ISO;
     None = jam UTC saat ini). Parameter ini ada untuk tes.
 
-    Mengembalikan ``{"insurance", "insurance_reason", "main",
-    "main_reason", "warnings", "skipped_matches", "menunggu_lineup",
-    "summary"}`` — lihat docstring modul. ``skipped_matches``: daftar
-    laga yang di-skip dari awal ({"match_id", "pemicu", "alasan"});
-    kosong bila tidak ada laga yang di-skip. ``menunggu_lineup``:
-    daftar laga TUNGGU_LINEUP ({"match_id", "bintang", "alasan"});
-    kosong bila tidak ada laga yang menunggu lineup.
+    Mengembalikan ``{"insurance", "insurance_reason",
+    "insurance_fallback_option", "main", "main_reason", "warnings",
+    "skipped_matches", "menunggu_lineup", "summary"}`` — lihat
+    docstring modul. ``insurance_fallback_option``: opsi berlabel
+    (b) v18.1 (atau None bila tidak ada opsi) — BUKAN tiket.
+    ``skipped_matches``: daftar laga yang di-skip dari awal
+    ({"match_id", "pemicu", "alasan"}); kosong bila tidak ada laga
+    yang di-skip. ``menunggu_lineup``: daftar laga TUNGGU_LINEUP
+    ({"match_id", "bintang", "alasan"}); kosong bila tidak ada laga
+    yang menunggu lineup.
     """
     if stake_total is None:
         raise ValueError(
@@ -2545,6 +3255,7 @@ def compose_tickets(
         return {
             "insurance": None,
             "insurance_reason": alasan,
+            "insurance_fallback_option": None,
             "main": None,
             "main_reason": alasan,
             "warnings": [],
@@ -2590,13 +3301,30 @@ def compose_tickets(
     # Asuransi dulu (prioritas: laga HIJAU dialokasikan ke Asuransi
     # dulu di _alokasikan_laga; di sini Asuransi memilih subsetnya
     # dulu dan Utama mendapat sisanya — aturan tanpa kaki kembar).
-    subset_ins, maks_ins, pangkas_ins, _blokir_ins = _pilih_subset(
-        kandidat["insurance"],
-        target["insurance"]["min"],
-        target["insurance"]["max"],
-        target["insurance"]["soft"],
-        potongan_pct,
-    )
+    # v18.1 Patch #2: bila flag optimasi aktif, pilih kombinasi
+    # optimal lintas garis valid (DP max joint P_final) + opsi
+    # fallback (b); bila flag mati, jalur _pilih_subset v18 persis
+    # (rollback — termasuk tanpa opsi fallback).
+    opsi_fallback_ins = None
+    if _optimasi_asuransi_aktif(cfg):
+        hasil_dp = _optimasi_asuransi(
+            kandidat["insurance"],
+            cfg,
+            target["insurance"],
+            potongan_pct,
+        )
+        subset_ins = hasil_dp["subset"]
+        maks_ins = hasil_dp["pengali_maks"]
+        pangkas_ins = False
+        opsi_fallback_ins = hasil_dp["fallback_option"]
+    else:
+        subset_ins, maks_ins, pangkas_ins, _blokir_ins = _pilih_subset(
+            kandidat["insurance"],
+            target["insurance"]["min"],
+            target["insurance"]["max"],
+            target["insurance"]["soft"],
+            potongan_pct,
+        )
     if pangkas_ins:
         warnings.append(
             "Kaki Asuransi yang lolos lebih dari "
@@ -2622,6 +3350,26 @@ def compose_tickets(
                 f"target x{target['insurance']['min']:.2f}–"
                 f"x{target['insurance']['max']:.2f} (pengali maksimum "
                 f"yang bisa dicapai x{maks_ins:.2f})."
+            )
+        # v18.1 Patch #2: opsi fallback (b) — alasan tiket tetap
+        # menjelaskan x2 tidak terbentuk; opsi disebut sebagai
+        # rujukan (bukan tiket).
+        if opsi_fallback_ins is not None:
+            alasan_ins += (
+                " Opsi di bawah target tersedia (pengali "
+                f"x{opsi_fallback_ins['multiplier']:.2f}, peluang cair "
+                f"{opsi_fallback_ins['joint_p_final'] * 100:.0f}%) — "
+                "lihat kunci insurance_fallback_option (bukan tiket, "
+                "keputusan pasang di tangan Anda)."
+            )
+            warnings.append(
+                "Tiket Asuransi x"
+                f"{target['insurance']['min']:.2f} tidak terbentuk — "
+                "ada opsi di bawah target "
+                f"(pengali x{opsi_fallback_ins['multiplier']:.2f}, "
+                "peluang cair "
+                f"{opsi_fallback_ins['joint_p_final'] * 100:.0f}%) di "
+                "kunci insurance_fallback_option; itu BUKAN tiket."
             )
         hasil["insurance"] = None
         hasil["insurance_reason"] = alasan_ins
@@ -2668,6 +3416,10 @@ def compose_tickets(
                     f"EV tiket Asuransi negatif ({ev_ins:+.0f}%) — secara "
                     "hitungan, tiket ini merugi dalam jangka panjang."
                 )
+
+    # Opsi fallback (b) v18.1 — kuncinya selalu ada (None bila
+    # tidak ada opsi), supaya bentuk hasil stabil.
+    hasil["insurance_fallback_option"] = opsi_fallback_ins
 
     # Utama: TANPA KAKI KEMBAR (keputusan user 2026-11-23 12:20 WIB —
     # MENGGANTIKAN aturan lama "garis berbeda"): kaki Utama dari laga
@@ -2805,6 +3557,16 @@ def compose_tickets(
                     "hitungan, tiket ini merugi dalam jangka panjang."
                 )
 
+    # v18.1 Patch #2: opsi fallback (b) bukan tiket sehingga tidak
+    # memesan laga dari Utama — tapi bila berbagi laga dengan
+    # Utama, peringatkan (pelajaran DEN: satu laga bisa membunuh
+    # kedua tiket bila user memasang keduanya).
+    peringatan_opsi = _peringatan_tumpang_tindih_opsi(
+        opsi_fallback_ins, subset_terpilih["main"]
+    )
+    if peringatan_opsi is not None:
+        warnings.append(peringatan_opsi)
+
     # Syarat §6a: pengali Asuransi × modal Asuransi ≥ total modal.
     if (
         must_cover
@@ -2853,6 +3615,9 @@ def compose_tickets(
         belum_dicek["insurance"],
     )
     baris.append("")
+    if opsi_fallback_ins is not None:
+        baris += _ringkasan_opsi_fallback(opsi_fallback_ins)
+        baris.append("")
     p_main, ev_main = info_tiket.get("main", (None, None))
     baris += _ringkasan_tiket(
         "Utama",

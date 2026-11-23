@@ -1373,17 +1373,15 @@ class TestEquilibriumSkip(unittest.TestCase):
     (keputusan user 2026-11-23 10:41 WIB).
     """
 
-    def test_bagian_hadir_dan_skip_pola_denver(self):
-        # Fixture _artefak() (tangga terpotong di 241,5, semua garis
-        # alt thin, tanpa garis tahan banjir, edge acuan +1,7%) ->
-        # pola Denver COCOK -> laga DI-SKIP. v18: pemicu (a) ikut
-        # menyala (tidak ada equilibrium di kedua tiket — Asuransi
-        # terikat EV, Utama terikat eksekusi), jadi "Alasan:"
-        # diawali tidak_ada_equilibrium; OT kini EMPIRIS (5,70%,
-        # ambang 8,5%). REVISI KOORDINATOR: token diagnosis
-        # eksekusi kini "eksekusi_tidak_lolos" (bukan
-        # "volume_tidak_cukup") — fixture ini gagal eksekusi karena
-        # bid/ask tidak tercatat di tangganya.
+    def test_bagian_hadir_dan_skip_tanpa_equilibrium_v18_1(self):
+        # v18.1 (MEMBALIK test_bagian_hadir_dan_skip_pola_denver):
+        # fixture _artefak() (tangga terpotong di 241,5, semua garis
+        # alt thin, tanpa garis tahan banjir) — pola Denver TIDAK
+        # lagi cocok: syarat (1)-(3) benar tapi EV acuan U237,5
+        # +2,3% > -1% (di v18 edge +1,7% < 3,5% membuat syarat (4)
+        # benar). Laga TETAP DI-SKIP via (a) tidak_ada_equilibrium
+        # (Asuransi terikat EV, Utama terikat eksekusi). OT kini
+        # EMPIRIS (5,70%, ambang 8,5%).
         teks = nba_report_mod.render_nba_report(_artefak())
         self.assertIn("Titik equilibrium dan skip dari awal", teks)
         self.assertIn(
@@ -1391,7 +1389,9 @@ class TestEquilibriumSkip(unittest.TestCase):
             teks,
         )
         self.assertIn("Alasan: tidak ada equilibrium di kedua tiket", teks)
-        self.assertIn("pola Denver:", teks)
+        self.assertNotIn("pola Denver:", teks)
+        self.assertIn("Pola Denver: tidak cocok", teks)
+        self.assertIn("EV garis acuan tidak kecil (+2,3%)", teks)
         self.assertIn("Tidak ada titik equilibrium Asuransi:", teks)
         self.assertIn("ev_di_bawah_minimum", teks)
         self.assertIn("Tidak ada titik equilibrium Utama:", teks)
@@ -1402,16 +1402,35 @@ class TestEquilibriumSkip(unittest.TestCase):
             "8,5%) — di bawah ambang.",
             teks,
         )
+        self.assertNotIn("Pola Denver: COCOK", teks)
+
+    def test_varian_pola_cocok_ev_kecil(self):
+        # Varian COCOK (cabang laporan "Pola Denver: COCOK" tetap
+        # teruji di v18.1): harga acuan U237,5 dinaikkan ke 79,5¢
+        # jup -> EV -2,2% < -1% -> keempat syarat benar -> pola
+        # COCOK (pagar tidak berlaku: tidak ada garis lolos gate).
+        # Skip via (a) + pola.
+        artefak = copy.deepcopy(_artefak())
+        for entri in artefak["market"]["totals"]:
+            if entri["line"] == 237.5:
+                entri["price_cents"] = 79.0
+                entri["jup_estimated_cents"] = 79.5
+        teks = nba_report_mod.render_nba_report(artefak)
         self.assertIn("Pola Denver: COCOK", teks)
+        self.assertIn("pola Denver:", teks)
+        self.assertIn("LAGA INI DI-SKIP dari kedua tiket:", teks)
 
     def test_spanduk_skip_di_ringkasan(self):
         # Spanduk skip muncul di Ringkasan (bukan hanya di bagian
         # baru) supaya pembaca langsung tahu laga ini tidak masuk
-        # tiket mana pun.
+        # tiket mana pun. v18.1: spanduk hanya menyebut (a) —
+        # pola tidak cocok (EV acuan +2,3%), jadi tidak ada alasan
+        # pola di ringkasan.
         teks = nba_report_mod.render_nba_report(_artefak())
         ringkasan = teks.split("## Garis bandar")[0]
         self.assertIn("LAGA INI DI-SKIP dari kedua tiket:", ringkasan)
-        self.assertIn("pola Denver", ringkasan)
+        self.assertIn("tidak ada equilibrium di kedua tiket", ringkasan)
+        self.assertNotIn("pola Denver", ringkasan)
 
     def test_varian_pola_mati_tapi_tetap_skip_tanpa_equilibrium(self):
         # Tangga diperpanjang dengan garis tahan banjir TIDAK tipis
@@ -1445,7 +1464,10 @@ class TestEquilibriumSkip(unittest.TestCase):
         )
         isi = " ".join(bagian["lines"])
         self.assertIn("DI-SKIP", isi)
-        self.assertIn("pola Denver", isi)
+        # v18.1: pola tidak cocok (EV acuan +2,3%) — baris pola
+        # tetap hadir dengan alasan per syarat.
+        self.assertIn("Pola Denver: tidak cocok", isi)
+        self.assertIn("EV garis acuan tidak kecil", isi)
 
     def test_minimal_tidak_crash(self):
         # Artefak DATA_INCOMPLETE tanpa simulation/market/legs ->

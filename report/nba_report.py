@@ -2194,10 +2194,23 @@ class _Laporan:
             acuan = pola.get("garis_acuan") or {}
             if pola.get("cocok"):
                 baris.append("- Pola Denver: COCOK (lihat alasan skip di atas).")
+            elif pola.get("cocok_tanpa_pagar"):
+                # v18.1: keempat syarat cocok tapi pagar
+                # anti-redundansi memblokir — sebutkan alasannya,
+                # jangan tampilkan "tidak cocok" tanpa penjelasan.
+                pagar = pola.get("pagar") or {}
+                baris.append(
+                    "- Pola Denver: keempat syarat cocok tapi DIPAGAR "
+                    "anti-redundansi"
+                    + (f" ({pagar['alasan']})" if pagar.get("alasan") else "")
+                    + "."
+                )
             else:
                 gagal = []
                 if syarat.get("flag_setan") is False:
-                    p_setan = _fmt_persen(acuan.get("p_setan"))
+                    p_setan = _fmt_persen(
+                        acuan.get("p_setan_efektif", acuan.get("p_setan"))
+                    )
                     gagal.append(
                         "tidak rapuh-setan"
                         + (f" (P setan {p_setan})" if p_setan else "")
@@ -2206,21 +2219,31 @@ class _Laporan:
                     tahan = acuan.get("garis_tahan_banjir") or {}
                     garis_tahan = _fmt_poin(tahan.get("line"))
                     gagal.append(
-                        "ada garis tidak-tipis yang tahan banjir"
+                        "ada garis yang bisa dibeli dan tahan banjir"
                         + (f" (U{garis_tahan})" if garis_tahan else "")
                     )
                 if syarat.get("garis_acuan_thin") is False:
-                    gagal.append("garis acuan tidak tipis")
-                if syarat.get("edge_kecil") is False:
-                    edge = _angka(acuan.get("edge"))
-                    gagal.append(
-                        "edge garis acuan tidak kecil"
-                        + (
-                            f" ({edge * 100:+.1f}%)".replace(".", ",")
-                            if edge is not None
-                            else ""
+                    gagal.append("garis acuan bisa dibeli (lolos gate eksekusi)")
+                # v18.1: syarat (4) berbasis EV (kunci "ev_kecil");
+                # "edge_kecil" hanya di mode legacy (fallback).
+                ev_kecil = syarat.get("ev_kecil", syarat.get("edge_kecil"))
+                if ev_kecil is False:
+                    ev = _angka(acuan.get("ev"))
+                    if ev is not None:
+                        gagal.append(
+                            "EV garis acuan tidak kecil"
+                            + f" ({ev * 100:+.1f}%)".replace(".", ",")
                         )
-                    )
+                    else:
+                        edge = _angka(acuan.get("edge"))
+                        gagal.append(
+                            "edge garis acuan tidak kecil"
+                            + (
+                                f" ({edge * 100:+.1f}%)".replace(".", ",")
+                                if edge is not None
+                                else ""
+                            )
+                        )
                 baris.append(
                     "- Pola Denver: tidak cocok"
                     + (" — " + "; ".join(gagal) if gagal else "")
