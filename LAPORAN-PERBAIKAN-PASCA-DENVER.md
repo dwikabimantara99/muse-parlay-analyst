@@ -1,7 +1,7 @@
 # Laporan Perbaikan Pasca-Denver — Mesin Analis Parlay
 
 **Tanggal:** 23 November 2026 (dibangun sore hari, untuk dipakai Selasa 24 Nov pagi — slate 10 laga, kickoff 07:00 WIB)
-**Commit:** (diisi setelah commit)
+**Commit:** `11ed42e` (feat perbaikan pasca-Denver)
 **Config:** playstyle.yaml v14
 **Tes:** 1.481 lulus (dari 1.395 — tambah 86), ruff + black bersih, **0 kredit Odds API**
 
